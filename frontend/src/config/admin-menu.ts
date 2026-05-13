@@ -118,7 +118,7 @@ export const adminMenu: MenuItem[] = [
   },
   {
     key: "archive",
-    label: "자료실",
+    label: "수업 자료실",
     icon: FileText,
     permission: "archive.document.upload",
     excludeRoles: ["student"],

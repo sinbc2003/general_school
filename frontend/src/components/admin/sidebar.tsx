@@ -98,8 +98,9 @@ export function AdminSidebar() {
     const indentPx = depth === 0 ? "pl-3" : depth === 1 ? "pl-8" : "pl-12";
 
     if (item.children) {
-      const isOpen = openSubmenus.has(item.key);
       const parentActive = item.children.some((c) => c.path && isActive(c.path));
+      // parentActive면 자동 펼침 유지 (자식 페이지로 이동해도 토글 닫히지 않게)
+      const isOpen = openSubmenus.has(item.key) || parentActive;
       // 자식 있는 토글 — 카테고리와 구별되는 작은 색 블록 (앰버 톤).
       // collapsed 모드는 색 없이 아이콘만.
       const submenuBg = !collapsed ? SUBMENU_BG_DEFAULT : "";

@@ -9,13 +9,21 @@ import {
   MessageCircleQuestion,
   GraduationCap,
   Search,
+  Target,
+  Sparkles,
 } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 
-type MainTab = "questions" | "records";
+type MainTab = "plan" | "records" | "questions";
+
+const TABS: { key: MainTab; label: string; icon: any }[] = [
+  { key: "plan", label: "진학설계", icon: Target },
+  { key: "records", label: "진학기록", icon: GraduationCap },
+  { key: "questions", label: "면접질문", icon: MessageCircleQuestion },
+];
 
 export default function AdmissionsPage() {
-  const [tab, setTab] = useState<MainTab>("questions");
+  const [tab, setTab] = useState<MainTab>("plan");
 
   return (
     <div>
@@ -23,30 +31,58 @@ export default function AdmissionsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-bg-secondary rounded-lg p-1 w-fit">
-        <button
-          onClick={() => setTab("questions")}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body rounded transition-colors ${
-            tab === "questions"
-              ? "bg-bg-primary text-accent font-medium shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <MessageCircleQuestion size={16} /> 면접질문
-        </button>
-        <button
-          onClick={() => setTab("records")}
-          className={`flex items-center gap-1.5 px-4 py-2 text-body rounded transition-colors ${
-            tab === "records"
-              ? "bg-bg-primary text-accent font-medium shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <GraduationCap size={16} /> 진학기록
-        </button>
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-body rounded transition-colors ${
+              tab === key
+                ? "bg-bg-primary text-accent font-medium shadow-sm"
+                : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            <Icon size={16} /> {label}
+          </button>
+        ))}
       </div>
 
-      {tab === "questions" && <QuestionsTab />}
+      {tab === "plan" && <PlanTab />}
       {tab === "records" && <RecordsTab />}
+      {tab === "questions" && <QuestionsTab />}
+    </div>
+  );
+}
+
+// ── Plan Tab (진학설계) — 학생 데이터 기반 대학 추천 (placeholder, 추후 로직 추가) ──
+function PlanTab() {
+  return (
+    <div>
+      <div className="bg-bg-primary border border-border-default rounded-lg p-6 mb-4">
+        <div className="flex items-start gap-3">
+          <Sparkles size={24} className="text-accent flex-shrink-0 mt-1" />
+          <div>
+            <h2 className="text-body font-semibold text-text-primary mb-2">진학설계 (AI 추천)</h2>
+            <p className="text-body text-text-secondary mb-3">
+              학생 현황(성적·수상·모의고사·동아리·논문·진로희망)을 기반으로
+              <b> 적합한 대학·학과·전형을 자동 추천</b>합니다.
+            </p>
+            <ul className="text-caption text-text-tertiary space-y-1 list-disc list-inside">
+              <li>모의고사 등급·내신 기반 정시·수시 라인 추출</li>
+              <li>수상·논문·동아리 활동을 학과 인재상과 매칭</li>
+              <li>3개 단계 (상향·적정·안정) 별 5~10개 대학 추천</li>
+              <li>각 추천 카드에 "왜 추천했나" 근거 표시</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-bg-secondary border border-border-default rounded-lg p-6 text-center text-text-tertiary">
+        <Target size={32} className="mx-auto mb-2 opacity-50" />
+        <div className="text-body mb-1">아직 학생을 선택하지 않았습니다</div>
+        <div className="text-caption">
+          좌측 "학생지도 → 학생 현황"에서 학생을 선택한 후 "진학설계 시작" 버튼을 누르세요. (구현 예정)
+        </div>
+      </div>
     </div>
   );
 }

@@ -63,25 +63,14 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "teaching",
       name: "수업",
       icon: "BookOpen",
-      items: ["archive"],
-    },
-    {
-      id: "competition",
-      name: "대회/과제",
-      icon: "Trophy",
-      items: ["contest", "assignment"],
+      // 수업 자료실 + 대회·과제 + 동아리·연구 통합
+      items: ["archive", "contest", "assignment", "club", "research"],
     },
     {
       id: "guidance",
       name: "학생지도",
       icon: "GraduationCap",
       items: ["students"],
-    },
-    {
-      id: "activity",
-      name: "동아리/연구",
-      icon: "Users2",
-      items: ["club", "research"],
     },
     {
       id: "search",
@@ -93,7 +82,8 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "ai",
       name: "AI",
       icon: "Sparkles",
-      items: ["chat", "llm-admin"],
+      // AI 챗봇 단일 — llm-admin은 관리 카테고리로 이동
+      items: ["chat"],
     },
     {
       id: "student-view",
@@ -105,7 +95,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "management",
       name: "관리",
       icon: "Settings",
-      items: ["users", "permissions", "feedback-manage", "ai-developer", "system"],
+      items: ["users", "permissions", "llm-admin", "feedback-manage", "ai-developer", "system"],
     },
   ],
   student: [

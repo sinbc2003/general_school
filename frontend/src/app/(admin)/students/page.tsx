@@ -235,20 +235,20 @@ export default function StudentsPage() {
               </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 mb-4 bg-bg-secondary rounded-lg p-1 w-fit">
+            {/* Tabs — 좁아질 때 한글 단어 단위 줄바꿈 (글자 단위 분리 방지) */}
+            <div className="flex flex-wrap gap-1 mb-4 bg-bg-secondary rounded-lg p-1">
               {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
-                  className={`flex items-center gap-1.5 px-4 py-2 text-body rounded transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-2 text-body rounded transition-colors [word-break:keep-all] [line-break:strict] ${
                     activeTab === key
                       ? "bg-bg-primary text-accent font-medium shadow-sm"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
-                  <Icon size={16} />
-                  {label}
+                  <Icon size={16} className="flex-shrink-0" />
+                  <span className="text-center [word-break:keep-all] [line-break:strict]">{label}</span>
                 </button>
               ))}
             </div>
