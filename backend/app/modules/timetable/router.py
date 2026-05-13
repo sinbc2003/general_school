@@ -16,7 +16,12 @@ from app.models.timetable import Semester, TimetableEntry, SemesterEnrollment
 from app.models.user import User
 from app.modules.timetable.schemas import (
     SemesterCreate,
+    SemesterUpdate,
     SemesterStructureUpdate,
+    EnrollmentCreate,
+    EnrollmentUpdate,
+    OnboardingSubmit,
+    PromoteRequest,
 )
 from app.services.semester_import import (
     import_enrollments_csv,
@@ -114,22 +119,15 @@ async def create_semester(
 
 @router.put("/semesters/{sid}")
 async def update_semester(
-    sid: int, body: dict,
+    sid: int, body: SemesterUpdate,
     user: User = Depends(require_permission("system.semester.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     s = await get_semester_by_id_or_404(db, sid)
-    if "name" in body:
-        s.name = body["name"]
-    if "start_date" in body:
-        s.start_date = _parse_date(body["start_date"])
-    if "end_date" in body:
-        s.end_date = _parse_date(body["end_date"])
-    if "year" in body:
-        s.year = int(body["year"])
-    if "semester" in body:
-        s.semester = int(body["semester"])
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(s, k, v)
     await db.flush()
     await log_action(db, user, "semester.update", f"semester:{sid}", request=request)
     return _semester_to_dict(s)
@@ -137,39 +135,24 @@ async def update_semester(
 
 @router.put("/semesters/{sid}/structure")
 async def update_semester_structure(
-    sid: int, body: dict,
+    sid: int, body: SemesterStructureUpdate,
     user: User = Depends(require_permission("system.semester.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    """학기별 학교 구조 갱신.
-
-    body 예:
-      {
-        "classes_per_grade": {"1": 5, "2": 5, "3": 4},
-        "subjects": ["수학", "수학I", "물리", "화학"],
-        "departments": ["수학과", "과학과", "행정실"]
-      }
-    각 필드는 선택. 빈 값 전송 시 그대로 둠 (None으로 만들려면 명시적 null).
-    """
+    """학기별 학교 구조 갱신 (드롭다운 표준화 소스)."""
     import json
     s = await get_semester_by_id_or_404(db, sid)
-    if "classes_per_grade" in body:
-        v = body["classes_per_grade"]
-        # 키를 문자열로 정규화
-        if isinstance(v, dict):
-            v = {str(k): int(val) for k, val in v.items()}
-        s.classes_per_grade = json.dumps(v, ensure_ascii=False) if v is not None else None
-    if "subjects" in body:
-        v = body["subjects"]
-        if isinstance(v, list):
-            v = [str(x).strip() for x in v if str(x).strip()]
-        s.subjects = json.dumps(v, ensure_ascii=False) if v is not None else None
-    if "departments" in body:
-        v = body["departments"]
-        if isinstance(v, list):
-            v = [str(x).strip() for x in v if str(x).strip()]
-        s.departments = json.dumps(v, ensure_ascii=False) if v is not None else None
+    data = body.model_dump(exclude_unset=True)
+    if "classes_per_grade" in data and data["classes_per_grade"] is not None:
+        v = {str(k): int(val) for k, val in data["classes_per_grade"].items()}
+        s.classes_per_grade = json.dumps(v, ensure_ascii=False)
+    if "subjects" in data and data["subjects"] is not None:
+        v = [x.strip() for x in data["subjects"] if x.strip()]
+        s.subjects = json.dumps(v, ensure_ascii=False)
+    if "departments" in data and data["departments"] is not None:
+        v = [x.strip() for x in data["departments"] if x.strip()]
+        s.departments = json.dumps(v, ensure_ascii=False)
     await db.flush()
     await log_action(db, user, "semester.structure.update", f"semester:{sid}", request=request)
     return _semester_to_dict(s)
@@ -288,7 +271,7 @@ async def get_my_enrollment(
 
 @router.put("/my-enrollment/onboarding")
 async def submit_my_onboarding(
-    body: dict,
+    body: OnboardingSubmit,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -306,7 +289,7 @@ async def submit_my_onboarding(
       }
     저장 후 onboarded=True. 교사 본인 정보 수정도 같은 엔드포인트 재호출.
     """
-    sid = body.get("semester_id") or await get_active_semester_id_or_404(db)
+    sid = body.semester_id or await get_active_semester_id_or_404(db)
     e = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.semester_id == sid,
@@ -316,16 +299,16 @@ async def submit_my_onboarding(
     if not e:
         raise HTTPException(404, "해당 학기 명단에 본인이 등록되어 있지 않습니다. 관리자에게 문의하세요.")
 
+    data = body.model_dump(exclude_unset=True)
     for f in ["homeroom_class", "subhomeroom_class"]:
-        if f in body:
-            v = body[f]
+        if f in data:
+            v = data[f]
             setattr(e, f, v.strip() if isinstance(v, str) and v.strip() else None)
     for f in ["teaching_grades", "teaching_classes", "teaching_subjects"]:
-        if f in body:
-            setattr(e, f, _serialize_list_field(body[f]))
-    # 핸드폰 본인 갱신
-    if "phone" in body and body["phone"]:
-        e.phone = str(body["phone"]).strip()
+        if f in data:
+            setattr(e, f, _serialize_list_field(data[f]))
+    if data.get("phone"):
+        e.phone = str(data["phone"]).strip()
         user.phone = e.phone
 
     e.onboarded = True
@@ -366,17 +349,16 @@ async def list_enrollments(
 
 @router.post("/semesters/{sid}/enrollments")
 async def add_enrollment(
-    sid: int, body: dict,
+    sid: int, body: EnrollmentCreate,
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     await get_semester_by_id_or_404(db, sid)
-    uid = int(body["user_id"])
+    uid = body.user_id
     target = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     if not target:
         raise HTTPException(404, "대상 사용자를 찾을 수 없습니다")
-    # 중복 체크
     dup = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.semester_id == sid,
@@ -389,20 +371,20 @@ async def add_enrollment(
     e = SemesterEnrollment(
         semester_id=sid,
         user_id=uid,
-        role=body.get("role") or target.role,
-        status=body.get("status", "active"),
-        grade=body.get("grade"),
-        class_number=body.get("class_number"),
-        student_number=body.get("student_number"),
-        department=body.get("department"),
-        position=body.get("position"),
-        homeroom_class=body.get("homeroom_class"),
-        subhomeroom_class=body.get("subhomeroom_class"),
-        teaching_grades=_serialize_list_field(body.get("teaching_grades")),
-        teaching_classes=_serialize_list_field(body.get("teaching_classes")),
-        teaching_subjects=_serialize_list_field(body.get("teaching_subjects")),
-        phone=body.get("phone"),
-        note=body.get("note"),
+        role=body.role or target.role,
+        status=body.status,
+        grade=body.grade,
+        class_number=body.class_number,
+        student_number=body.student_number,
+        department=body.department,
+        position=body.position,
+        homeroom_class=body.homeroom_class,
+        subhomeroom_class=body.subhomeroom_class,
+        teaching_grades=_serialize_list_field(body.teaching_grades),
+        teaching_classes=_serialize_list_field(body.teaching_classes),
+        teaching_subjects=_serialize_list_field(body.teaching_subjects),
+        phone=body.phone,
+        note=body.note,
     )
     db.add(e)
     await db.flush()
@@ -412,7 +394,7 @@ async def add_enrollment(
 
 @router.put("/semesters/{sid}/enrollments/{eid}")
 async def update_enrollment(
-    sid: int, eid: int, body: dict,
+    sid: int, eid: int, body: EnrollmentUpdate,
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -425,15 +407,15 @@ async def update_enrollment(
     )).scalar_one_or_none()
     if not e:
         raise HTTPException(404, "명단 항목을 찾을 수 없습니다")
+    data = body.model_dump(exclude_unset=True)
     for f in ["role", "status", "grade", "class_number", "student_number",
               "department", "position", "homeroom_class", "subhomeroom_class",
               "phone", "note"]:
-        if f in body:
-            setattr(e, f, body[f])
-    # list 필드는 직렬화 후 저장
+        if f in data:
+            setattr(e, f, data[f])
     for f in ["teaching_grades", "teaching_classes", "teaching_subjects"]:
-        if f in body:
-            setattr(e, f, _serialize_list_field(body[f]))
+        if f in data:
+            setattr(e, f, _serialize_list_field(data[f]))
     await db.flush()
     await log_action(db, user, "enrollment.update", f"enroll:{eid}", request=request)
     return {"ok": True}
@@ -521,24 +503,16 @@ async def import_enrollments_endpoint(
 @router.post("/semesters/{from_sid}/promote-to/{to_sid}")
 async def promote_enrollments(
     from_sid: int, to_sid: int,
-    body: dict | None = None,
+    body: PromoteRequest = PromoteRequest(),
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    """이전 학기 명단을 대상 학기로 복제하면서 진급/졸업 처리.
-
-    body:
-      - promote_students: bool — 학생 학년 +1 (기본 True)
-      - graduate_grade: int | null — 이 학년 학생은 status=graduated로 처리 (기본 3)
-      - copy_teachers: bool — 교직원 그대로 복제 (기본 True)
-      - dry_run: bool — 실제 반영 없이 결과 미리보기 (기본 False)
-    """
-    body = body or {}
-    promote_students = bool(body.get("promote_students", True))
-    graduate_grade = body.get("graduate_grade", 3)
-    copy_teachers = bool(body.get("copy_teachers", True))
-    dry_run = bool(body.get("dry_run", False))
+    """이전 학기 명단을 대상 학기로 복제하면서 진급/졸업 처리."""
+    promote_students = body.promote_students
+    graduate_grade = body.graduate_grade
+    copy_teachers = body.copy_teachers
+    dry_run = body.dry_run
 
     await get_semester_by_id_or_404(db, from_sid)
     await get_semester_by_id_or_404(db, to_sid)

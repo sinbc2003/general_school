@@ -431,35 +431,22 @@ function AwardsTab({ studentId }: { studentId: number }) {
         </div>
       )}
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">수상명</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">유형</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">분야</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">등급</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">수상일</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">{r.title}</td>
-                <td className="px-4 py-2 text-body text-text-secondary">{r.award_type}</td>
-                <td className="px-4 py-2 text-body text-text-secondary">{r.category}</td>
-                <td className="px-4 py-2">
-                  <span className="inline-block px-2 py-0.5 text-caption rounded bg-yellow-100 text-yellow-700">{r.award_level}</span>
-                </td>
-                <td className="px-4 py-2 text-body text-text-tertiary">{r.award_date}</td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "수상 기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<any>
+        columns={[
+          { key: "title", label: "수상명" },
+          { key: "award_type", label: "유형", render: (r) => <span className="text-text-secondary">{r.award_type}</span> },
+          { key: "category", label: "분야", render: (r) => <span className="text-text-secondary">{r.category}</span> },
+          {
+            key: "award_level", label: "등급",
+            render: (r) => <span className="inline-block px-2 py-0.5 text-caption rounded bg-yellow-100 text-yellow-700">{r.award_level}</span>,
+          },
+          { key: "award_date", label: "수상일", render: (r) => <span className="text-text-tertiary">{r.award_date}</span> },
+        ]}
+        rows={records}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="수상 기록이 없습니다"
+      />
     </div>
   );
 }
@@ -528,36 +515,32 @@ function ThesesTab({ studentId }: { studentId: number }) {
         </div>
       )}
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">제목</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">유형</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">상태</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2">
-                  <div className="text-body text-text-primary">{r.title}</div>
-                  {r.abstract && <div className="text-caption text-text-tertiary mt-0.5 line-clamp-1">{r.abstract}</div>}
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">{r.thesis_type}</td>
-                <td className="px-4 py-2">
-                  <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_LABELS[r.status]?.className || "bg-gray-100 text-gray-700"}`}>
-                    {STATUS_LABELS[r.status]?.label || r.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr><td colSpan={3} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "논문 기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<any>
+        columns={[
+          {
+            key: "title", label: "제목",
+            render: (r) => (
+              <>
+                <div className="text-text-primary">{r.title}</div>
+                {r.abstract && <div className="text-caption text-text-tertiary mt-0.5 line-clamp-1">{r.abstract}</div>}
+              </>
+            ),
+          },
+          { key: "thesis_type", label: "유형", render: (r) => <span className="text-text-secondary">{r.thesis_type}</span> },
+          {
+            key: "status", label: "상태",
+            render: (r) => (
+              <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_LABELS[r.status]?.className || "bg-gray-100 text-gray-700"}`}>
+                {STATUS_LABELS[r.status]?.label || r.status}
+              </span>
+            ),
+          },
+        ]}
+        rows={records}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="논문 기록이 없습니다"
+      />
     </div>
   );
 }
@@ -627,35 +610,25 @@ function CounselingsTab({ studentId }: { studentId: number }) {
         </div>
       )}
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">날짜</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">유형</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">제목</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">내용</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-tertiary whitespace-nowrap">{r.counseling_date}</td>
-                <td className="px-4 py-2">
-                  <span className="inline-block px-2 py-0.5 text-caption rounded bg-purple-100 text-purple-700">
-                    {TYPE_LABELS[r.counseling_type] || r.counseling_type}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-body text-text-primary">{r.title}</td>
-                <td className="px-4 py-2 text-body text-text-secondary line-clamp-1 max-w-xs">{r.content}</td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "상담 기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<any>
+        columns={[
+          { key: "counseling_date", label: "날짜", render: (r) => <span className="text-text-tertiary whitespace-nowrap">{r.counseling_date}</span> },
+          {
+            key: "counseling_type", label: "유형",
+            render: (r) => (
+              <span className="inline-block px-2 py-0.5 text-caption rounded bg-purple-100 text-purple-700">
+                {TYPE_LABELS[r.counseling_type] || r.counseling_type}
+              </span>
+            ),
+          },
+          { key: "title", label: "제목" },
+          { key: "content", label: "내용", render: (r) => <span className="text-text-secondary line-clamp-1 max-w-xs">{r.content}</span> },
+        ]}
+        rows={records}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="상담 기록이 없습니다"
+      />
     </div>
   );
 }
@@ -906,49 +879,31 @@ function MockExamsTab({ studentId }: { studentId: number }) {
         </div>
       )}
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">시험명</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">날짜</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">과목</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">원점수</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">표준점수</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">백분위</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">등급</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">{r.exam_name}</td>
-                <td className="px-4 py-2 text-body text-text-tertiary">{r.exam_date}</td>
-                <td className="px-4 py-2 text-body text-text-primary">{r.subject}</td>
-                <td className="px-4 py-2 text-body text-text-primary text-right">{r.raw_score ?? "-"}</td>
-                <td className="px-4 py-2 text-body text-text-secondary text-right">{r.standard_score ?? "-"}</td>
-                <td className="px-4 py-2 text-body text-text-secondary text-right">{r.percentile ?? "-"}</td>
-                <td className="px-4 py-2 text-right">
-                  {r.grade_level && (
-                    <span className={`inline-block px-2 py-0.5 text-caption rounded font-medium ${
-                      r.grade_level <= 2 ? "bg-green-100 text-green-700" :
-                      r.grade_level <= 4 ? "bg-blue-100 text-blue-700" :
-                      r.grade_level <= 6 ? "bg-yellow-100 text-yellow-700" :
-                      "bg-red-100 text-red-700"
-                    }`}>
-                      {r.grade_level}등급
-                    </span>
-                  )}
-                  {!r.grade_level && <span className="text-body text-text-tertiary">-</span>}
-                </td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "모의고사 기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<any>
+        columns={[
+          { key: "exam_name", label: "시험명" },
+          { key: "exam_date", label: "날짜", render: (r) => <span className="text-text-tertiary">{r.exam_date}</span> },
+          { key: "subject", label: "과목" },
+          { key: "raw_score", label: "원점수", align: "right", render: (r) => r.raw_score ?? "-" },
+          { key: "standard_score", label: "표준점수", align: "right", render: (r) => r.standard_score ?? "-" },
+          { key: "percentile", label: "백분위", align: "right", render: (r) => r.percentile ?? "-" },
+          {
+            key: "grade_level", label: "등급", align: "right",
+            render: (r) => r.grade_level ? (
+              <span className={`inline-block px-2 py-0.5 text-caption rounded font-medium ${
+                r.grade_level <= 2 ? "bg-green-100 text-green-700" :
+                r.grade_level <= 4 ? "bg-blue-100 text-blue-700" :
+                r.grade_level <= 6 ? "bg-yellow-100 text-yellow-700" :
+                "bg-red-100 text-red-700"
+              }`}>{r.grade_level}등급</span>
+            ) : <span className="text-text-tertiary">-</span>,
+          },
+        ]}
+        rows={records}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="모의고사 기록이 없습니다"
+      />
     </div>
   );
 }

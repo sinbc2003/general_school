@@ -17,6 +17,7 @@ from app.models.contest import (
     ContestTeam, ContestSubmission,
 )
 from app.models.user import User
+from app.modules.contest.schemas import ContestCreate, ContestUpdate
 
 router = APIRouter(prefix="/api/contest", tags=["contest"])
 
@@ -32,21 +33,21 @@ async def _get_contest(db: AsyncSession, cid: int) -> Contest:
 
 @router.post("")
 async def create_contest(
-    body: dict,
+    body: ContestCreate,
     user: User = Depends(require_permission("contest.manage.create")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    sid = await resolve_semester_id(body, db)
+    sid = await resolve_semester_id({"semester_id": body.semester_id} if body.semester_id else None, db)
     c = Contest(
         semester_id=sid,
-        title=body["title"],
-        description=body.get("description"),
-        contest_type=body.get("contest_type", "individual"),
-        rules=body.get("rules"),
-        start_at=body.get("start_at"),
-        end_at=body.get("end_at"),
-        is_visible=body.get("is_visible", True),
+        title=body.title,
+        description=body.description,
+        contest_type=body.contest_type,
+        rules=body.rules,
+        start_at=body.start_at,
+        end_at=body.end_at,
+        is_visible=body.is_visible,
         created_by_id=user.id,
     )
     db.add(c)
@@ -129,17 +130,18 @@ async def get_contest(
 
 @router.put("/{cid}")
 async def update_contest(
-    cid: int, body: dict,
+    cid: int, body: ContestUpdate,
     user: User = Depends(require_permission("contest.manage.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     c = await _get_contest(db, cid)
+    data = body.model_dump(exclude_unset=True)
     for f in ["title", "description", "contest_type", "rules", "start_at", "end_at", "is_visible", "extra"]:
-        if f in body:
-            setattr(c, f, body[f])
-    if "status" in body:
-        c.status = ContestStatus(body["status"])
+        if f in data:
+            setattr(c, f, data[f])
+    if "status" in data and data["status"]:
+        c.status = ContestStatus(data["status"])
     await db.flush()
     await log_action(db, user, "contest.update", f"contest:{cid}", request=request)
     return {"ok": True}

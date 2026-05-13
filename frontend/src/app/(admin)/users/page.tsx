@@ -256,7 +256,45 @@ export default function UsersPage() {
           },
           {
             key: "grade", label: "학년/반/번호",
-            render: (u) => u.grade ? `${u.grade}-${u.class_number || "?"}-${u.student_number || "?"}` : "-",
+            render: (u) => (
+              <div className="flex items-center gap-1">
+                <InlineCell
+                  value={u.grade}
+                  type="number"
+                  width="w-12"
+                  placeholder="-"
+                  onSave={async (v) => {
+                    const grade = v ? parseInt(v) : null;
+                    await api.put(`/api/users/${u.id}`, { grade });
+                    setUsers((p) => p.map((x) => x.id === u.id ? { ...x, grade } : x));
+                  }}
+                />
+                <span>-</span>
+                <InlineCell
+                  value={u.class_number}
+                  type="number"
+                  width="w-12"
+                  placeholder="?"
+                  onSave={async (v) => {
+                    const cn = v ? parseInt(v) : null;
+                    await api.put(`/api/users/${u.id}`, { class_number: cn });
+                    setUsers((p) => p.map((x) => x.id === u.id ? { ...x, class_number: cn } : x));
+                  }}
+                />
+                <span>-</span>
+                <InlineCell
+                  value={u.student_number}
+                  type="number"
+                  width="w-14"
+                  placeholder="?"
+                  onSave={async (v) => {
+                    const sn = v ? parseInt(v) : null;
+                    await api.put(`/api/users/${u.id}`, { student_number: sn });
+                    setUsers((p) => p.map((x) => x.id === u.id ? { ...x, student_number: sn } : x));
+                  }}
+                />
+              </div>
+            ),
           },
           {
             key: "department", label: "부서",
