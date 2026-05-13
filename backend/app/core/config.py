@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8002"
 
+    # ── CORS 허용 origin (콤마 구분).
+    # dev: 기본값으로 충분. production: 학교 도메인만 화이트리스트.
+    # 예: "https://school.example.com,http://192.168.0.100"
+    CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+
     # ── 2FA ──
     TOTP_ISSUER: str = "General School Platform"
     TOTP_SESSION_MINUTES: int = 30

@@ -26,6 +26,7 @@ from app.core.totp import (
 )
 from app.core.audit import log_action
 from app.core.permissions import resolve_permissions
+from app.core.ratelimit import login_rate_limit, reset_login_rate
 from app.models.user import User, RefreshToken
 from app.modules.auth.schemas import (
     LoginRequest,
@@ -132,6 +133,9 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    # Rate limit (IP 기준 1분 5회) — 무차별 시도 방어
+    await login_rate_limit(request)
+
     # email 또는 username으로 사용자 검색
     result = await db.execute(
         select(User).where(
@@ -142,6 +146,9 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "이메일/아이디 또는 비밀번호가 잘못되었습니다")
+
+    # 성공 시 카운터 리셋 (정상 사용자 영향 최소화)
+    reset_login_rate(request)
 
     if user.status == "disabled":
         raise HTTPException(403, "비활성화된 계정입니다")

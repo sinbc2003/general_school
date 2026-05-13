@@ -302,56 +302,206 @@ sudo systemctl start school-backend school-frontend
 
 ---
 
-## 10. 운영 배포 (학교 단위)
+## 10. 운영 배포 (학교 단위) — 300명+ 학교용
 
-`CLAUDE.md`의 "운영 / 배포" 섹션 참고. 짧게:
+학생+교직원 합 80명 미만이면 SQLite + uvicorn dev 모드로도 5년 운영 가능. 300명 이상이면 아래 production 셋업 권장.
 
-### 4가지 production 전환 (30분)
+### 10.1 PostgreSQL 설치 (300명+ 학교 강력 권장)
+
+**왜 SQLite 대신?** 시험 기간 같은 피크에 80명+ 동시 접속 시 SQLite는 쓰기 락이 걸려 1~2초 느려짐. PostgreSQL은 영향 없음.
+
 ```bash
-# 1. gunicorn + 4 worker
-pip install gunicorn
-gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8002
+# 1. 설치
+sudo apt install -y postgresql postgresql-contrib
 
-# 2. SQLite WAL 모드 (PG 전환 전 임시)
-# core/database.py init_db()에:
-#   await conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+# 2. DB / 사용자 생성
+sudo -u postgres psql <<'SQL'
+CREATE USER app WITH PASSWORD '강한_랜덤_비밀번호';
+CREATE DATABASE general_school OWNER app;
+GRANT ALL PRIVILEGES ON DATABASE general_school TO app;
+\q
+SQL
 
-# 3. Frontend production 빌드
-cd frontend && npm run build && npm start
+# 3. .env에 추가/변경
+nano ~/general_school/.env
+# DATABASE_URL=postgresql+asyncpg://app:강한_랜덤_비밀번호@localhost:5432/general_school
 
-# 4. systemd 서비스화 (자동 재시작)
-sudo nano /etc/systemd/system/school-backend.service
-# (서비스 파일 작성 — 아래 예시)
-sudo systemctl enable --now school-backend
+# 4. 백엔드 재시작 (alembic이 자동으로 테이블 생성)
+cd ~/general_school/backend && source venv/bin/activate
+alembic upgrade head
 ```
 
-### systemd 서비스 예시
+**SQLite에서 PostgreSQL로 전환할 때 (이미 운영 중인 학교)**:
+```bash
+# 1. SQLite 데이터 dump (Python으로)
+cd ~/general_school/backend && source venv/bin/activate
+python -m scripts.dump_sqlite_to_csv  # (이 스크립트는 별도 작성 필요)
+
+# 2. PostgreSQL DB 셋업 (위 단계)
+# 3. CSV import 페이지에서 명단·진학기록 등 재upload
+# 4. 시스템 → 학기 관리에서 학기 + 학교 구조 재설정
+```
+실제로는 **새 학기 시작 시점에 전환**하는 게 가장 깔끔. 학생 데이터(성적/생기부)는 학년도 단위로 시작이라 손실 적음.
+
+### 10.2 Backend production (gunicorn + 4 worker)
+
+```bash
+cd ~/general_school/backend && source venv/bin/activate
+pip install gunicorn
+```
+
+`/etc/systemd/system/school-backend.service`:
 ```ini
-# /etc/systemd/system/school-backend.service
 [Unit]
 Description=General School Backend
-After=network.target
+After=network.target postgresql.service
+Requires=postgresql.service
 
 [Service]
 Type=simple
 User=sinbc
 WorkingDirectory=/home/sinbc/general_school/backend
-Environment="DATABASE_URL=sqlite+aiosqlite:///general_school.db"
+EnvironmentFile=/home/sinbc/general_school/.env
 Environment="PYTHONIOENCODING=utf-8"
 ExecStart=/home/sinbc/general_school/backend/venv/bin/gunicorn app.main:app \
-  -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8002
+  -k uvicorn.workers.UvicornWorker -w 4 -b 127.0.0.1:8002 \
+  --timeout 60 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now school-backend
+sudo systemctl status school-backend  # active (running) 확인
+journalctl -u school-backend -f       # 실시간 로그
+```
+
+### 10.3 Frontend production 빌드
+
+```bash
+cd ~/general_school/frontend
+npm run build   # 1~3분, ~/general_school/frontend/.next 생성
+# 확인:
+npm start       # 포트 3000에서 production 모드 (Ctrl+C로 종료)
+```
+
+`/etc/systemd/system/school-frontend.service`:
+```ini
+[Unit]
+Description=General School Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=sinbc
+WorkingDirectory=/home/sinbc/general_school/frontend
+Environment="NODE_ENV=production"
+Environment="NEXT_PUBLIC_API_URL=https://school.example.com/api"
+ExecStart=/usr/bin/npm start -- -p 3000
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### 교내 LAN only 강제 (방화벽)
 ```bash
-sudo ufw allow from 192.168.0.0/16 to any port 3000
-sudo ufw allow from 192.168.0.0/16 to any port 8002
+sudo systemctl daemon-reload
+sudo systemctl enable --now school-frontend
+```
+
+### 10.4 HTTPS + Reverse Proxy (Caddy 권장 — 자동 인증서)
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+```
+
+`/etc/caddy/Caddyfile` (학교 도메인 있을 때):
+```
+school.example.com {
+    encode gzip
+
+    # Frontend (Next.js)
+    reverse_proxy /api/* localhost:8002
+    reverse_proxy /storage/* localhost:8002
+    reverse_proxy localhost:3000
+}
+```
+
+학교 LAN 내부 IP만 (도메인 없을 때):
+```
+:443 {
+    tls internal  # 자체 서명 인증서
+    reverse_proxy /api/* localhost:8002
+    reverse_proxy /storage/* localhost:8002
+    reverse_proxy localhost:3000
+}
+```
+
+```bash
+sudo systemctl reload caddy
+```
+
+### 10.5 환경 변수 production 추가
+
+`.env`에 추가:
+```env
+# 학교 도메인 (HTTPS 사용 시)
+FRONTEND_URL=https://school.example.com
+BACKEND_URL=https://school.example.com/api
+
+# CORS 허용 origin (production은 와일드카드 X)
+CORS_ALLOW_ORIGINS=https://school.example.com,http://192.168.0.100
+
+# 토큰 만료 (운영 정책)
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=7
+```
+
+### 10.6 교내 LAN only 강제 (방화벽)
+
+도메인 없이 학교 LAN에서만 운영 시:
+```bash
+sudo ufw default deny incoming
+sudo ufw allow from 192.168.0.0/16 to any port 443
+sudo ufw allow from 192.168.0.0/16 to any port 22  # SSH (관리용)
 sudo ufw enable
 ```
+
+### 10.7 자동 백업 (crontab)
+
+PostgreSQL:
+```bash
+sudo -u postgres crontab -e
+# 매일 새벽 3시 dump, 30일 보존
+0 3 * * * pg_dump -F c general_school > /home/sinbc/backup/db_$(date +\%F).dump && find /home/sinbc/backup -name 'db_*.dump' -mtime +30 -delete
+```
+
+SQLite (소규모 학교):
+```bash
+crontab -e
+0 3 * * * cp ~/general_school/backend/general_school.db ~/backup/db_$(date +\%F).db && find ~/backup -name 'db_*.db' -mtime +30 -delete
+```
+
+업로드 파일도 함께:
+```
+0 4 * * * tar czf ~/backup/storage_$(date +\%F).tar.gz ~/general_school/backend/storage/ && find ~/backup -name 'storage_*.tar.gz' -mtime +30 -delete
+```
+
+### 10.8 운영 점검 체크리스트
+
+- [ ] `sudo systemctl status school-backend school-frontend postgresql caddy` — 모두 active
+- [ ] `journalctl -u school-backend --since '1 hour ago' | grep -i error` — 에러 0건
+- [ ] `df -h` — 디스크 여유 확인
+- [ ] 백업 디렉터리 자동 생성 확인
+- [ ] HTTPS 접속 확인 (브라우저 자물쇠 아이콘)
+- [ ] 외부 IP로 접속 시 거부되는지 (방화벽 동작)
 
 ---
 

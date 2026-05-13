@@ -50,9 +50,13 @@ app = FastAPI(
 )
 
 # ── CORS ──
+# 환경변수 CORS_ALLOW_ORIGINS (콤마 구분). production은 학교 도메인만 허용.
+_cors_origins = [o.strip() for o in (settings.CORS_ALLOW_ORIGINS or "").split(",") if o.strip()]
+if not _cors_origins:
+    _cors_origins = ["http://localhost:3000"]  # 최소 fallback
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
