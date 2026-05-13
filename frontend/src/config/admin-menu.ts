@@ -1,0 +1,199 @@
+import {
+  LayoutDashboard,
+  Users,
+  Shield,
+  FileText,
+  Trophy,
+  ClipboardList,
+  MessageSquare,
+  FlaskConical,
+  GraduationCap,
+  Users2,
+  Newspaper,
+  Clock,
+  BookOpen,
+  Settings,
+  Activity,
+  LayoutList,
+  MessageCircle,
+  Bot,
+  Sparkles,
+  Key,
+  DollarSign,
+  Briefcase,
+  Target,
+  Library,
+  Home,
+  type LucideIcon,
+} from "lucide-react";
+
+export interface MenuItem {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  path?: string;
+  permission?: string | null;
+  superAdminOnly?: boolean;
+  newTab?: boolean;  // true면 target="_blank"로 새 창 열기
+  children?: MenuItem[];
+}
+
+export const adminMenu: MenuItem[] = [
+  {
+    key: "dashboard",
+    label: "대시보드",
+    icon: LayoutDashboard,
+    path: "/dashboard",
+    permission: null,
+  },
+  {
+    key: "users",
+    label: "사용자 관리",
+    icon: Users,
+    path: "/users",
+    permission: "user.manage.view",
+  },
+  {
+    key: "permissions",
+    label: "권한 관리",
+    icon: Shield,
+    path: "/permissions",
+    permission: "permission.manage.view",
+  },
+  {
+    key: "students",
+    label: "학생 관리",
+    icon: GraduationCap,
+    permission: "portfolio.grade.view",
+    children: [
+      { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view" },
+      { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view" },
+      { key: "student-artifacts", label: "공개 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view" },
+      { key: "alumni-research", label: "선배 연구 자료", icon: Library, path: "/s/research-archive", permission: "portfolio.artifact.view" },
+    ],
+  },
+  {
+    key: "archive",
+    label: "자료실",
+    icon: FileText,
+    permission: "archive.document.upload",
+    children: [
+      { key: "documents", label: "문서 검색", icon: FileText, path: "/archive/documents", permission: "archive.document.upload" },
+      { key: "problems", label: "문제 DB", icon: FileText, path: "/archive/problems", permission: "problem.library.view" },
+    ],
+  },
+  {
+    key: "contest",
+    label: "대회 관리",
+    icon: Trophy,
+    path: "/contest",
+    permission: "contest.manage.create",
+  },
+  {
+    key: "assignment",
+    label: "과제 관리",
+    icon: ClipboardList,
+    path: "/assignment",
+    permission: "assignment.manage.create",
+  },
+  {
+    key: "meeting",
+    label: "협의록",
+    icon: MessageSquare,
+    path: "/meeting",
+    permission: "meeting.view",
+  },
+  {
+    key: "research",
+    label: "연구 프로젝트",
+    icon: FlaskConical,
+    path: "/research",
+    permission: "research.project.view",
+  },
+  {
+    key: "club",
+    label: "동아리",
+    icon: Users2,
+    path: "/club",
+    permission: "club.manage.create",
+  },
+  {
+    key: "papers",
+    label: "논문/뉴스레터",
+    icon: Newspaper,
+    permission: "papers.keyword.manage",
+    children: [
+      { key: "keywords", label: "키워드 관리", icon: Newspaper, path: "/papers/keywords", permission: "papers.keyword.manage" },
+      { key: "feed", label: "수집 논문", icon: Newspaper, path: "/papers/feed", permission: "papers.approve" },
+      { key: "newsletter", label: "뉴스레터", icon: Newspaper, path: "/papers/newsletter", permission: "papers.publish" },
+    ],
+  },
+  {
+    key: "timetable",
+    label: "시간표",
+    icon: Clock,
+    path: "/timetable",
+    permission: "timetable.view",
+  },
+  {
+    key: "chat",
+    label: "AI 챗봇",
+    icon: Sparkles,
+    path: "/chat",
+    permission: "chatbot.use",
+    newTab: true,
+  },
+  // ── 학생 영역 (관리자 미리보기) ──
+  {
+    key: "student-area",
+    label: "학생 화면 (미리보기)",
+    icon: GraduationCap,
+    permission: null,  // 관리자는 무조건 보임
+    children: [
+      { key: "stu-dashboard", label: "학생 홈", icon: Home, path: "/s/dashboard", permission: null },
+      { key: "stu-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
+      { key: "stu-career", label: "진로/진학 설계", icon: Target, path: "/s/career", permission: null },
+      { key: "stu-research-archive", label: "선배 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
+      { key: "stu-chat", label: "학생 AI 도우미", icon: Sparkles, path: "/s/chat", permission: null, newTab: true },
+    ],
+  },
+  {
+    key: "llm-admin",
+    label: "AI 설정",
+    icon: Bot,
+    permission: "chatbot.provider.manage",
+    children: [
+      { key: "llm-providers", label: "Provider/API 키", icon: Key, path: "/system/llm/providers", permission: "chatbot.provider.manage" },
+      { key: "llm-models", label: "모델/단가", icon: DollarSign, path: "/system/llm/models", permission: "chatbot.model.manage" },
+      { key: "llm-prompts", label: "시스템 프롬프트", icon: MessageCircle, path: "/system/llm/prompts", permission: "chatbot.prompt.manage" },
+      { key: "llm-config", label: "기본 설정", icon: Settings, path: "/system/llm/config", permission: "chatbot.config.manage" },
+      { key: "llm-usage", label: "사용량/비용", icon: Activity, path: "/system/llm/usage", permission: "chatbot.usage.view_all" },
+    ],
+  },
+  {
+    key: "feedback-manage",
+    label: "건의 관리",
+    icon: MessageCircle,
+    path: "/system/feedback",
+    permission: "system.settings.edit",
+  },
+  {
+    key: "ai-developer",
+    label: "AI 개발자",
+    icon: Bot,
+    path: "/system/ai-developer",
+    permission: "system.settings.edit",
+  },
+  {
+    key: "system",
+    label: "시스템",
+    icon: Settings,
+    superAdminOnly: true,
+    children: [
+      { key: "sys-health", label: "상태", icon: Activity, path: "/system/health", permission: "system.health.view" },
+      { key: "sys-logs", label: "감사 로그", icon: FileText, path: "/system/logs", permission: "system.audit.view" },
+      { key: "sys-menu", label: "메뉴 관리", icon: LayoutList, path: "/system/menu", permission: "system.settings.edit" },
+      { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
+    ],
+  },
+];

@@ -1,0 +1,154 @@
+import {
+  Briefcase,
+  BookOpen,
+  Trophy,
+  GraduationCap,
+  Users2,
+  Search,
+  Settings,
+  Home,
+  PenTool,
+  Flame,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+
+
+
+export interface MenuCategory {
+  id: string;
+  name: string;
+  icon: string;        // lucide icon name (serializable)
+  items: string[];     // menu item keys
+}
+
+export interface MenuCategoriesConfig {
+  admin: MenuCategory[];
+  student: MenuCategory[];
+}
+
+// 아이콘 이름 → 컴포넌트 매핑
+export const iconMap: Record<string, LucideIcon> = {
+  Briefcase,
+  BookOpen,
+  Trophy,
+  GraduationCap,
+  Users2,
+  Search,
+  Settings,
+  Home,
+  PenTool,
+  Flame,
+  Sparkles,
+};
+
+// admin items = adminMenu의 top-level key들
+// student items = studentMenu의 key들
+export const defaultCategories: MenuCategoriesConfig = {
+  admin: [
+    {
+      id: "work",
+      name: "업무",
+      icon: "Briefcase",
+      items: ["dashboard", "meeting", "timetable"],
+    },
+    {
+      id: "teaching",
+      name: "수업",
+      icon: "BookOpen",
+      items: ["archive"],
+    },
+    {
+      id: "competition",
+      name: "대회/과제",
+      icon: "Trophy",
+      items: ["contest", "assignment"],
+    },
+    {
+      id: "guidance",
+      name: "학생지도",
+      icon: "GraduationCap",
+      items: ["students"],
+    },
+    {
+      id: "activity",
+      name: "동아리/연구",
+      icon: "Users2",
+      items: ["club", "research"],
+    },
+    {
+      id: "search",
+      name: "데이터 검색",
+      icon: "Search",
+      items: ["papers"],
+    },
+    {
+      id: "ai",
+      name: "AI",
+      icon: "Sparkles",
+      items: ["chat", "llm-admin"],
+    },
+    {
+      id: "student-view",
+      name: "학생 화면",
+      icon: "GraduationCap",
+      items: ["student-area"],
+    },
+    {
+      id: "management",
+      name: "관리",
+      icon: "Settings",
+      items: ["users", "permissions", "feedback-manage", "ai-developer", "system"],
+    },
+  ],
+  student: [
+    {
+      id: "main",
+      name: "홈",
+      icon: "Home",
+      items: ["dashboard", "chat"],
+    },
+    {
+      id: "study",
+      name: "학습",
+      icon: "PenTool",
+      items: ["problems", "challenge"],
+    },
+    {
+      id: "competition",
+      name: "대회/과제",
+      icon: "Trophy",
+      items: ["contest", "assignment"],
+    },
+    {
+      id: "community",
+      name: "커뮤니티",
+      icon: "Flame",
+      items: ["community", "ranking"],
+    },
+    {
+      id: "career",
+      name: "나의 진로",
+      icon: "GraduationCap",
+      items: ["my-portfolio", "career", "research-archive"],
+    },
+    {
+      id: "activity",
+      name: "활동",
+      icon: "Users2",
+      items: ["research", "club"],
+    },
+    {
+      id: "resources",
+      name: "자료",
+      icon: "BookOpen",
+      items: ["papers", "admissions"],
+    },
+    {
+      id: "mypage",
+      name: "내 정보",
+      icon: "GraduationCap",
+      items: ["profile"],
+    },
+  ],
+};

@@ -1,0 +1,347 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { api } from "@/lib/api/client";
+import { Plus, Save, Calendar } from "lucide-react";
+
+interface Semester {
+  id: number;
+  year: number;
+  semester: number;
+  is_current: boolean;
+}
+
+interface TimetableEntry {
+  id?: number;
+  semester_id: number;
+  day_of_week: number;
+  period: number;
+  subject: string;
+  class_name: string;
+  teacher_id: number | null;
+}
+
+const DAYS = ["월", "화", "수", "목", "금"];
+const PERIODS = [1, 2, 3, 4, 5, 6, 7];
+
+export default function TimetablePage() {
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [selectedSemester, setSelectedSemester] = useState<number | null>(null);
+  const [entries, setEntries] = useState<TimetableEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [showNewSemester, setShowNewSemester] = useState(false);
+  const [newYear, setNewYear] = useState(new Date().getFullYear());
+  const [newSemester, setNewSemester] = useState(1);
+
+  const fetchSemesters = useCallback(async () => {
+    try {
+      const data = await api.get("/api/timetable/semesters");
+      setSemesters(data);
+      const current = data.find((s: Semester) => s.is_current);
+      if (current) {
+        setSelectedSemester(current.id);
+      } else if (data.length > 0) {
+        setSelectedSemester(data[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const fetchEntries = useCallback(async () => {
+    if (!selectedSemester) return;
+    setLoading(true);
+    try {
+      const data = await api.get(
+        `/api/timetable/entries?semester_id=${selectedSemester}`
+      );
+      setEntries(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedSemester]);
+
+  useEffect(() => {
+    fetchSemesters();
+  }, [fetchSemesters]);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [fetchEntries]);
+
+  const getEntry = (day: number, period: number): TimetableEntry | undefined =>
+    entries.find((e) => e.day_of_week === day && e.period === period);
+
+  const cellKey = (day: number, period: number) => `${day}-${period}`;
+
+  const handleCellChange = (
+    day: number,
+    period: number,
+    field: "subject" | "class_name",
+    value: string
+  ) => {
+    setEntries((prev) => {
+      const existing = prev.find(
+        (e) => e.day_of_week === day && e.period === period
+      );
+      if (existing) {
+        return prev.map((e) =>
+          e.day_of_week === day && e.period === period
+            ? { ...e, [field]: value }
+            : e
+        );
+      }
+      return [
+        ...prev,
+        {
+          semester_id: selectedSemester!,
+          day_of_week: day,
+          period,
+          subject: field === "subject" ? value : "",
+          class_name: field === "class_name" ? value : "",
+          teacher_id: null,
+        },
+      ];
+    });
+  };
+
+  const handleSave = async () => {
+    if (!selectedSemester) return;
+    setSaving(true);
+    try {
+      const validEntries = entries
+        .filter((e) => e.subject.trim())
+        .map(({ id, ...rest }) => ({
+          day_of_week: rest.day_of_week,
+          period: rest.period,
+          subject: rest.subject,
+          class_name: rest.class_name,
+          teacher_id: rest.teacher_id,
+        }));
+      await api.post("/api/timetable/entries/bulk", {
+        semester_id: selectedSemester,
+        entries: validEntries,
+      });
+      alert("시간표가 저장되었습니다.");
+      fetchEntries();
+    } catch (err: any) {
+      alert(err?.detail || "저장 실패");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateSemester = async () => {
+    try {
+      await api.post("/api/timetable/semesters", {
+        year: newYear,
+        semester: newSemester,
+      });
+      setShowNewSemester(false);
+      fetchSemesters();
+    } catch (err: any) {
+      alert(err?.detail || "학기 생성 실패");
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-title text-text-primary">시간표 관리</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !selectedSemester}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:opacity-90 disabled:opacity-40"
+          >
+            <Save size={14} />
+            {saving ? "저장 중..." : "저장"}
+          </button>
+        </div>
+      </div>
+
+      {/* 학기 선택 */}
+      <div className="flex items-center gap-3 mb-6">
+        <Calendar size={16} className="text-text-tertiary" />
+        <select
+          value={selectedSemester ?? ""}
+          onChange={(e) => setSelectedSemester(Number(e.target.value))}
+          className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+        >
+          <option value="" disabled>
+            학기 선택
+          </option>
+          {semesters.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.year}년 {s.semester}학기 {s.is_current ? "(현재)" : ""}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => setShowNewSemester(!showNewSemester)}
+          className="flex items-center gap-1 px-2 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+        >
+          <Plus size={14} />
+          새 학기
+        </button>
+      </div>
+
+      {/* 새 학기 생성 폼 */}
+      {showNewSemester && (
+        <div className="mb-6 p-4 bg-bg-primary rounded-lg border border-border-default">
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="block text-caption text-text-tertiary mb-1">
+                연도
+              </label>
+              <input
+                type="number"
+                value={newYear}
+                onChange={(e) => setNewYear(Number(e.target.value))}
+                className="w-24 px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="block text-caption text-text-tertiary mb-1">
+                학기
+              </label>
+              <select
+                value={newSemester}
+                onChange={(e) => setNewSemester(Number(e.target.value))}
+                className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+              >
+                <option value={1}>1학기</option>
+                <option value={2}>2학기</option>
+              </select>
+            </div>
+            <button
+              onClick={handleCreateSemester}
+              className="px-4 py-1.5 text-body bg-accent text-white rounded hover:opacity-90"
+            >
+              생성
+            </button>
+            <button
+              onClick={() => setShowNewSemester(false)}
+              className="px-3 py-1.5 text-body border border-border-default rounded hover:bg-bg-secondary"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 시간표 그리드 */}
+      {selectedSemester ? (
+        loading ? (
+          <div className="text-center py-8 text-body text-text-tertiary">
+            로딩 중...
+          </div>
+        ) : (
+          <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-bg-secondary">
+                  <th className="px-3 py-2 text-center text-caption text-text-tertiary font-medium w-16">
+                    교시
+                  </th>
+                  {DAYS.map((day, i) => (
+                    <th
+                      key={i}
+                      className="px-3 py-2 text-center text-caption text-text-tertiary font-medium"
+                    >
+                      {day}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PERIODS.map((period) => (
+                  <tr key={period} className="border-t border-border-default">
+                    <td className="px-3 py-2 text-center text-caption text-text-tertiary font-medium bg-bg-secondary">
+                      {period}
+                    </td>
+                    {DAYS.map((_, dayIdx) => {
+                      const entry = getEntry(dayIdx, period);
+                      const key = cellKey(dayIdx, period);
+                      const isEditing = editingCell === key;
+                      return (
+                        <td
+                          key={dayIdx}
+                          className="px-1 py-1 text-center border-l border-border-default"
+                          onClick={() => setEditingCell(key)}
+                        >
+                          {isEditing ? (
+                            <div className="space-y-1">
+                              <input
+                                type="text"
+                                value={entry?.subject || ""}
+                                onChange={(e) =>
+                                  handleCellChange(
+                                    dayIdx,
+                                    period,
+                                    "subject",
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={() => setEditingCell(null)}
+                                placeholder="과목"
+                                className="w-full px-1 py-0.5 text-caption border border-accent rounded bg-bg-primary focus:outline-none text-center"
+                                autoFocus
+                              />
+                              <input
+                                type="text"
+                                value={entry?.class_name || ""}
+                                onChange={(e) =>
+                                  handleCellChange(
+                                    dayIdx,
+                                    period,
+                                    "class_name",
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={() => setEditingCell(null)}
+                                placeholder="반"
+                                className="w-full px-1 py-0.5 text-[10px] border border-border-default rounded bg-bg-primary focus:outline-none text-center"
+                              />
+                            </div>
+                          ) : (
+                            <div className="min-h-[40px] flex flex-col items-center justify-center cursor-pointer hover:bg-bg-secondary rounded p-1">
+                              {entry?.subject ? (
+                                <>
+                                  <div className="text-caption text-text-primary font-medium">
+                                    {entry.subject}
+                                  </div>
+                                  {entry.class_name && (
+                                    <div className="text-[10px] text-text-tertiary">
+                                      {entry.class_name}
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-[10px] text-text-tertiary">
+                                  -
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        <div className="text-center py-8 text-body text-text-tertiary">
+          학기를 선택하세요
+        </div>
+      )}
+    </div>
+  );
+}
