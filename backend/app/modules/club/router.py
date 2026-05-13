@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.semester import (
+    get_active_semester_id_or_404,
+    resolve_semester_id,
+    get_semester_by_id_or_404,
+)
 from app.models.club import Club, ClubActivity, ClubSubmission
 from app.models.user import User
 
@@ -20,26 +25,32 @@ async def create_club(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    sid = await resolve_semester_id(body, db)
+    # year는 학기에서 추출 (호환을 위해 채워둠)
+    sem = await get_semester_by_id_or_404(db, sid)
     c = Club(
+        semester_id=sid,
         name=body["name"], description=body.get("description"),
         advisor_id=body.get("advisor_id"), members=body.get("members"),
-        year=body["year"], budget=body.get("budget"),
+        year=body.get("year") or sem.year, budget=body.get("budget"),
     )
     db.add(c)
     await db.flush()
     await log_action(db, user, "club.create", f"club:{c.id}", request=request)
-    return {"id": c.id, "name": c.name}
+    return {"id": c.id, "name": c.name, "semester_id": sid}
 
 
 @router.get("")
 async def list_clubs(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     year: int | None = None,
+    semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
     user: User = Depends(require_permission("club.manage.edit")),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(Club)
-    cq = select(func.count(Club.id))
+    sid = semester_id or await get_active_semester_id_or_404(db)
+    q = select(Club).where(Club.semester_id == sid)
+    cq = select(func.count(Club.id)).where(Club.semester_id == sid)
     if year:
         q = q.where(Club.year == year)
         cq = cq.where(Club.year == year)

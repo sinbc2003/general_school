@@ -61,9 +61,9 @@ export default function RegisterPage() {
       // 자동 로그인 토큰 저장
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("refresh_token", data.refresh_token);
-      router.push("/dashboard");
-      // 컨텍스트 갱신을 위해 새로고침
-      setTimeout(() => window.location.reload(), 100);
+      // 전체 페이지 이동 — AuthProvider가 처음부터 init되며 token으로 user fetch
+      // (router.push + reload 조합은 AuthProvider race로 잠깐 /auth/login으로 튕길 수 있음)
+      window.location.href = "/dashboard";
     } catch (err: any) {
       setError(err?.message || "가입 실패");
     } finally {

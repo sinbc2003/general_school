@@ -67,6 +67,8 @@ async def list_documents(
     page_size: int = Query(20, ge=1, le=100),
     doc_type: str | None = None,
     subject: str | None = None,
+    year: int | None = Query(None, description="학년도 필터 (학기 통합 — 전체 학기 조회 가능)"),
+    semester: int | None = Query(None),
     user: User = Depends(require_permission("archive.document.upload")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -78,6 +80,12 @@ async def list_documents(
     if subject:
         q = q.where(Document.subject == subject)
         cq = cq.where(Document.subject == subject)
+    if year is not None:
+        q = q.where(Document.year == year)
+        cq = cq.where(Document.year == year)
+    if semester is not None:
+        q = q.where(Document.semester == semester)
+        cq = cq.where(Document.semester == semester)
 
     total = (await db.execute(cq)).scalar() or 0
     rows = (await db.execute(

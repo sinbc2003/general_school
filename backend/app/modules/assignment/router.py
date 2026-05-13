@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.semester import (
+    get_active_semester_id_or_404,
+    resolve_semester_id,
+)
 from app.models.assignment import Assignment, AssignmentStatus, AssignmentSubmission, SubmissionStatus
 from app.models.user import User
 
@@ -24,7 +28,9 @@ async def create_assignment(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    sid = await resolve_semester_id(body, db)
     a = Assignment(
+        semester_id=sid,
         title=body["title"],
         subject=body["subject"],
         description=body.get("description"),
@@ -36,7 +42,7 @@ async def create_assignment(
     db.add(a)
     await db.flush()
     await log_action(db, user, "assignment.create", f"assignment:{a.id}", request=request)
-    return {"id": a.id, "title": a.title}
+    return {"id": a.id, "title": a.title, "semester_id": sid}
 
 
 @router.get("")
@@ -45,11 +51,13 @@ async def list_assignments(
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
     subject: str | None = None,
+    semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
     user: User = Depends(require_permission("assignment.submit.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(Assignment)
-    cq = select(func.count(Assignment.id))
+    sid = semester_id or await get_active_semester_id_or_404(db)
+    q = select(Assignment).where(Assignment.semester_id == sid)
+    cq = select(func.count(Assignment.id)).where(Assignment.semester_id == sid)
     if user.role == "student":
         q = q.where(Assignment.is_visible == True, Assignment.status != AssignmentStatus.DRAFT)
         cq = cq.where(Assignment.is_visible == True, Assignment.status != AssignmentStatus.DRAFT)

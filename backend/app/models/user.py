@@ -38,6 +38,9 @@ class User(Base):
     # 교사/직원 전용 필드
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # 연락처 (CSV import 시 초기 비밀번호 = phone, '-' 제거)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     # 2FA (TOTP)
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

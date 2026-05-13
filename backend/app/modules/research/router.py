@@ -40,15 +40,18 @@ async def create_project(
 @router.get("")
 async def list_projects(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-    year: int | None = None, status: str | None = None,
+    year: int | None = None, semester: int | None = None, status: str | None = None,
     user: User = Depends(require_permission("research.project.view")),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(ResearchProject)
     cq = select(func.count(ResearchProject.id))
-    if year:
+    if year is not None:
         q = q.where(ResearchProject.year == year)
         cq = cq.where(ResearchProject.year == year)
+    if semester is not None:
+        q = q.where(ResearchProject.semester == semester)
+        cq = cq.where(ResearchProject.semester == semester)
     if status:
         q = q.where(ResearchProject.status == status)
         cq = cq.where(ResearchProject.status == status)

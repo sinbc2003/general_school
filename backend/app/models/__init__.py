@@ -32,7 +32,7 @@ from app.models.papers import Paper, Newsletter, CrawlKeyword, PaperNote
 from app.models.meeting import Meeting, MeetingAttachment
 
 # ── Timetable ──
-from app.models.timetable import Semester, TimetableEntry
+from app.models.timetable import Semester, TimetableEntry, SemesterEnrollment
 
 # ── Assignment ──
 from app.models.assignment import Assignment, AssignmentSubmission
@@ -93,7 +93,7 @@ __all__ = [
     # Meeting
     "Meeting", "MeetingAttachment",
     # Timetable
-    "Semester", "TimetableEntry",
+    "Semester", "TimetableEntry", "SemesterEnrollment",
     # Assignment
     "Assignment", "AssignmentSubmission",
     # Admissions

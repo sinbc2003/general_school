@@ -11,7 +11,15 @@ import {
   X,
   ClipboardList,
   Clock,
+  CalendarRange,
 } from "lucide-react";
+
+interface CurrentSemester {
+  id: number;
+  year: number;
+  semester: number;
+  name: string;
+}
 
 interface AssignmentItem {
   id: number;
@@ -103,6 +111,12 @@ export default function AssignmentPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [loading, setLoading] = useState(false);
+  const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
+
+  useEffect(() => {
+    api.get<CurrentSemester | null>("/api/timetable/semesters/current")
+      .then(setCurrentSem).catch(() => {});
+  }, []);
 
   // 폼 상태
   const [showForm, setShowForm] = useState(false);
@@ -214,7 +228,15 @@ export default function AssignmentPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-title text-text-primary">과제 관리</h1>
+        <div>
+          <h1 className="text-title text-text-primary">과제 관리</h1>
+          {currentSem && (
+            <div className="text-caption text-text-secondary mt-1 flex items-center gap-1">
+              <CalendarRange size={12} />
+              <span>{currentSem.name} 데이터만 표시됩니다.</span>
+            </div>
+          )}
+        </div>
         <button
           onClick={openCreate}
           className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"

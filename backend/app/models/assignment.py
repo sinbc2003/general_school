@@ -35,10 +35,13 @@ class SubmissionStatus(str, enum.Enum):
 
 
 class Assignment(Base):
-    """과제"""
+    """과제 — 학기 단위로 격리 (semester_id 필수)."""
     __tablename__ = "assignments"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    semester_id: Mapped[int] = mapped_column(
+        ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -66,6 +69,7 @@ class Assignment(Base):
     )
 
     __table_args__ = (
+        Index("ix_assignments_semester_id", "semester_id"),
         Index("ix_assignments_status", "status"),
         Index("ix_assignments_subject", "subject"),
         Index("ix_assignments_due_date", "due_date"),

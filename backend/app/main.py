@@ -32,11 +32,12 @@ async def lifespan(app: FastAPI):
     # DB 초기화 + 시드 (수집된 정의를 그대로 시드)
     await init_db()
     async with async_session_factory() as db:
-        from scripts.seed import seed_super_admin, seed_permissions
+        from scripts.seed import seed_super_admin, seed_permissions, seed_default_semester
         from scripts.seed_chatbot import seed_chatbot_defaults
         await seed_super_admin(db)
         await seed_permissions(db, defined)
         await seed_chatbot_defaults(db)
+        await seed_default_semester(db)
         await db.commit()
     yield
 

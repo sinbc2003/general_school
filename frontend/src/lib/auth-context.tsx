@@ -41,7 +41,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const PUBLIC_PATHS = ["/auth/login"];
+const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
+const PASSWORD_CHANGE_PATH = "/auth/change-password";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -75,23 +76,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return;
     const isPublic = PUBLIC_PATHS.some((p) => pathname?.startsWith(p));
+    const isPasswordChange = pathname?.startsWith(PASSWORD_CHANGE_PATH);
 
-    if (!user && !isPublic) {
+    // 비로그인 + 비공개 페이지 → 로그인으로
+    if (!user && !isPublic && !isPasswordChange) {
       router.push("/auth/login");
+      return;
     }
 
+    // 로그인 상태인데 must_change_password=True → 비밀번호 변경 강제
+    if (user?.must_change_password && !isPasswordChange) {
+      router.push(PASSWORD_CHANGE_PATH);
+      return;
+    }
+
+    // 이미 로그인 + 로그인 페이지에 있음 → 역할별 대시보드로
     if (user && pathname === "/auth/login") {
-      // 역할에 따른 리다이렉트
       if (user.role === "student") {
         router.push("/s/dashboard");
       } else {
         router.push("/dashboard");
       }
-    }
-
-    // 비밀번호 변경 필요 시
-    if (user?.must_change_password && pathname !== "/auth/change-password" && !isPublic) {
-      // 첫 로그인 시 비밀번호 변경 유도 (나중에 구현)
     }
   }, [user, loading, pathname, router]);
 

@@ -8,6 +8,10 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.auth import get_current_user
+from app.core.semester import (
+    get_active_semester_id_or_404,
+    resolve_semester_id,
+)
 from app.models.contest import (
     Contest, ContestStatus, ContestProblem, ContestParticipant,
     ContestTeam, ContestSubmission,
@@ -33,7 +37,9 @@ async def create_contest(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    sid = await resolve_semester_id(body, db)
     c = Contest(
+        semester_id=sid,
         title=body["title"],
         description=body.get("description"),
         contest_type=body.get("contest_type", "individual"),
@@ -46,7 +52,7 @@ async def create_contest(
     db.add(c)
     await db.flush()
     await log_action(db, user, "contest.create", f"contest:{c.id}", request=request)
-    return {"id": c.id, "title": c.title}
+    return {"id": c.id, "title": c.title, "semester_id": sid}
 
 
 @router.get("")
@@ -54,11 +60,14 @@ async def list_contests(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
+    semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
     user: User = Depends(require_permission("contest.participate.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(Contest)
-    cq = select(func.count(Contest.id))
+    # 학기 필터: 명시 안 하면 현재 학기 (대회는 학기 격리)
+    sid = semester_id or await get_active_semester_id_or_404(db)
+    q = select(Contest).where(Contest.semester_id == sid)
+    cq = select(func.count(Contest.id)).where(Contest.semester_id == sid)
     # 학생은 visible만
     if user.role == "student":
         q = q.where(Contest.is_visible == True)

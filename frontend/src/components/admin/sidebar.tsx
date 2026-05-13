@@ -1,20 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronRight, LogOut, Menu, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, Menu, MoreHorizontal, CalendarRange } from "lucide-react";
+import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useMenuSettings } from "@/lib/menu-context";
 import { useSidebar } from "@/lib/sidebar-context";
 import { adminMenu, type MenuItem } from "@/config/admin-menu";
 import { iconMap, type MenuCategory } from "@/config/menu-categories";
 
+// 대메뉴(카테고리) 블록 파스텔 톤 — 토글 펼쳤을 때 시각적 구분용
+// 모든 카테고리 동일한 연한 파랑 (업무 톤)
+const CATEGORY_BG_DEFAULT = "bg-blue-50";
+
+interface CurrentSemester {
+  id: number;
+  year: number;
+  semester: number;
+  name: string;
+  is_current: boolean;
+}
+
 export function AdminSidebar() {
   const { user, logout, hasPermission, isSuperAdmin } = useAuth();
   const { categories, isHidden } = useMenuSettings();
   const { collapsed, toggle: toggleCollapsed } = useSidebar();
   const pathname = usePathname();
+  const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
+
+  // 현재 학기 fetch (사용자 로그인 후 1회)
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get<CurrentSemester | null>("/api/timetable/semesters/current")
+      .then((d) => setCurrentSem(d))
+      .catch(() => setCurrentSem(null));
+  }, [user, pathname]);
+
   const [openCategories, setOpenCategories] = useState<Set<string>>(
     new Set(["work", "teaching", "competition", "guidance", "activity", "search", "ai", "student-view", "management"])
   );
@@ -164,20 +188,68 @@ export function AdminSidebar() {
         </button>
       </div>
 
+      {/* 현재 학기 표시 (admin sidebar 상단) */}
+      {!collapsed && (
+        <Link
+          href={isSuperAdmin ? "/system/semesters" : "#"}
+          className={`flex items-center gap-2 px-3 py-2 border-b border-border-default text-caption ${
+            isSuperAdmin ? "hover:bg-bg-secondary cursor-pointer" : "cursor-default"
+          }`}
+          title={isSuperAdmin ? "학기 관리로 이동" : ""}
+        >
+          <CalendarRange size={14} className="text-accent flex-shrink-0" />
+          {currentSem ? (
+            <div className="flex-1 min-w-0">
+              <div className="text-text-primary font-medium truncate">{currentSem.name}</div>
+              <div className="text-text-tertiary text-[11px]">현재 학기</div>
+            </div>
+          ) : (
+            <span className="text-text-tertiary">학기 미설정</span>
+          )}
+        </Link>
+      )}
+      {collapsed && currentSem && (
+        <div className="flex justify-center py-2 border-b border-border-default" title={`현재 학기: ${currentSem.name}`}>
+          <CalendarRange size={16} className="text-accent" />
+        </div>
+      )}
+
       {/* Menu — 카테고리별 그룹 */}
-      <nav className="flex-1 overflow-y-auto p-2 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-2 space-y-2">
         {categories.admin.map((cat) => {
           if (!categoryHasVisibleItems(cat)) return null;
 
           const CatIcon = iconMap[cat.icon] || MoreHorizontal;
           const isOpen = openCategories.has(cat.id);
 
+          // 이 카테고리에 현재 페이지 메뉴가 속하는지 확인 (위치 강조)
+          const isActiveCategory =
+            !!pathname &&
+            cat.items.some((key) => {
+              const item = menuByKey.get(key);
+              const matches = (mi: MenuItem): boolean => {
+                if (mi.path && pathname.startsWith(mi.path)) return true;
+                return !!mi.children?.some(matches);
+              };
+              return item ? matches(item) : false;
+            });
+
+          // 카테고리 헤더: 펼친 상태는 진하게, 닫힌 상태는 옅게.
+          // 활성 카테고리는 강조.
+          const headerCls = collapsed
+            ? "text-text-secondary hover:text-text-primary"
+            : isActiveCategory
+            ? `${CATEGORY_BG_DEFAULT} text-accent border border-blue-200`
+            : isOpen
+            ? `${CATEGORY_BG_DEFAULT} text-text-primary`
+            : "bg-bg-secondary/40 text-text-tertiary hover:text-text-primary hover:bg-bg-secondary/60";
+
           return (
             <div key={cat.id}>
               {/* 카테고리 헤더 */}
               <button
                 onClick={() => toggleCategory(cat.id)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-[11.5px] font-bold text-text-secondary uppercase tracking-wide hover:text-text-primary transition-colors"
+                className={`w-full flex items-center gap-2 px-2 py-1.5 text-[11.5px] font-bold uppercase tracking-wide transition-colors ${headerCls} ${!collapsed ? "rounded-md" : ""}`}
                 title={collapsed ? cat.name : undefined}
               >
                 {!collapsed && (
@@ -190,9 +262,13 @@ export function AdminSidebar() {
                 {collapsed && <CatIcon size={16} className="mx-auto" />}
               </button>
 
-              {/* 카테고리 내 메뉴 */}
+              {/* 카테고리 내 메뉴 — 좌측 컬러 띠로 그룹 시각화 */}
               {isOpen && !collapsed && (
-                <div className="space-y-0.5 mb-1">
+                <div
+                  className={`space-y-0.5 mt-0.5 ml-3 pl-2 border-l-2 ${
+                    isActiveCategory ? "border-accent" : "border-blue-100"
+                  }`}
+                >
                   {cat.items.map((key) => {
                     const item = menuByKey.get(key);
                     if (!item) return null;

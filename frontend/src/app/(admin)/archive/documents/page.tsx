@@ -11,7 +11,16 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  CalendarRange,
 } from "lucide-react";
+
+interface SemesterItem {
+  id: number;
+  year: number;
+  semester: number;
+  name: string;
+  is_current: boolean;
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 
@@ -68,8 +77,15 @@ export default function DocumentsPage() {
   const [pageSize] = useState(20);
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
+  const [semesterFilter, setSemesterFilter] = useState(""); // "2026-1" 또는 ""(전체)
+  const [semesters, setSemesters] = useState<SemesterItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+
+  useEffect(() => {
+    api.get<SemesterItem[]>("/api/timetable/semesters")
+      .then(setSemesters).catch(() => {});
+  }, []);
 
   // 업로드 폼 상태
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -80,6 +96,9 @@ export default function DocumentsPage() {
   const [uploadYear, setUploadYear] = useState(String(new Date().getFullYear()));
   const [uploading, setUploading] = useState(false);
 
+  // semesterFilter 변경 시 첫 페이지로
+  useEffect(() => { setPage(1); }, [semesterFilter, docTypeFilter, subjectFilter]);
+
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
     try {
@@ -89,6 +108,11 @@ export default function DocumentsPage() {
       });
       if (docTypeFilter) params.set("doc_type", docTypeFilter);
       if (subjectFilter) params.set("subject", subjectFilter);
+      if (semesterFilter) {
+        const [y, s] = semesterFilter.split("-");
+        if (y) params.set("year", y);
+        if (s) params.set("semester", s);
+      }
       const data = await api.get<DocumentListResponse>(`/api/archive/documents?${params}`);
       setDocuments(data.items);
       setTotal(data.total);
@@ -99,7 +123,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, docTypeFilter, subjectFilter]);
+  }, [page, pageSize, docTypeFilter, subjectFilter, semesterFilter]);
 
   useEffect(() => {
     fetchDocuments();
@@ -267,7 +291,7 @@ export default function DocumentsPage() {
       )}
 
       {/* 필터 */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <select
           value={docTypeFilter}
           onChange={(e) => { setDocTypeFilter(e.target.value); setPage(1); }}
@@ -288,6 +312,22 @@ export default function DocumentsPage() {
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
+        <div className="flex items-center gap-1">
+          <CalendarRange size={14} className="text-text-tertiary" />
+          <select
+            value={semesterFilter}
+            onChange={(e) => { setSemesterFilter(e.target.value); setPage(1); }}
+            className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+            title="학기 통합 — 전체 학기 데이터를 학기별로 필터링"
+          >
+            <option value="">전체 학기</option>
+            {semesters.map((s) => (
+              <option key={s.id} value={`${s.year}-${s.semester}`}>
+                {s.name}{s.is_current ? " ★" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
         <span className="text-caption text-text-tertiary ml-auto">
           총 {total}건
         </span>

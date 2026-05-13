@@ -20,10 +20,13 @@ from app.core.database import Base
 
 
 class Club(Base):
-    """동아리"""
+    """동아리 — 학기 단위로 격리 (semester_id 필수). 기존 year는 호환을 위해 유지."""
     __tablename__ = "clubs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    semester_id: Mapped[int] = mapped_column(
+        ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     advisor_id: Mapped[int | None] = mapped_column(
@@ -49,6 +52,7 @@ class Club(Base):
     )
 
     __table_args__ = (
+        Index("ix_clubs_semester_id", "semester_id"),
         Index("ix_clubs_year", "year"),
         Index("ix_clubs_status", "status"),
         Index("ix_clubs_advisor_id", "advisor_id"),

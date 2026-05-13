@@ -29,10 +29,13 @@ class ContestStatus(str, enum.Enum):
 
 
 class Contest(Base):
-    """대회"""
+    """대회 — 학기 단위로 격리 (semester_id 필수)."""
     __tablename__ = "contests"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    semester_id: Mapped[int] = mapped_column(
+        ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     contest_type: Mapped[str] = mapped_column(
@@ -74,6 +77,7 @@ class Contest(Base):
     )
 
     __table_args__ = (
+        Index("ix_contests_semester_id", "semester_id"),
         Index("ix_contests_status", "status"),
         Index("ix_contests_is_visible", "is_visible"),
     )

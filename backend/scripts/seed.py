@@ -9,6 +9,8 @@ Upsert 전략:
   (역할/사용자 할당이 사라지면 권한이 통째로 빠질 수 있음 : stale 정리는 별도 명령어)
 """
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +18,43 @@ from app.core.config import settings
 from app.core.auth import hash_password
 from app.models.user import User
 from app.models.permission import Permission
+from app.models.timetable import Semester
+
+
+async def seed_default_semester(db: AsyncSession) -> None:
+    """학기가 하나도 없으면 현재 학년도 1학기를 자동 생성하고 current로 설정.
+
+    학교 운영 시작 시 첫 학기를 즉시 사용할 수 있도록.
+    이후 학기는 최고관리자가 /system/semesters에서 추가.
+    """
+    any_sem = (await db.execute(select(Semester).limit(1))).scalar_one_or_none()
+    if any_sem:
+        return
+
+    today = date.today()
+    # 한국 학사 일정: 3~8월 1학기, 9~2월 2학기
+    if 3 <= today.month <= 8:
+        year, sem = today.year, 1
+        start = date(year, 3, 1)
+        end = date(year, 8, 31)
+    elif today.month >= 9:
+        year, sem = today.year, 2
+        start = date(year, 9, 1)
+        end = date(year + 1, 2, 28)
+    else:  # 1~2월
+        year, sem = today.year - 1, 2
+        start = date(year, 9, 1)
+        end = date(year + 1, 2, 28)
+
+    s = Semester(
+        year=year, semester=sem,
+        name=f"{year}학년도 {sem}학기",
+        start_date=start, end_date=end,
+        is_current=True,
+    )
+    db.add(s)
+    await db.flush()
+    print(f"[SEED] 기본 학기 생성: {year}학년도 {sem}학기 (current)")
 
 
 async def seed_super_admin(db: AsyncSession) -> None:

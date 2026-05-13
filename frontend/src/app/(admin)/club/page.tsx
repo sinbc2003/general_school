@@ -10,7 +10,15 @@ import {
   X,
   ArrowLeft,
   Calendar,
+  CalendarRange,
 } from "lucide-react";
+
+interface CurrentSemester {
+  id: number;
+  year: number;
+  semester: number;
+  name: string;
+}
 
 interface ClubItem {
   id: number;
@@ -59,6 +67,12 @@ export default function ClubPage() {
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedClub, setSelectedClub] = useState<ClubItem | null>(null);
+  const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
+
+  useEffect(() => {
+    api.get<CurrentSemester | null>("/api/timetable/semesters/current")
+      .then(setCurrentSem).catch(() => {});
+  }, []);
   const [form, setForm] = useState({ name: "", category: "academic", description: "", max_members: "30" });
 
   const pageSize = 12;
@@ -98,7 +112,15 @@ export default function ClubPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-title text-text-primary">동아리 관리</h1>
+        <div>
+          <h1 className="text-title text-text-primary">동아리 관리</h1>
+          {currentSem && (
+            <div className="text-caption text-text-secondary mt-1 flex items-center gap-1">
+              <CalendarRange size={12} />
+              <span>{currentSem.name} 데이터만 표시됩니다.</span>
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setShowCreate(!showCreate)}
           className="flex items-center gap-1 px-4 py-2 bg-accent text-white text-body rounded hover:bg-accent-hover"
