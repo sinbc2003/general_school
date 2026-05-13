@@ -22,6 +22,17 @@ from app.services.semester_import import (
 router = APIRouter(prefix="/api/timetable", tags=["timetable"])
 
 
+def _safe_json_parse(s: str | None, default):
+    """JSON 문자열 → Python 객체. 실패 시 default."""
+    if not s:
+        return default
+    import json
+    try:
+        return json.loads(s)
+    except Exception:
+        return default
+
+
 def _semester_to_dict(s: Semester) -> dict:
     return {
         "id": s.id, "year": s.year, "semester": s.semester,
@@ -29,6 +40,10 @@ def _semester_to_dict(s: Semester) -> dict:
         "start_date": s.start_date.isoformat() if s.start_date else None,
         "end_date": s.end_date.isoformat() if s.end_date else None,
         "is_current": s.is_current,
+        # 학교 구조 (드롭다운 용도)
+        "classes_per_grade": _safe_json_parse(s.classes_per_grade, {}),
+        "subjects": _safe_json_parse(s.subjects, []),
+        "departments": _safe_json_parse(s.departments, []),
     }
 
 
@@ -119,6 +134,46 @@ async def update_semester(
     return _semester_to_dict(s)
 
 
+@router.put("/semesters/{sid}/structure")
+async def update_semester_structure(
+    sid: int, body: dict,
+    user: User = Depends(require_permission("system.semester.manage")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """학기별 학교 구조 갱신.
+
+    body 예:
+      {
+        "classes_per_grade": {"1": 5, "2": 5, "3": 4},
+        "subjects": ["수학", "수학I", "물리", "화학"],
+        "departments": ["수학과", "과학과", "행정실"]
+      }
+    각 필드는 선택. 빈 값 전송 시 그대로 둠 (None으로 만들려면 명시적 null).
+    """
+    import json
+    s = await get_semester_by_id_or_404(db, sid)
+    if "classes_per_grade" in body:
+        v = body["classes_per_grade"]
+        # 키를 문자열로 정규화
+        if isinstance(v, dict):
+            v = {str(k): int(val) for k, val in v.items()}
+        s.classes_per_grade = json.dumps(v, ensure_ascii=False) if v is not None else None
+    if "subjects" in body:
+        v = body["subjects"]
+        if isinstance(v, list):
+            v = [str(x).strip() for x in v if str(x).strip()]
+        s.subjects = json.dumps(v, ensure_ascii=False) if v is not None else None
+    if "departments" in body:
+        v = body["departments"]
+        if isinstance(v, list):
+            v = [str(x).strip() for x in v if str(x).strip()]
+        s.departments = json.dumps(v, ensure_ascii=False) if v is not None else None
+    await db.flush()
+    await log_action(db, user, "semester.structure.update", f"semester:{sid}", request=request)
+    return _semester_to_dict(s)
+
+
 @router.post("/semesters/{sid}/set-current")
 async def set_current_semester(
     sid: int,
@@ -152,6 +207,20 @@ async def delete_semester(
 
 # ── Semester Enrollments (학기별 명단) ──
 
+def _parse_csv_list(v: str | None) -> list:
+    """콤마/공백 구분된 문자열 → 리스트. JSON 형식이면 그대로 파싱."""
+    if not v:
+        return []
+    s = v.strip()
+    if s.startswith("["):
+        import json
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+    return [x.strip() for x in s.replace("|", ",").replace(";", ",").split(",") if x.strip()]
+
+
 def _enrollment_to_dict(e: SemesterEnrollment, u: User | None = None) -> dict:
     return {
         "id": e.id,
@@ -165,8 +234,13 @@ def _enrollment_to_dict(e: SemesterEnrollment, u: User | None = None) -> dict:
         "department": e.department,
         "position": e.position,
         "homeroom_class": e.homeroom_class,
+        "subhomeroom_class": e.subhomeroom_class,
+        "teaching_grades": _parse_csv_list(e.teaching_grades),
+        "teaching_classes": _parse_csv_list(e.teaching_classes),
+        "teaching_subjects": _parse_csv_list(e.teaching_subjects),
         "phone": e.phone,
         "note": e.note,
+        "onboarded": bool(e.onboarded),
         "user": {
             "id": u.id,
             "username": u.username,
@@ -175,6 +249,88 @@ def _enrollment_to_dict(e: SemesterEnrollment, u: User | None = None) -> dict:
             "phone": u.phone,
         } if u else None,
     }
+
+
+def _serialize_list_field(v) -> str | None:
+    """list 또는 콤마 문자열 → 콤마 구분 문자열로 저장."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, list):
+        return ",".join(str(x).strip() for x in v if str(x).strip())
+    return str(v).strip() or None
+
+
+@router.get("/my-enrollment")
+async def get_my_enrollment(
+    semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인의 (현재 학기 또는 지정 학기) enrollment 조회.
+
+    교사 onboarding 페이지에서 본인 정보 + 학교 구조를 동시에 가져오는데 사용.
+    enrollment이 없으면 None 반환 (super_admin은 보통 없음).
+    """
+    sid = semester_id or await get_active_semester_id_or_404(db)
+    e = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.semester_id == sid,
+            SemesterEnrollment.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+    sem = await get_semester_by_id_or_404(db, sid)
+    return {
+        "enrollment": _enrollment_to_dict(e, user) if e else None,
+        "semester": _semester_to_dict(sem),
+    }
+
+
+@router.put("/my-enrollment/onboarding")
+async def submit_my_onboarding(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """교사 본인 onboarding — 담임/부담임/수업 학년·학급·과목 입력 후 저장.
+
+    body 예:
+      {
+        "semester_id": 1,                # 미지정 시 현재 학기
+        "homeroom_class": "3-2",
+        "subhomeroom_class": null,
+        "teaching_grades": [1, 2],
+        "teaching_classes": ["1-1","1-2","2-3"],
+        "teaching_subjects": ["수학","수학I"]
+      }
+    저장 후 onboarded=True. 교사 본인 정보 수정도 같은 엔드포인트 재호출.
+    """
+    sid = body.get("semester_id") or await get_active_semester_id_or_404(db)
+    e = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.semester_id == sid,
+            SemesterEnrollment.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if not e:
+        raise HTTPException(404, "해당 학기 명단에 본인이 등록되어 있지 않습니다. 관리자에게 문의하세요.")
+
+    for f in ["homeroom_class", "subhomeroom_class"]:
+        if f in body:
+            v = body[f]
+            setattr(e, f, v.strip() if isinstance(v, str) and v.strip() else None)
+    for f in ["teaching_grades", "teaching_classes", "teaching_subjects"]:
+        if f in body:
+            setattr(e, f, _serialize_list_field(body[f]))
+    # 핸드폰 본인 갱신
+    if "phone" in body and body["phone"]:
+        e.phone = str(body["phone"]).strip()
+        user.phone = e.phone
+
+    e.onboarded = True
+    await db.flush()
+    await log_action(db, user, "enrollment.onboarding", f"sem:{sid}/user:{user.id}", request=request)
+    return _enrollment_to_dict(e, user)
 
 
 @router.get("/semesters/{sid}/enrollments")
@@ -240,6 +396,11 @@ async def add_enrollment(
         department=body.get("department"),
         position=body.get("position"),
         homeroom_class=body.get("homeroom_class"),
+        subhomeroom_class=body.get("subhomeroom_class"),
+        teaching_grades=_serialize_list_field(body.get("teaching_grades")),
+        teaching_classes=_serialize_list_field(body.get("teaching_classes")),
+        teaching_subjects=_serialize_list_field(body.get("teaching_subjects")),
+        phone=body.get("phone"),
         note=body.get("note"),
     )
     db.add(e)
@@ -264,9 +425,14 @@ async def update_enrollment(
     if not e:
         raise HTTPException(404, "명단 항목을 찾을 수 없습니다")
     for f in ["role", "status", "grade", "class_number", "student_number",
-              "department", "position", "homeroom_class", "note"]:
+              "department", "position", "homeroom_class", "subhomeroom_class",
+              "phone", "note"]:
         if f in body:
             setattr(e, f, body[f])
+    # list 필드는 직렬화 후 저장
+    for f in ["teaching_grades", "teaching_classes", "teaching_subjects"]:
+        if f in body:
+            setattr(e, f, _serialize_list_field(body[f]))
     await db.flush()
     await log_action(db, user, "enrollment.update", f"enroll:{eid}", request=request)
     return {"ok": True}
@@ -297,13 +463,19 @@ async def delete_enrollment(
 @router.get("/enrollments/csv-template/{role}")
 async def get_csv_template(
     role: str,
+    full: bool = Query(False, description="True면 담임/수업 학년 등 모든 컬럼 포함"),
     user: User = Depends(require_permission("system.enrollment.manage")),
 ):
-    """CSV 양식 다운로드. role: teacher | student"""
+    """CSV 양식 다운로드. role: teacher | student.
+
+    full=False (기본): 최소 컬럼만 (이름·핸드폰).
+    full=True: 모든 컬럼 (담임/수업 학년 등 — 비워두고 웹에서 추후 입력 가능).
+    """
     if role not in ("teacher", "student"):
         raise HTTPException(400, "role must be teacher|student")
-    body = semester_template_csv(role)
-    fname = f"{role}_template.csv"
+    body = semester_template_csv(role, full=full)
+    suffix = "_full" if full else ""
+    fname = f"{role}{suffix}_template.csv"
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",

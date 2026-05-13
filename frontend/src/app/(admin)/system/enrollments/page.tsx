@@ -30,6 +30,10 @@ interface Semester {
   semester: number;
   name: string;
   is_current: boolean;
+  // 학교 구조 — 인라인 드롭다운 옵션 생성용
+  classes_per_grade?: Record<string, number>;
+  subjects?: string[];
+  departments?: string[];
 }
 
 interface Enrollment {
@@ -44,6 +48,10 @@ interface Enrollment {
   department: string | null;
   position: string | null;
   homeroom_class: string | null;
+  subhomeroom_class: string | null;
+  teaching_grades: (number | string)[];
+  teaching_classes: string[];
+  teaching_subjects: string[];
   note: string | null;
   user: {
     id: number;
@@ -76,6 +84,10 @@ interface FormData {
   department: string;
   position: string;
   homeroom_class: string;
+  subhomeroom_class: string;
+  teaching_grades: string;   // 콤마 구분 입력 ("1,2")
+  teaching_classes: string;  // 콤마 구분 ("1-1,1-2")
+  teaching_subjects: string; // 콤마 구분 ("수학,수학II")
   note: string;
 }
 
@@ -89,6 +101,10 @@ const EMPTY_FORM: FormData = {
   department: "",
   position: "",
   homeroom_class: "",
+  subhomeroom_class: "",
+  teaching_grades: "",
+  teaching_classes: "",
+  teaching_subjects: "",
   note: "",
 };
 
@@ -104,6 +120,142 @@ export default function EnrollmentsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+
+  // 인라인 편집 상태 — { eid: { field: value } }로 진행 중 편집 추적
+  const [inlineEditCell, setInlineEditCell] = useState<{ eid: number; field: string } | null>(null);
+  const [inlineEditValue, setInlineEditValue] = useState<string>("");
+
+  // 인라인 patch — 한 필드만 PUT
+  const patchField = async (eid: number, field: string, value: string | number | null) => {
+    if (!selectedSid) return;
+    try {
+      await api.put(`/api/timetable/semesters/${selectedSid}/enrollments/${eid}`, {
+        [field]: value === "" ? null : value,
+      });
+      // 로컬 갱신 (낙관적)
+      setEnrollments((prev) =>
+        prev.map((e) => {
+          if (e.id !== eid) return e;
+          if (["teaching_grades", "teaching_classes", "teaching_subjects"].includes(field)) {
+            const list = typeof value === "string" && value
+              ? value.split(",").map((s) => s.trim()).filter(Boolean)
+              : [];
+            return { ...e, [field]: list };
+          }
+          return { ...e, [field]: value === "" ? null : value };
+        }),
+      );
+    } catch (err: any) {
+      alert(err?.detail || "수정 실패");
+      fetchEnrollments();  // 실패 시 서버 상태로 동기화
+    }
+  };
+
+  const startInlineEdit = (eid: number, field: string, currentValue: any) => {
+    setInlineEditCell({ eid, field });
+    setInlineEditValue(currentValue == null ? "" : String(currentValue));
+  };
+
+  const commitInlineEdit = async () => {
+    if (!inlineEditCell) return;
+    const { eid, field } = inlineEditCell;
+    setInlineEditCell(null);
+    // 숫자 필드는 number로 변환
+    let v: any = inlineEditValue.trim();
+    if (["grade", "class_number", "student_number"].includes(field)) {
+      v = v ? parseInt(v) : null;
+    }
+    await patchField(eid, field, v);
+  };
+
+  // 인라인 셀 컴포넌트 — text/number 또는 select 모드
+  const InlineCell = ({
+    eid, field, value, placeholder, type = "text", width = "w-20", options,
+  }: {
+    eid: number; field: string; value: any;
+    placeholder?: string; type?: string; width?: string;
+    /** 지정 시 select 모드 (드롭다운) */
+    options?: Array<{ value: string; label: string }>;
+  }) => {
+    const isEditing = inlineEditCell?.eid === eid && inlineEditCell?.field === field;
+    if (isEditing) {
+      if (options) {
+        return (
+          <select
+            value={inlineEditValue}
+            onChange={(e) => setInlineEditValue(e.target.value)}
+            onBlur={commitInlineEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLSelectElement).blur();
+              if (e.key === "Escape") setInlineEditCell(null);
+            }}
+            autoFocus
+            className={`${width} px-1 py-0.5 text-caption border border-accent rounded bg-bg-primary`}
+          >
+            <option value="">—</option>
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        );
+      }
+      return (
+        <input
+          type={type}
+          value={inlineEditValue}
+          onChange={(e) => setInlineEditValue(e.target.value)}
+          onBlur={commitInlineEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            if (e.key === "Escape") setInlineEditCell(null);
+          }}
+          autoFocus
+          placeholder={placeholder}
+          className={`${width} px-1 py-0.5 text-caption border border-accent rounded bg-bg-primary`}
+        />
+      );
+    }
+    const rawDisplay = Array.isArray(value)
+      ? value.join(",")
+      : value != null && value !== ""
+      ? String(value)
+      : "";
+    // select 모드면 옵션 라벨로 표시
+    let display = rawDisplay;
+    if (options && rawDisplay) {
+      const opt = options.find((o) => o.value === rawDisplay);
+      if (opt) display = opt.label;
+    }
+    return (
+      <button
+        onClick={() => startInlineEdit(eid, field, Array.isArray(value) ? value.join(",") : value)}
+        className={`${width} text-left px-1 py-0.5 text-caption rounded hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors`}
+        title="클릭해서 편집"
+      >
+        {display || <span className="text-text-tertiary">{placeholder || "—"}</span>}
+      </button>
+    );
+  };
+
+  // 현재 선택된 학기의 학교 구조 → 드롭다운 옵션
+  const currentSemester = semesters.find((s) => s.id === selectedSid);
+  const cpg = currentSemester?.classes_per_grade || {};
+  const gradeOptions: Array<{ value: string; label: string }> = Object.keys(cpg)
+    .sort()
+    .map((g) => ({ value: g, label: `${g}학년` }));
+  // 특정 학년의 반 옵션
+  const classOptionsFor = (grade: number | null | undefined): Array<{ value: string; label: string }> => {
+    if (!grade) return [];
+    const n = cpg[String(grade)] || 0;
+    return Array.from({ length: n }, (_, i) => ({ value: String(i + 1), label: `${i + 1}반` }));
+  };
+  const departmentOptions: Array<{ value: string; label: string }> = (currentSemester?.departments || []).map(
+    (d) => ({ value: d, label: d }),
+  );
+  // 전체 학급 옵션 ("1-1","1-2","2-1",...) — 담임/부담임 드롭다운용
+  const allClassOptions: Array<{ value: string; label: string }> = Object.entries(cpg)
+    .flatMap(([g, n]) => Array.from({ length: n }, (_, i) => `${g}-${i + 1}`))
+    .map((c) => ({ value: c, label: c }));
 
   // CSV 업로드 상태 — 모달 표시 여부 + 대상 role만 관리. 업로드 로직은 CsvUploader가 담당.
   const [showUpload, setShowUpload] = useState(false);
@@ -194,6 +346,10 @@ export default function EnrollmentsPage() {
       department: e.department ?? "",
       position: e.position ?? "",
       homeroom_class: e.homeroom_class ?? "",
+      subhomeroom_class: e.subhomeroom_class ?? "",
+      teaching_grades: (e.teaching_grades || []).join(","),
+      teaching_classes: (e.teaching_classes || []).join(","),
+      teaching_subjects: (e.teaching_subjects || []).join(","),
       note: e.note ?? "",
     });
     setShowForm(true);
@@ -216,6 +372,10 @@ export default function EnrollmentsPage() {
         department: form.department || null,
         position: form.position || null,
         homeroom_class: form.homeroom_class || null,
+        subhomeroom_class: form.subhomeroom_class || null,
+        teaching_grades: form.teaching_grades || null,
+        teaching_classes: form.teaching_classes || null,
+        teaching_subjects: form.teaching_subjects || null,
         note: form.note || null,
       };
       if (editingId) {
@@ -251,9 +411,14 @@ export default function EnrollmentsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-title text-text-primary flex items-center gap-2">
-          <UserPlus size={22} /> 학기별 명단
-        </h1>
+        <div>
+          <h1 className="text-title text-text-primary flex items-center gap-2">
+            <UserPlus size={22} /> 학기별 명단
+          </h1>
+          <p className="text-caption text-text-tertiary mt-1">
+            <b>표의 셀을 클릭해서 바로 편집</b>할 수 있습니다 (Enter 저장 · Esc 취소). 학급 변경/담임 교체 등 학기 도중 수정 OK.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
@@ -474,13 +639,53 @@ export default function EnrollmentsPage() {
                       className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <label className="block text-caption text-text-secondary mb-1">담임반</label>
                     <input
                       type="text"
                       value={form.homeroom_class}
                       onChange={(e) => update("homeroom_class", e.target.value)}
-                      placeholder="예: 3-2 (담임이 아니면 비움)"
+                      placeholder="예: 3-2"
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-caption text-text-secondary mb-1">부담임반</label>
+                    <input
+                      type="text"
+                      value={form.subhomeroom_class}
+                      onChange={(e) => update("subhomeroom_class", e.target.value)}
+                      placeholder="예: 3-3"
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-caption text-text-secondary mb-1">수업 학년</label>
+                    <input
+                      type="text"
+                      value={form.teaching_grades}
+                      onChange={(e) => update("teaching_grades", e.target.value)}
+                      placeholder="콤마 구분, 예: 1,2,3"
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-caption text-text-secondary mb-1">수업 학급</label>
+                    <input
+                      type="text"
+                      value={form.teaching_classes}
+                      onChange={(e) => update("teaching_classes", e.target.value)}
+                      placeholder="예: 1-1,1-2,2-3 (학년만 작성하면 생략)"
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-caption text-text-secondary mb-1">가르치는 과목</label>
+                    <input
+                      type="text"
+                      value={form.teaching_subjects}
+                      onChange={(e) => update("teaching_subjects", e.target.value)}
+                      placeholder="콤마 구분, 예: 수학,수학I"
                       className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
                     />
                   </div>
@@ -525,7 +730,8 @@ export default function EnrollmentsPage() {
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">역할</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">상태</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학년/반/번호 또는 부서/직위</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">담임</th>
+              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">담임/부담임</th>
+              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">수업 학년/과목</th>
               <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium w-32">작업</th>
             </tr>
           </thead>
@@ -548,11 +754,95 @@ export default function EnrollmentsPage() {
                 <td className="px-4 py-2 text-body text-text-secondary">{ROLE_LABELS[e.role] || e.role}</td>
                 <td className="px-4 py-2 text-body text-text-secondary">{STATUS_LABELS[e.status] || e.status}</td>
                 <td className="px-4 py-2 text-body text-text-secondary">
-                  {e.role === "student"
-                    ? `${e.grade ?? "?"}-${e.class_number ?? "?"} / ${e.student_number ?? "?"}번`
-                    : `${e.department || "-"} / ${e.position || "-"}`}
+                  {e.role === "student" ? (
+                    <div className="flex items-center gap-1">
+                      <InlineCell
+                        eid={e.id}
+                        field="grade"
+                        value={e.grade}
+                        placeholder="학년"
+                        width="w-16"
+                        options={gradeOptions.length > 0 ? gradeOptions : undefined}
+                        type="number"
+                      />
+                      <span>-</span>
+                      <InlineCell
+                        eid={e.id}
+                        field="class_number"
+                        value={e.class_number}
+                        placeholder="반"
+                        width="w-14"
+                        options={
+                          e.grade && classOptionsFor(e.grade).length > 0
+                            ? classOptionsFor(e.grade)
+                            : undefined
+                        }
+                        type="number"
+                      />
+                      <span>/</span>
+                      <InlineCell eid={e.id} field="student_number" value={e.student_number} placeholder="번호" type="number" width="w-14" />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <InlineCell
+                        eid={e.id}
+                        field="department"
+                        value={e.department}
+                        placeholder="부서"
+                        width="w-28"
+                        options={departmentOptions.length > 0 ? departmentOptions : undefined}
+                      />
+                      <span>/</span>
+                      <InlineCell eid={e.id} field="position" value={e.position} placeholder="직위" width="w-20" />
+                    </div>
+                  )}
                 </td>
-                <td className="px-4 py-2 text-body text-text-secondary">{e.homeroom_class || "-"}</td>
+                <td className="px-4 py-2 text-body text-text-secondary">
+                  {e.role !== "student" ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-caption text-text-tertiary w-6">담임</span>
+                        <InlineCell
+                          eid={e.id}
+                          field="homeroom_class"
+                          value={e.homeroom_class}
+                          placeholder="없음"
+                          width="w-20"
+                          options={allClassOptions.length > 0 ? allClassOptions : undefined}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-caption text-text-tertiary w-6">부</span>
+                        <InlineCell
+                          eid={e.id}
+                          field="subhomeroom_class"
+                          value={e.subhomeroom_class}
+                          placeholder="없음"
+                          width="w-20"
+                          options={allClassOptions.length > 0 ? allClassOptions : undefined}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td className="px-4 py-2 text-body text-text-secondary">
+                  {e.role !== "student" ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-caption text-text-tertiary w-8">학년</span>
+                        <InlineCell eid={e.id} field="teaching_grades" value={e.teaching_grades} placeholder="예 1,2" width="w-20" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-caption text-text-tertiary w-8">과목</span>
+                        <InlineCell eid={e.id} field="teaching_subjects" value={e.teaching_subjects} placeholder="예 수학" width="w-32" />
+                      </div>
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
                 <td className="px-4 py-2">
                   <div className="flex items-center justify-center gap-1">
                     <button
@@ -575,7 +865,7 @@ export default function EnrollmentsPage() {
             ))}
             {enrollments.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-body text-text-tertiary">
+                <td colSpan={7} className="px-4 py-8 text-center text-body text-text-tertiary">
                   {loading ? "로딩 중..." : "이 학기에 등록된 명단이 없습니다. '명단 추가'로 등록하세요."}
                 </td>
               </tr>

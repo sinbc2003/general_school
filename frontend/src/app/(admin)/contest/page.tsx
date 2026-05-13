@@ -4,8 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 import {
   Plus,
-  ChevronLeft,
-  ChevronRight,
   Trash2,
   Edit3,
   X,
@@ -13,6 +11,7 @@ import {
   Users,
   CalendarRange,
 } from "lucide-react";
+import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 
 interface CurrentSemester {
   id: number;
@@ -376,104 +375,63 @@ export default function ContestPage() {
         </span>
       </div>
 
-      {/* 테이블 */}
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">대회명</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">유형</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">상태</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">공개</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">시작일시</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">종료일시</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">참가자</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">생성일</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {contests.map((c) => (
-              <tr key={c.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">
-                  <div className="flex items-center gap-2">
-                    <Trophy size={14} className="text-text-tertiary flex-shrink-0" />
-                    {c.title}
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">
-                  {CONTEST_TYPE_LABELS[c.contest_type] || c.contest_type}
-                </td>
-                <td className="px-4 py-2">
-                  <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_COLORS[c.status] || "bg-gray-100 text-gray-700"}`}>
-                    {STATUS_LABELS[c.status] || c.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">
-                  {c.is_visible ? "공개" : "비공개"}
-                </td>
-                <td className="px-4 py-2 text-caption text-text-secondary">{formatDateTime(c.start_at)}</td>
-                <td className="px-4 py-2 text-caption text-text-secondary">{formatDateTime(c.end_at)}</td>
-                <td className="px-4 py-2 text-center">
-                  <div className="flex items-center justify-center gap-1 text-body text-text-secondary">
-                    <Users size={14} className="text-text-tertiary" />
-                    {c.participant_count}
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-caption text-text-tertiary">{formatDate(c.created_at)}</td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center justify-center gap-1">
-                    <button
-                      onClick={() => openEdit(c)}
-                      title="수정"
-                      className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(c.id)}
-                      title="삭제"
-                      className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-status-error"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {contests.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-body text-text-tertiary">
-                  {loading ? "로딩 중..." : "대회가 없습니다"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-caption text-text-secondary">
-            {page} / {totalPages} ({total}건)
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
+      {/* 테이블 + 페이지네이션 (공통 DataTable) */}
+      <DataTable<ContestItem>
+        columns={[
+          {
+            key: "title", label: "대회명",
+            render: (c) => (
+              <div className="flex items-center gap-2">
+                <Trophy size={14} className="text-text-tertiary flex-shrink-0" />
+                {c.title}
+              </div>
+            ),
+          },
+          { key: "contest_type", label: "유형", render: (c) => CONTEST_TYPE_LABELS[c.contest_type] || c.contest_type },
+          {
+            key: "status", label: "상태",
+            render: (c) => (
+              <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_COLORS[c.status] || "bg-gray-100 text-gray-700"}`}>
+                {STATUS_LABELS[c.status] || c.status}
+              </span>
+            ),
+          },
+          { key: "is_visible", label: "공개", render: (c) => (c.is_visible ? "공개" : "비공개") },
+          { key: "start_at", label: "시작일시", render: (c) => <span className="text-caption text-text-secondary">{formatDateTime(c.start_at)}</span> },
+          { key: "end_at", label: "종료일시", render: (c) => <span className="text-caption text-text-secondary">{formatDateTime(c.end_at)}</span> },
+          {
+            key: "participant_count", label: "참가자", align: "center",
+            render: (c) => (
+              <div className="flex items-center justify-center gap-1">
+                <Users size={14} className="text-text-tertiary" />
+                {c.participant_count}
+              </div>
+            ),
+          },
+          { key: "created_at", label: "생성일", render: (c) => <span className="text-caption text-text-tertiary">{formatDate(c.created_at)}</span> },
+          {
+            key: "actions", label: "작업", align: "center",
+            render: (c) => (
+              <div className="flex items-center justify-center gap-1">
+                <button onClick={() => openEdit(c)} title="수정" className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent">
+                  <Edit3 size={14} />
+                </button>
+                <button onClick={() => handleDelete(c.id)} title="삭제" className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-status-error">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={contests}
+        keyExtractor={(c) => c.id}
+        loading={loading}
+        emptyText="대회가 없습니다"
+        page={page}
+        totalPages={totalPages}
+        totalCount={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

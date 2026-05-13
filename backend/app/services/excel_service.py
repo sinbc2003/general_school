@@ -80,8 +80,22 @@ def generate_user_template() -> io.BytesIO:
 async def parse_user_excel(
     content: bytes, db: AsyncSession
 ) -> tuple[list[dict], list[dict]]:
-    """엑셀 파일을 파싱하여 유효한 행과 오류 목록 반환"""
-    wb = load_workbook(io.BytesIO(content))
+    """엑셀 파일을 파싱하여 유효한 행과 오류 목록 반환.
+
+    read_only + data_only: cell 스타일 인덱싱 오류(다른 도구가 만든 .xlsx에서 발생)와
+    수식 계산 결과만 필요한 경우를 한 번에 회피.
+    """
+    try:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as e:
+        # 폴백: read_only 실패 시 일반 모드로 한 번 더 시도
+        try:
+            wb = load_workbook(io.BytesIO(content), data_only=True)
+        except Exception as e2:
+            return [], [{
+                "row": 0, "field": "",
+                "message": f"엑셀 파일을 읽을 수 없습니다: {e2}. xlsx 양식인지 확인해주세요.",
+            }]
     ws = wb.active
     if not ws:
         return [], [{"row": 0, "field": "", "message": "시트를 찾을 수 없습니다"}]

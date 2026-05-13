@@ -43,6 +43,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
 const PASSWORD_CHANGE_PATH = "/auth/change-password";
+const ONBOARDING_PATH = "/auth/teacher-onboarding";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -73,13 +74,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     init();
   }, [fetchUser]);
 
+  // 교사 onboarding 필요 여부 (현재 학기 enrollment.onboarded=false)
+  const [needsTeacherOnboarding, setNeedsTeacherOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // 교사만 onboarding 체크. 다른 역할은 skip.
+    if (!user || user.role !== "teacher" || user.must_change_password) {
+      setNeedsTeacherOnboarding(false);
+      return;
+    }
+    api
+      .get<{ enrollment: { onboarded: boolean } | null }>("/api/timetable/my-enrollment")
+      .then((d) => setNeedsTeacherOnboarding(!!d.enrollment && !d.enrollment.onboarded))
+      .catch(() => setNeedsTeacherOnboarding(false));
+  }, [user]);
+
   useEffect(() => {
     if (loading) return;
     const isPublic = PUBLIC_PATHS.some((p) => pathname?.startsWith(p));
     const isPasswordChange = pathname?.startsWith(PASSWORD_CHANGE_PATH);
+    const isOnboarding = pathname?.startsWith(ONBOARDING_PATH);
 
     // 비로그인 + 비공개 페이지 → 로그인으로
-    if (!user && !isPublic && !isPasswordChange) {
+    if (!user && !isPublic && !isPasswordChange && !isOnboarding) {
       router.push("/auth/login");
       return;
     }
@@ -90,15 +107,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // 이미 로그인 + 로그인 페이지에 있음 → 역할별 대시보드로
-    if (user && pathname === "/auth/login") {
-      if (user.role === "student") {
-        router.push("/s/dashboard");
-      } else {
-        router.push("/dashboard");
-      }
+    // 교사 + onboarding 필요 → onboarding 페이지로
+    if (user?.role === "teacher" && needsTeacherOnboarding && !isOnboarding && !isPasswordChange) {
+      router.push(ONBOARDING_PATH);
+      return;
     }
-  }, [user, loading, pathname, router]);
+
+    // 이미 로그인 + 로그인 페이지에 있음 → 통합 대시보드로
+    if (user && pathname === "/auth/login") {
+      router.push("/dashboard");
+    }
+  }, [user, loading, pathname, router, needsTeacherOnboarding]);
 
   const login = useCallback(
     async (identifier: string, password: string) => {

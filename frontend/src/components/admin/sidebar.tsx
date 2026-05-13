@@ -11,9 +11,11 @@ import { useSidebar } from "@/lib/sidebar-context";
 import { adminMenu, type MenuItem } from "@/config/admin-menu";
 import { iconMap, type MenuCategory } from "@/config/menu-categories";
 
-// 대메뉴(카테고리) 블록 파스텔 톤 — 토글 펼쳤을 때 시각적 구분용
-// 모든 카테고리 동일한 연한 파랑 (업무 톤)
+// 대메뉴(카테고리) 블록 — 항상 표시. 파스텔 블루 (펼치든 접든 동일).
 const CATEGORY_BG_DEFAULT = "bg-blue-50";
+// 카테고리 내부의 토글(자식 있는 메뉴) — 카테고리와 구분되는 작은 블록.
+// 파스텔 앰버 (warm)로 시각적으로 다른 위계 표시.
+const SUBMENU_BG_DEFAULT = "bg-amber-50/70";
 
 interface CurrentSemester {
   id: number;
@@ -67,6 +69,11 @@ export function AdminSidebar() {
 
   const isVisible = (item: MenuItem): boolean => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
+    // role 기반 필터
+    if (item.roles && item.roles.length > 0) {
+      if (!user || !item.roles.includes(user.role)) return false;
+    }
+    if (item.excludeRoles && user && item.excludeRoles.includes(user.role)) return false;
     if (item.permission && !hasPermission(item.permission)) return false;
     if (isHidden(item.key)) return false;
     if (item.children) {
@@ -93,14 +100,17 @@ export function AdminSidebar() {
     if (item.children) {
       const isOpen = openSubmenus.has(item.key);
       const parentActive = item.children.some((c) => c.path && isActive(c.path));
+      // 자식 있는 토글 — 카테고리와 구별되는 작은 색 블록 (앰버 톤).
+      // collapsed 모드는 색 없이 아이콘만.
+      const submenuBg = !collapsed ? SUBMENU_BG_DEFAULT : "";
       return (
         <div key={item.key}>
           <button
             onClick={() => toggleSubmenu(item.key)}
-            className={`w-full flex items-center gap-2 ${indentPx} pr-2 py-2 text-[13.5px] rounded transition-colors ${
+            className={`w-full flex items-center gap-2 ${indentPx} pr-2 py-2 text-[13.5px] rounded transition-colors ${submenuBg} ${
               parentActive
-                ? "text-accent font-medium"
-                : "text-text-primary hover:bg-bg-secondary"
+                ? "text-accent font-medium ring-1 ring-amber-200"
+                : "text-text-primary hover:brightness-95"
             }`}
           >
             <Icon size={15} className="flex-shrink-0" />
@@ -112,7 +122,11 @@ export function AdminSidebar() {
             )}
           </button>
           {isOpen && !collapsed && (
-            <div className="space-y-0.5 mt-0.5">
+            <div
+              className={`space-y-0.5 mt-0.5 ml-3 pl-2 border-l-2 ${
+                parentActive ? "border-amber-300" : "border-amber-100"
+              }`}
+            >
               {item.children.map((child) => renderMenuItem(child, depth + 1))}
             </div>
           )}
@@ -234,15 +248,13 @@ export function AdminSidebar() {
               return item ? matches(item) : false;
             });
 
-          // 카테고리 헤더: 펼친 상태는 진하게, 닫힌 상태는 옅게.
-          // 활성 카테고리는 강조.
+          // 카테고리 헤더: 펼치든 접든 항상 블록 색 (파스텔 블루).
+          // 활성 카테고리(현재 페이지 포함)는 강조 테두리 + accent 색.
           const headerCls = collapsed
             ? "text-text-secondary hover:text-text-primary"
             : isActiveCategory
             ? `${CATEGORY_BG_DEFAULT} text-accent border border-blue-200`
-            : isOpen
-            ? `${CATEGORY_BG_DEFAULT} text-text-primary`
-            : "bg-bg-secondary/40 text-text-tertiary hover:text-text-primary hover:bg-bg-secondary/60";
+            : `${CATEGORY_BG_DEFAULT} text-text-primary hover:brightness-95`;
 
           return (
             <div key={cat.id}>

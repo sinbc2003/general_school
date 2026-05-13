@@ -19,7 +19,13 @@ import {
   Circle,
   ArrowRight,
   AlertCircle,
+  Download,
+  Upload,
+  School,
 } from "lucide-react";
+import { ChipInput } from "@/components/ui/ChipInput";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 
 interface Semester {
   id: number;
@@ -29,6 +35,9 @@ interface Semester {
   start_date: string;
   end_date: string;
   is_current: boolean;
+  classes_per_grade?: Record<string, number>;
+  subjects?: string[];
+  departments?: string[];
 }
 
 interface FormData {
@@ -57,6 +66,52 @@ export default function SemestersPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+
+  // 학기 생성 시 함께 받는 명단 CSV (선택 항목)
+  const [teacherFile, setTeacherFile] = useState<File | null>(null);
+  const [studentFile, setStudentFile] = useState<File | null>(null);
+  const [createResult, setCreateResult] = useState<{
+    semester?: Semester;
+    teacher?: any;
+    student?: any;
+    error?: string;
+  } | null>(null);
+
+  // 학교 구조 모달 상태
+  const [structureSid, setStructureSid] = useState<number | null>(null);
+  const [structureForm, setStructureForm] = useState<{
+    classes_per_grade: Record<string, number>;
+    subjects: string[];
+    departments: string[];
+  }>({ classes_per_grade: { "1": 0, "2": 0, "3": 0 }, subjects: [], departments: [] });
+  const [structureSaving, setStructureSaving] = useState(false);
+
+  const openStructure = (s: Semester) => {
+    setStructureSid(s.id);
+    setStructureForm({
+      classes_per_grade: { "1": 0, "2": 0, "3": 0, ...(s.classes_per_grade || {}) },
+      subjects: s.subjects || [],
+      departments: s.departments || [],
+    });
+  };
+
+  const saveStructure = async () => {
+    if (!structureSid) return;
+    setStructureSaving(true);
+    try {
+      await api.put(`/api/timetable/semesters/${structureSid}/structure`, {
+        classes_per_grade: structureForm.classes_per_grade,
+        subjects: structureForm.subjects,
+        departments: structureForm.departments,
+      });
+      await fetchSemesters();
+      setStructureSid(null);
+    } catch (err: any) {
+      alert(err?.detail || "저장 실패");
+    } finally {
+      setStructureSaving(false);
+    }
+  };
 
   // 진급 마법사 상태
   const [showPromote, setShowPromote] = useState(false);
@@ -88,6 +143,9 @@ export default function SemestersPage() {
   const openCreate = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setTeacherFile(null);
+    setStudentFile(null);
+    setCreateResult(null);
     setShowForm(true);
   };
 
@@ -101,7 +159,46 @@ export default function SemestersPage() {
       end_date: s.end_date.slice(0, 10),
       is_current: s.is_current,
     });
+    setTeacherFile(null);
+    setStudentFile(null);
+    setCreateResult(null);
     setShowForm(true);
+  };
+
+  const downloadTemplate = async (role: "teacher" | "student", full = false) => {
+    try {
+      const token = localStorage.getItem("access_token");
+      const url = `${API_URL}/api/timetable/enrollments/csv-template/${role}${full ? "?full=true" : ""}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error("template download failed");
+      const blob = await res.blob();
+      const obj = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = obj;
+      a.download = `${role}${full ? "_full" : ""}_template.csv`;
+      a.click();
+      URL.revokeObjectURL(obj);
+    } catch (err: any) {
+      alert("템플릿 다운로드 실패: " + (err?.message || ""));
+    }
+  };
+
+  // 학기 생성 시 명단 CSV import (학기 ID 확보 후 호출)
+  const importCsv = async (sid: number, role: "teacher" | "student", file: File) => {
+    const token = localStorage.getItem("access_token");
+    const fd = new FormData();
+    fd.append("file", file);
+    const url = `${API_URL}/api/timetable/semesters/${sid}/import-enrollments?role=${role}&dry_run=false`;
+    const res = await fetch(url, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail || `${role} CSV 업로드 실패`);
+    return data;
   };
 
   const submit = async () => {
@@ -110,6 +207,7 @@ export default function SemestersPage() {
       return;
     }
     setSubmitting(true);
+    setCreateResult(null);
     try {
       const body: any = {
         year: form.year,
@@ -119,17 +217,46 @@ export default function SemestersPage() {
         end_date: form.end_date,
         is_current: form.is_current,
       };
+      // 1. 학기 생성/수정
+      let sid: number;
+      let semObj: Semester | undefined;
       if (editingId) {
         await api.put(`/api/timetable/semesters/${editingId}`, body);
+        sid = editingId;
       } else {
-        await api.post("/api/timetable/semesters", body);
+        semObj = await api.post<Semester>("/api/timetable/semesters", body);
+        sid = semObj.id;
       }
-      setShowForm(false);
-      setEditingId(null);
-      setForm(EMPTY_FORM);
+
+      // 2. 명단 CSV (선택) — 생성/수정 모드 무관, 파일이 있으면 업로드
+      const result: { semester?: Semester; teacher?: any; student?: any } = { semester: semObj };
+      if (teacherFile) {
+        try {
+          result.teacher = await importCsv(sid, "teacher", teacherFile);
+        } catch (err: any) {
+          result.teacher = { error: err?.message || "교직원 CSV 실패" };
+        }
+      }
+      if (studentFile) {
+        try {
+          result.student = await importCsv(sid, "student", studentFile);
+        } catch (err: any) {
+          result.student = { error: err?.message || "학생 CSV 실패" };
+        }
+      }
+
+      setCreateResult(result);
+
+      // 명단 업로드가 없으면 즉시 모달 닫고 갱신. 있으면 결과 확인 후 닫기.
+      const hadCsv = !!teacherFile || !!studentFile;
+      if (!hadCsv) {
+        setShowForm(false);
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+      }
       fetchSemesters();
     } catch (err: any) {
-      alert(err?.detail || "저장 실패");
+      setCreateResult({ error: err?.detail || err?.message || "저장 실패" });
     } finally {
       setSubmitting(false);
     }
@@ -232,7 +359,7 @@ export default function SemestersPage() {
       {/* 학기 생성/수정 모달 */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-bg-primary rounded-lg border border-border-default w-full max-w-md p-6">
+          <div className="bg-bg-primary rounded-lg border border-border-default w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-body font-medium text-text-primary">
                 {editingId ? "학기 수정" : "학기 생성"}
@@ -309,22 +436,252 @@ export default function SemestersPage() {
                 </div>
               )}
             </div>
+
+            {/* 명단 CSV — 학기 생성과 함께 업로드 (선택). 교사/학생 한 곳에서 받음. */}
+            <div className="mt-5 pt-4 border-t border-border-default">
+              <h3 className="text-body font-medium text-text-primary mb-2 flex items-center gap-2">
+                <Upload size={14} /> 명단 CSV (선택)
+              </h3>
+              <div className="text-caption text-text-tertiary mb-3 space-y-0.5">
+                <div>• <b>이름</b> = 아이디 자동 부여 (동명이인은 <code>홍길동_2</code>)</div>
+                <div>• <b>휴대폰 숫자</b> = 초기 비밀번호. 첫 로그인 시 변경 강제.</div>
+                <div>• 교사의 <b>담당 과목·학년·학급</b>은 본인이 첫 로그인 시 드롭다운으로 입력합니다 (학교 구조 설정 필요).</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* 교직원 CSV */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-caption text-text-secondary">
+                      교직원 (부서, 이름, 핸드폰)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => downloadTemplate("teacher", false)}
+                        className="inline-flex items-center gap-1 text-caption text-accent hover:underline"
+                      >
+                        <Download size={12} /> 최소
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadTemplate("teacher", true)}
+                        className="inline-flex items-center gap-1 text-caption text-text-tertiary hover:text-accent hover:underline"
+                        title="담임/수업 학년 등 모든 컬럼 포함"
+                      >
+                        <Download size={12} /> 전체
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => setTeacherFile(e.target.files?.[0] || null)}
+                    className="w-full text-caption"
+                  />
+                  {teacherFile && (
+                    <div className="text-caption text-text-tertiary truncate">
+                      📎 {teacherFile.name}
+                    </div>
+                  )}
+                </div>
+
+                {/* 학생 CSV */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-caption text-text-secondary">
+                      학생 (학번, 이름, 핸드폰)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => downloadTemplate("student")}
+                      className="inline-flex items-center gap-1 text-caption text-accent hover:underline"
+                    >
+                      <Download size={12} /> 양식
+                    </button>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => setStudentFile(e.target.files?.[0] || null)}
+                    className="w-full text-caption"
+                  />
+                  {studentFile && (
+                    <div className="text-caption text-text-tertiary truncate">
+                      📎 {studentFile.name}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 결과 표시 */}
+            {createResult && (
+              <div className="mt-4 p-3 rounded border border-border-default bg-bg-secondary space-y-2">
+                {createResult.error && (
+                  <div className="text-caption text-status-error flex items-start gap-1.5">
+                    <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                    {createResult.error}
+                  </div>
+                )}
+                {createResult.semester && (
+                  <div className="text-caption text-text-primary">
+                    ✅ <b>{createResult.semester.name}</b> 학기 생성 완료
+                  </div>
+                )}
+                {createResult.teacher && (
+                  <div className="text-caption text-text-secondary">
+                    {createResult.teacher.error ? (
+                      <span className="text-status-error">⚠️ 교직원 CSV: {createResult.teacher.error}</span>
+                    ) : (
+                      <>
+                        ✅ 교직원: 성공 <b>{createResult.teacher.ok_count}</b> / 신규{" "}
+                        <b>{createResult.teacher.created_users}</b> / 재사용{" "}
+                        <b>{createResult.teacher.reused_users}</b>
+                        {createResult.teacher.errors?.length > 0 && (
+                          <span className="text-status-error"> · 오류 {createResult.teacher.errors.length}건</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+                {createResult.student && (
+                  <div className="text-caption text-text-secondary">
+                    {createResult.student.error ? (
+                      <span className="text-status-error">⚠️ 학생 CSV: {createResult.student.error}</span>
+                    ) : (
+                      <>
+                        ✅ 학생: 성공 <b>{createResult.student.ok_count}</b> / 신규{" "}
+                        <b>{createResult.student.created_users}</b> / 재사용{" "}
+                        <b>{createResult.student.reused_users}</b>
+                        {createResult.student.errors?.length > 0 && (
+                          <span className="text-status-error"> · 오류 {createResult.student.errors.length}건</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 mt-5">
               <button
                 onClick={() => {
                   setShowForm(false);
                   setEditingId(null);
+                  setCreateResult(null);
                 }}
                 className="px-4 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
               >
-                취소
+                {createResult ? "닫기" : "취소"}
               </button>
               <button
                 onClick={submit}
                 disabled={submitting}
                 className="px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
               >
-                {submitting ? "저장 중..." : editingId ? "수정" : "생성"}
+                {submitting
+                  ? "처리 중..."
+                  : editingId
+                  ? teacherFile || studentFile
+                    ? "수정 + 명단 등록"
+                    : "수정"
+                  : teacherFile || studentFile
+                  ? "생성 + 명단 등록"
+                  : "생성"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 학교 구조 설정 모달 */}
+      {structureSid !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-bg-primary rounded-lg border border-border-default w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-body font-medium text-text-primary flex items-center gap-2">
+                <School size={18} /> 학교 구조 설정
+              </h2>
+              <button
+                onClick={() => setStructureSid(null)}
+                className="text-text-tertiary hover:text-text-primary"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-caption text-text-tertiary mb-4">
+              교사가 첫 로그인 시 본인의 담당 학년/학급/과목을 입력할 때 사용할 <b>드롭다운 목록</b>을 정의합니다.
+              표준화된 데이터로 수집되어 "담당 학생만 조회" 같은 정책이 정확히 작동합니다.
+            </p>
+
+            {/* 학년별 학급 수 */}
+            <section className="mb-5">
+              <h3 className="text-body font-medium text-text-primary mb-2">학년별 학급 수</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {(["1", "2", "3"] as const).map((g) => (
+                  <div key={g}>
+                    <label className="block text-caption text-text-secondary mb-1">{g}학년</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={structureForm.classes_per_grade[g] ?? 0}
+                      onChange={(e) =>
+                        setStructureForm((p) => ({
+                          ...p,
+                          classes_per_grade: { ...p.classes_per_grade, [g]: parseInt(e.target.value || "0") },
+                        }))
+                      }
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-caption text-text-tertiary mt-1">
+                예: 1학년 5개 반이면 5 입력 → 드롭다운에 "1-1, 1-2, ..., 1-5" 자동 생성.
+              </p>
+            </section>
+
+            {/* 개설 과목 */}
+            <section className="mb-5">
+              <h3 className="text-body font-medium text-text-primary mb-2">개설 과목</h3>
+              <ChipInput
+                items={structureForm.subjects}
+                onChange={(items) => setStructureForm((p) => ({ ...p, subjects: items }))}
+                placeholder="과목명 입력 후 Enter (예: 수학) — 콤마/줄바꿈 붙여넣기도 가능"
+              />
+              <p className="text-caption text-text-tertiary mt-1">
+                {structureForm.subjects.length}개 과목 · Enter 추가 · Backspace로 마지막 삭제
+              </p>
+            </section>
+
+            {/* 부서 */}
+            <section className="mb-5">
+              <h3 className="text-body font-medium text-text-primary mb-2">부서 목록</h3>
+              <ChipInput
+                items={structureForm.departments}
+                onChange={(items) => setStructureForm((p) => ({ ...p, departments: items }))}
+                placeholder="부서명 입력 후 Enter (예: 수학과)"
+              />
+              <p className="text-caption text-text-tertiary mt-1">
+                {structureForm.departments.length}개 부서
+              </p>
+            </section>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setStructureSid(null)}
+                className="px-4 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+              >
+                취소
+              </button>
+              <button
+                onClick={saveStructure}
+                disabled={structureSaving}
+                className="px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+              >
+                {structureSaving ? "저장 중..." : "저장"}
               </button>
             </div>
           </div>
@@ -495,6 +852,13 @@ export default function SemestersPage() {
                 </td>
                 <td className="px-4 py-2">
                   <div className="flex items-center justify-center gap-1">
+                    <button
+                      onClick={() => openStructure(s)}
+                      title="학교 구조 설정 (학급 수·과목·부서)"
+                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent"
+                    >
+                      <School size={14} />
+                    </button>
                     <button
                       onClick={() => openEdit(s)}
                       title="수정"

@@ -178,7 +178,12 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     )
     token_row = result.scalar_one_or_none()
 
-    if not token_row or token_row.expires_at < datetime.now(timezone.utc):
+    # SQLite는 timezone 정보를 저장하지 않아서 expires_at이 naive로 돌아올 수 있음.
+    # 저장 시 UTC였으므로 UTC tzinfo 부여 후 비교.
+    expires_at = token_row.expires_at if token_row else None
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not token_row or (expires_at and expires_at < datetime.now(timezone.utc)):
         raise HTTPException(401, "리프레시 토큰이 유효하지 않습니다")
 
     result = await db.execute(select(User).where(User.id == token_row.user_id))

@@ -53,6 +53,13 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["dashboard", "meeting", "timetable"],
     },
     {
+      id: "my-area",
+      name: "나의 영역",
+      icon: "GraduationCap",
+      // 학생 전용 항목 — admin 메뉴에 두지만 roles=["student"]라 교사에겐 숨김
+      items: ["my-portfolio", "my-career", "alumni-research-student", "chat-student"],
+    },
+    {
       id: "teaching",
       name: "수업",
       icon: "BookOpen",

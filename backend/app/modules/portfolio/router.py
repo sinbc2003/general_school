@@ -15,6 +15,7 @@ from app.core.audit import log_action
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.visibility import assert_can_view_student
 from app.models.portfolio import (
     StudentGrade, StudentMockExam, StudentAward,
     StudentThesis, StudentCounseling, StudentRecord,
@@ -38,6 +39,7 @@ async def list_grades(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     q = select(StudentGrade).where(StudentGrade.student_id == sid)
     if year:
         q = q.where(StudentGrade.year == year)
@@ -61,6 +63,7 @@ async def create_grade(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await assert_can_view_student(db, user, sid)
     g = StudentGrade(
         student_id=sid, year=body["year"], semester=body["semester"],
         exam_type=body["exam_type"], subject=body["subject"],
@@ -83,6 +86,7 @@ async def list_mock_exams(
     user: User = Depends(require_permission("portfolio.mockexam.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     rows = (await db.execute(
         select(StudentMockExam).where(StudentMockExam.student_id == sid)
         .order_by(desc(StudentMockExam.exam_date))
@@ -102,6 +106,7 @@ async def create_mock_exam(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await assert_can_view_student(db, user, sid)
     m = StudentMockExam(
         student_id=sid, exam_name=body["exam_name"],
         exam_date=body["exam_date"], subject=body["subject"],
@@ -124,6 +129,7 @@ async def list_awards(
     user: User = Depends(require_permission("portfolio.award.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     rows = (await db.execute(
         select(StudentAward).where(StudentAward.student_id == sid)
         .order_by(desc(StudentAward.award_date))
@@ -143,6 +149,7 @@ async def create_award(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await assert_can_view_student(db, user, sid)
     a = StudentAward(
         student_id=sid, title=body["title"],
         award_type=body["award_type"], category=body["category"],
@@ -163,6 +170,7 @@ async def list_theses(
     user: User = Depends(require_permission("portfolio.thesis.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     rows = (await db.execute(
         select(StudentThesis).where(StudentThesis.student_id == sid)
         .order_by(desc(StudentThesis.created_at))
@@ -180,6 +188,7 @@ async def create_thesis(
     user: User = Depends(require_permission("portfolio.thesis.edit")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     t = StudentThesis(
         student_id=sid, title=body["title"],
         thesis_type=body["thesis_type"], abstract=body.get("abstract"),
@@ -199,6 +208,7 @@ async def list_counselings(
     user: User = Depends(require_permission("portfolio.counseling.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     q = select(StudentCounseling).where(StudentCounseling.student_id == sid)
     if user.role not in ("super_admin", "designated_admin"):
         q = q.where(StudentCounseling.counselor_id == user.id)
@@ -217,6 +227,7 @@ async def create_counseling(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await assert_can_view_student(db, user, sid)
     c = StudentCounseling(
         student_id=sid, counselor_id=user.id,
         counseling_date=body["counseling_date"],
@@ -238,6 +249,7 @@ async def list_records(
     user: User = Depends(require_permission("portfolio.record.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     q = select(StudentRecord).where(StudentRecord.student_id == sid)
     if year:
         q = q.where(StudentRecord.year == year)
@@ -255,6 +267,7 @@ async def create_record(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await assert_can_view_student(db, user, sid)
     r = StudentRecord(
         student_id=sid, year=body["year"], semester=body["semester"],
         record_type=body["record_type"], content=body["content"],
@@ -273,6 +286,7 @@ async def get_portfolio(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """학생 종합 포트폴리오"""
     student = (await db.execute(select(User).where(User.id == sid))).scalar_one_or_none()
     if not student or student.role != "student":
@@ -350,6 +364,7 @@ async def portfolio_stats(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """학생 다년치 누적 통계 — 학년/학기별 평균, 수상 개수, 상담 개수, 모의고사 등급 추이"""
     student = (await db.execute(select(User).where(User.id == sid))).scalar_one_or_none()
     if not student:
@@ -419,6 +434,7 @@ async def portfolio_timeline(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """학생 활동 타임라인 — 모든 활동을 시간순으로 통합"""
     events: list = []
 
@@ -495,6 +511,7 @@ async def export_student_csv(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """학생 단일 데이터 CSV 묶음 (각 type 섹션)"""
     type_list = [t.strip() for t in types.split(",") if t.strip() in CSV_TEMPLATES]
 
@@ -529,6 +546,7 @@ async def student_report_pdf(
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """학생 종합 포트폴리오 PDF (생기부 양식 모방)"""
     student = (await db.execute(select(User).where(User.id == sid))).scalar_one_or_none()
     if not student or student.role != "student":
@@ -571,6 +589,7 @@ async def list_student_artifacts(
     user: User = Depends(require_permission("portfolio.artifact.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """교사가 특정 학생의 산출물 조회 (지도 목적)"""
     q = select(StudentArtifact).where(StudentArtifact.student_id == sid)
     if category:
@@ -595,6 +614,7 @@ async def list_student_career_plans(
     user: User = Depends(require_permission("portfolio.career.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    await assert_can_view_student(db, user, sid)
     """교사가 특정 학생의 진로/진학 설계 조회 (지도 목적)"""
     rows = (await db.execute(
         select(StudentCareerPlan).where(StudentCareerPlan.student_id == sid)

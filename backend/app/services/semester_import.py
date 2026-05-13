@@ -27,15 +27,42 @@ from app.models.user import User
 from app.models.timetable import SemesterEnrollment
 
 
-TEACHER_COLUMNS = ["department", "name", "phone"]
+TEACHER_COLUMNS = [
+    "department", "name", "phone",
+    "teaching_grades", "homeroom_class", "subhomeroom_class",
+    "teaching_subjects",
+]
 STUDENT_COLUMNS = ["student_no", "name", "phone"]
 
 
-def template_csv(role: str) -> str:
-    """역할별 빈 CSV 템플릿 (UTF-8 BOM 포함)."""
+def template_csv(role: str, full: bool = False) -> str:
+    """역할별 빈 CSV 템플릿 (UTF-8 BOM 포함).
+
+    정책:
+      - 학생은 정보가 단순 → CSV에 모두 입력 (학번에서 학년/반/번호 자동 파싱).
+      - 교사는 부서/이름/핸드폰/담당 과목까지만. 담임/수업 학년/학급은
+        교사가 첫 로그인 시 본인이 드롭다운으로 입력 (학교 구조 기반 표준화).
+
+    full=True (참고용): 담임/수업 학년까지 포함 — 보통은 안 쓰지만 일괄 이관 시 활용.
+    """
     BOM = "﻿"
     if role == "teacher":
-        return BOM + "department,name,phone\n수학과,김선생,010-1234-5678\n행정실,이주무관,010-2345-6789\n"
+        if not full:
+            # 최소: 부서/이름/핸드폰만. 담당 과목·학년·학급은 교사가 첫 로그인 시 본인이 드롭다운으로 선택.
+            return (
+                BOM
+                + "department,name,phone\n"
+                + "수학과,김선생,010-1234-5678\n"
+                + "행정실,박주무관,010-2345-6789\n"
+            )
+        # 전체: 일괄 이관 시 사용 (담당 과목·학년·학급까지 미리 채워넣을 때)
+        return (
+            BOM
+            + "department,name,phone,teaching_grades,homeroom_class,subhomeroom_class,teaching_subjects\n"
+            + "수학과,김담임,010-1234-5678,\"1,2\",1-3,,\"수학,수학I\"\n"
+            + "수학과,이부담임,010-2345-6789,3,,3-2,수학II\n"
+            + "행정실,박주무관,010-3456-7890,,,,\n"
+        )
     if role == "student":
         return BOM + "student_no,name,phone\n1-3-5,홍길동,010-1111-2222\n10306,김철수,010-2222-3333\n"
     raise ValueError(f"unknown role: {role}")
@@ -47,6 +74,16 @@ _PHONE_STRIP = re.compile(r"[^\d]")
 def _normalize_phone(phone: str) -> str:
     """전화번호에서 숫자만 추출. 비밀번호로 사용."""
     return _PHONE_STRIP.sub("", phone or "")
+
+
+def _normalize_list_str(s: str) -> str:
+    """'1, 2 , 3' / '1|2|3' / '1;2' → '1,2,3'"""
+    parts = [
+        p.strip()
+        for p in s.replace("|", ",").replace(";", ",").split(",")
+        if p.strip()
+    ]
+    return ",".join(parts)
 
 
 def _parse_student_no(s: str) -> tuple[int | None, int | None, int | None]:
@@ -116,6 +153,7 @@ async def import_enrollments_csv(
     reader = csv.DictReader(io.StringIO(text))
     fields = {f.strip().lower() for f in (reader.fieldnames or [])}
 
+    # 필수 컬럼: 교사=부서/이름/전화, 학생=학번/이름/전화. 나머지는 선택.
     required = {"name", "phone"} | ({"department"} if role == "teacher" else {"student_no"})
     missing = required - fields
     if missing:
@@ -202,6 +240,15 @@ async def import_enrollments_csv(
             }
             if role == "teacher":
                 enroll_kwargs["department"] = (row.get("department") or "").strip() or None
+                # 담임/부담임/수업 학년·학급·과목 (모두 선택)
+                enroll_kwargs["homeroom_class"] = (row.get("homeroom_class") or "").strip() or None
+                enroll_kwargs["subhomeroom_class"] = (row.get("subhomeroom_class") or "").strip() or None
+                tg = (row.get("teaching_grades") or "").strip()
+                enroll_kwargs["teaching_grades"] = _normalize_list_str(tg) if tg else None
+                tc = (row.get("teaching_classes") or "").strip()
+                enroll_kwargs["teaching_classes"] = _normalize_list_str(tc) if tc else None
+                ts = (row.get("teaching_subjects") or "").strip()
+                enroll_kwargs["teaching_subjects"] = _normalize_list_str(ts) if ts else None
             else:  # student
                 grade, class_num, snum = _parse_student_no(row.get("student_no") or "")
                 enroll_kwargs["grade"] = grade

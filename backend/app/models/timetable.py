@@ -35,6 +35,13 @@ class Semester(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     is_current: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # 학교 구조 (드롭다운 표준화 용도). 모두 JSON 문자열로 저장.
+    # 교사 onboarding 시 이 정보로 드롭다운 생성 → 표준화된 데이터 수집.
+    classes_per_grade: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 예: '{"1":5,"2":5,"3":4}'
+    subjects: Mapped[str | None] = mapped_column(String(2000), nullable=True)          # 예: '["수학","물리"]'
+    departments: Mapped[str | None] = mapped_column(String(1000), nullable=True)      # 예: '["수학과","과학과"]'
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -118,12 +125,25 @@ class SemesterEnrollment(Base):
     # 교직원용 (role in teacher/staff)
     department: Mapped[str | None] = mapped_column(String(50), nullable=True)
     position: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 부장/평교사 등
-    homeroom_class: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 예: "3-2"
+    homeroom_class: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 담임 학급 예: "3-2"
+    subhomeroom_class: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 부담임 학급 예: "3-3"
+    # 수업하는 학년 — JSON list of int. 예: [1], [1,2], [2,3].
+    # 향후 "담당 학년 학생만 열람" 정책의 1차 매칭 키로 사용.
+    teaching_grades: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # 수업하는 학급 — 더 세분화된 매칭. JSON list of str. 예: ["1-1","1-2","2-3"]. (선택)
+    teaching_classes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 가르치는 과목 (선택). 예: ["수학", "수학II"]
+    teaching_subjects: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # 학기별 연락처 캐시 (User.phone과 동기화하지만 학기별로 보존)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # 본인 정보 입력 완료 플래그 (교사 onboarding 후 True).
+    # False면 첫 로그인 시 /auth/teacher-onboarding 페이지로 강제.
+    onboarded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, School, Flag, Bell, Database, Image as ImageIcon, Save, Trash2 } from "lucide-react";
+import { Settings, School, Flag, Bell, Database, Image as ImageIcon, Save, Trash2, Eye } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 
@@ -15,6 +15,9 @@ export default function SystemSettingsPage() {
       <div className="space-y-6">
         {/* 사이트 브랜딩 — 최고관리자 전용 */}
         <BrandingSection />
+
+        {/* 교사 열람 범위 정책 */}
+        <TeacherViewScopeSection />
 
         {/* 기능 플래그 */}
         <div className="bg-bg-primary rounded-lg border border-border-default p-6">
@@ -304,6 +307,101 @@ function BrandingSection() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ── 교사 학생 열람 범위 정책 ──
+
+interface ScopeOption { value: string; label: string; }
+interface ScopeResp { scope: string; options: ScopeOption[]; }
+
+function TeacherViewScopeSection() {
+  const { isSuperAdmin } = useAuth();
+  const [scope, setScope] = useState<string>("all");
+  const [options, setOptions] = useState<ScopeOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      setLoading(false);
+      return;
+    }
+    api.get<ScopeResp>("/api/system/policy/teacher-view-scope")
+      .then((d) => {
+        setScope(d.scope);
+        setOptions(d.options);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [isSuperAdmin]);
+
+  const save = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api.put("/api/system/policy/teacher-view-scope", { scope });
+      setMsg({ kind: "ok", text: "저장 완료" });
+    } catch (err: any) {
+      setMsg({ kind: "err", text: err?.detail || "저장 실패" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isSuperAdmin) return null;
+  if (loading) return null;
+
+  return (
+    <div className="bg-bg-primary rounded-lg border border-border-default p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Eye size={18} className="text-accent" />
+        <h2 className="text-body font-semibold text-text-primary">교사 학생 열람 범위</h2>
+      </div>
+      <p className="text-caption text-text-tertiary mb-3">
+        교사가 학생 명단·포트폴리오·진로 등을 조회할 때 적용되는 정책입니다.
+        "담당 학생만"으로 설정하면 본인 담임/부담임 학급 또는 본인 수업 학년/학급의 학생만 보입니다.
+      </p>
+      <div className="space-y-2">
+        {options.map((opt) => (
+          <label
+            key={opt.value}
+            className={`flex items-start gap-2 p-2 border rounded cursor-pointer transition-colors ${
+              scope === opt.value
+                ? "border-accent bg-blue-50"
+                : "border-border-default hover:bg-bg-secondary"
+            }`}
+          >
+            <input
+              type="radio"
+              name="teacher-view-scope"
+              value={opt.value}
+              checked={scope === opt.value}
+              onChange={() => setScope(opt.value)}
+              className="mt-0.5"
+            />
+            <span className="text-body text-text-primary">{opt.label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center gap-3 mt-4">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? "저장 중..." : "저장"}
+        </button>
+        {msg && (
+          <span className={`text-caption ${msg.kind === "ok" ? "text-status-success" : "text-status-error"}`}>
+            {msg.text}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

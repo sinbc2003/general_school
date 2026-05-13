@@ -208,6 +208,41 @@ async def update_branding(
     return {"ok": True}
 
 
+# ── 교사 열람 범위 정책 ──
+
+from app.core.visibility import get_view_scope, set_view_scope, VALID_SCOPES
+
+
+@router.get("/policy/teacher-view-scope")
+async def get_teacher_view_scope(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """교사가 학생을 어디까지 열람할 수 있는지의 정책 조회."""
+    return {
+        "scope": await get_view_scope(db),
+        "options": [
+            {"value": "all", "label": "모든 학생 열람 (기본)"},
+            {"value": "scoped", "label": "담당 학생만 (담임/부담임 + 수업 학년·학급)"},
+        ],
+    }
+
+
+@router.put("/policy/teacher-view-scope")
+async def update_teacher_view_scope(
+    body: dict,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """정책 변경. body: {"scope": "all" | "scoped"}"""
+    scope = (body.get("scope") or "").strip()
+    if scope not in VALID_SCOPES:
+        raise HTTPException(400, f"scope must be one of {sorted(VALID_SCOPES)}")
+    await set_view_scope(db, scope)
+    await db.flush()
+    return {"ok": True, "scope": scope}
+
+
 @router.post("/branding/favicon")
 async def upload_favicon(
     file: UploadFile = File(...),

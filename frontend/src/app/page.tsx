@@ -12,9 +12,8 @@ export default function Home() {
     if (loading) return;
     if (!user) {
       router.push("/auth/login");
-    } else if (user.role === "student") {
-      router.push("/s/dashboard");
     } else {
+      // 통합 UI: 모든 역할 /dashboard로
       router.push("/dashboard");
     }
   }, [user, loading, router]);

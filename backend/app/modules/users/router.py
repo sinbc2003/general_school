@@ -84,6 +84,26 @@ async def list_users(
     if user.role == "designated_admin":
         query = query.where(User.role.in_(["teacher", "staff", "student"]))
 
+    # 교사 열람 범위 정책: 학생 조회 시 정책에 따라 제한
+    # (super_admin/designated_admin은 무관, scope="all"이면 무관)
+    if user.role in ("teacher", "staff") and (role == "student" or role is None):
+        from app.core.visibility import visible_student_user_ids
+        from app.core.semester import get_active_semester_id_or_404
+        try:
+            sid = await get_active_semester_id_or_404(db)
+            visible = await visible_student_user_ids(db, user, sid)
+            if visible is not None:
+                # 학생 user_id를 visible 집합으로 제한. 비학생은 그대로 보임.
+                if visible:
+                    query = query.where(
+                        (User.role != "student") | (User.id.in_(visible))
+                    )
+                else:
+                    query = query.where(User.role != "student")
+        except HTTPException:
+            # 현재 학기 미설정 — 정책 적용 불가, 일단 통과
+            pass
+
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
 

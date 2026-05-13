@@ -1,8 +1,6 @@
 "use client";
 
 import { useAuth } from "@/lib/auth-context";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
@@ -20,16 +18,10 @@ export default function AdminLayout({
 }
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
+  // 통합 UI: 학생/교사/관리자 모두 같은 사이드바 사용.
+  // 메뉴 가시성은 AdminSidebar의 role/permission 필터로 제어.
   const { user, loading } = useAuth();
   const { collapsed } = useSidebar();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (loading) return;
-    if (user?.role === "student") {
-      router.push("/s/dashboard");
-    }
-  }, [user, loading, router]);
 
   if (loading) {
     return (
@@ -40,7 +32,6 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return null;
-  if (user.role === "student") return null;
 
   return (
     <div className="min-h-screen bg-bg-secondary">

@@ -36,6 +36,16 @@ export interface MenuItem {
   path?: string;
   permission?: string | null;
   superAdminOnly?: boolean;
+  /**
+   * 보일 역할 목록. 지정하면 그 역할에만 표시.
+   * 예: ["student"] = 학생만, ["teacher", "staff"] = 교직원만.
+   * 미지정 = 모든 역할 (단 permission이 별도 제한).
+   */
+  roles?: string[];
+  /**
+   * 숨길 역할 목록. roles와 반대 의미로 빠르게 제외할 때.
+   */
+  excludeRoles?: string[];
   newTab?: boolean;  // true면 target="_blank"로 새 창 열기
   children?: MenuItem[];
 }
@@ -48,12 +58,41 @@ export const adminMenu: MenuItem[] = [
     path: "/dashboard",
     permission: null,
   },
+
+  // ── 학생 전용 메뉴 (교직원에게는 숨김) ──
+  {
+    key: "my-portfolio",
+    label: "나의 포트폴리오",
+    icon: Briefcase,
+    path: "/s/my-portfolio",
+    permission: null,
+    roles: ["student"],
+  },
+  {
+    key: "my-career",
+    label: "진로/진학 설계",
+    icon: Target,
+    path: "/s/career",
+    permission: null,
+    roles: ["student"],
+  },
+  {
+    key: "alumni-research-student",
+    label: "선배 연구 자료",
+    icon: Library,
+    path: "/s/research-archive",
+    permission: null,
+    roles: ["student"],
+  },
+
+  // ── 교직원/관리자 메뉴 ──
   {
     key: "users",
     label: "사용자 관리",
     icon: Users,
     path: "/users",
     permission: "user.manage.view",
+    excludeRoles: ["student"],
   },
   {
     key: "permissions",
@@ -61,12 +100,14 @@ export const adminMenu: MenuItem[] = [
     icon: Shield,
     path: "/permissions",
     permission: "permission.manage.view",
+    excludeRoles: ["student"],
   },
   {
     key: "students",
     label: "학생 관리",
     icon: GraduationCap,
     permission: "portfolio.grade.view",
+    excludeRoles: ["student"],
     children: [
       { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view" },
       { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view" },
@@ -79,6 +120,7 @@ export const adminMenu: MenuItem[] = [
     label: "자료실",
     icon: FileText,
     permission: "archive.document.upload",
+    excludeRoles: ["student"],
     children: [
       { key: "documents", label: "문서 검색", icon: FileText, path: "/archive/documents", permission: "archive.document.upload" },
       { key: "problems", label: "문제 DB", icon: FileText, path: "/archive/problems", permission: "problem.library.view" },
@@ -90,6 +132,7 @@ export const adminMenu: MenuItem[] = [
     icon: Trophy,
     path: "/contest",
     permission: "contest.manage.create",
+    excludeRoles: ["student"],
   },
   {
     key: "assignment",
@@ -97,6 +140,7 @@ export const adminMenu: MenuItem[] = [
     icon: ClipboardList,
     path: "/assignment",
     permission: "assignment.manage.create",
+    excludeRoles: ["student"],
   },
   {
     key: "meeting",
@@ -104,6 +148,7 @@ export const adminMenu: MenuItem[] = [
     icon: MessageSquare,
     path: "/meeting",
     permission: "meeting.view",
+    excludeRoles: ["student"],
   },
   {
     key: "research",
@@ -111,6 +156,7 @@ export const adminMenu: MenuItem[] = [
     icon: FlaskConical,
     path: "/research",
     permission: "research.project.view",
+    excludeRoles: ["student"],
   },
   {
     key: "club",
@@ -118,12 +164,14 @@ export const adminMenu: MenuItem[] = [
     icon: Users2,
     path: "/club",
     permission: "club.manage.create",
+    excludeRoles: ["student"],
   },
   {
     key: "papers",
     label: "논문/뉴스레터",
     icon: Newspaper,
     permission: "papers.keyword.manage",
+    excludeRoles: ["student"],
     children: [
       { key: "keywords", label: "키워드 관리", icon: Newspaper, path: "/papers/keywords", permission: "papers.keyword.manage" },
       { key: "feed", label: "수집 논문", icon: Newspaper, path: "/papers/feed", permission: "papers.approve" },
@@ -136,21 +184,34 @@ export const adminMenu: MenuItem[] = [
     icon: Clock,
     path: "/timetable",
     permission: "timetable.view",
+    excludeRoles: ["student"],
   },
+  // ── AI 도우미 (역할별 분기) ──
   {
     key: "chat",
     label: "AI 챗봇",
     icon: Sparkles,
     path: "/chat",
     permission: "chatbot.use",
+    excludeRoles: ["student"],  // 교사용
     newTab: true,
   },
-  // ── 학생 영역 (관리자 미리보기) ──
+  {
+    key: "chat-student",
+    label: "학생 AI 도우미",
+    icon: Sparkles,
+    path: "/s/chat",
+    permission: null,
+    roles: ["student"],
+    newTab: true,
+  },
+  // ── 학생 영역 (super_admin 디버깅용 미리보기) — 교사/학생에게 숨김 ──
   {
     key: "student-area",
     label: "학생 화면 (미리보기)",
     icon: GraduationCap,
-    permission: null,  // 관리자는 무조건 보임
+    permission: null,
+    superAdminOnly: true,
     children: [
       { key: "stu-dashboard", label: "학생 홈", icon: Home, path: "/s/dashboard", permission: null },
       { key: "stu-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
@@ -164,6 +225,7 @@ export const adminMenu: MenuItem[] = [
     label: "AI 설정",
     icon: Bot,
     permission: "chatbot.provider.manage",
+    excludeRoles: ["student"],
     children: [
       { key: "llm-providers", label: "Provider/API 키", icon: Key, path: "/system/llm/providers", permission: "chatbot.provider.manage" },
       { key: "llm-models", label: "모델/단가", icon: DollarSign, path: "/system/llm/models", permission: "chatbot.model.manage" },
@@ -178,6 +240,7 @@ export const adminMenu: MenuItem[] = [
     icon: MessageCircle,
     path: "/system/feedback",
     permission: "system.settings.edit",
+    excludeRoles: ["student"],
   },
   {
     key: "ai-developer",
@@ -185,6 +248,7 @@ export const adminMenu: MenuItem[] = [
     icon: Bot,
     path: "/system/ai-developer",
     permission: "system.settings.edit",
+    excludeRoles: ["student"],
   },
   {
     key: "system",
