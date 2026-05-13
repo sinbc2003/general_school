@@ -20,8 +20,8 @@
  *   />
  */
 
-import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Search, Download, ArrowUp, ArrowDown } from "lucide-react";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -36,6 +36,12 @@ export interface DataTableColumn<T> {
   width?: string;
   /** 우측/중앙 정렬 */
   align?: "left" | "center" | "right";
+  /** 정렬 가능 (이 컬럼 헤더 클릭 시 정렬). row[key]로 비교 */
+  sortable?: boolean;
+  /** 정렬 시 사용할 값 추출 (지정 안 하면 row[key]) */
+  sortValue?: (row: T) => string | number | null | undefined;
+  /** CSV export에서 사용할 값 추출 (지정 안 하면 row[key]) */
+  csvValue?: (row: T) => string | number | null | undefined;
 }
 
 interface DataTableProps<T> {
@@ -53,6 +59,12 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   /** 행별 강조 (선택) */
   rowClassName?: (row: T) => string;
+  /** 클라이언트측 검색 활성화 (지정 시 검색 input 노출) */
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  /** CSV export 버튼 노출 + 다운로드 파일명 */
+  exportable?: boolean;
+  exportFileName?: string;
 }
 
 export function DataTable<T>({
@@ -67,28 +79,136 @@ export function DataTable<T>({
   onPageChange,
   onRowClick,
   rowClassName,
+  searchable,
+  searchPlaceholder = "검색...",
+  exportable,
+  exportFileName = "data.csv",
 }: DataTableProps<T>) {
   const alignCls = (a?: "left" | "center" | "right") =>
     a === "center" ? "text-center" : a === "right" ? "text-right" : "text-left";
 
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+
+  // 클라이언트 측 필터/정렬 — 페이지네이션은 서버측 가정, 검색·정렬은 현재 페이지 행 기준.
+  const visibleRows = useMemo(() => {
+    let out = rows;
+    if (searchable && search.trim()) {
+      const q = search.trim().toLowerCase();
+      out = out.filter((row) =>
+        columns.some((c) => {
+          const v = c.csvValue ? c.csvValue(row) : (row as any)[c.key];
+          return v != null && String(v).toLowerCase().includes(q);
+        }),
+      );
+    }
+    if (sort) {
+      const col = columns.find((c) => c.key === sort.key);
+      if (col?.sortable) {
+        const get = (r: T) =>
+          col.sortValue ? col.sortValue(r) : (r as any)[col.key];
+        out = [...out].sort((a, b) => {
+          const va = get(a), vb = get(b);
+          if (va == null && vb == null) return 0;
+          if (va == null) return 1;
+          if (vb == null) return -1;
+          if (va < vb) return sort.dir === "asc" ? -1 : 1;
+          if (va > vb) return sort.dir === "asc" ? 1 : -1;
+          return 0;
+        });
+      }
+    }
+    return out;
+  }, [rows, search, sort, searchable, columns]);
+
+  const toggleSort = (key: string) => {
+    setSort((cur) => {
+      if (!cur || cur.key !== key) return { key, dir: "asc" };
+      if (cur.dir === "asc") return { key, dir: "desc" };
+      return null;  // 3번째 클릭 → 해제
+    });
+  };
+
+  const downloadCsv = () => {
+    const headers = columns.map((c) => typeof c.label === "string" ? c.label : c.key);
+    const csv = [headers.join(",")];
+    for (const row of visibleRows) {
+      const cells = columns.map((c) => {
+        const v = c.csvValue ? c.csvValue(row) : (row as any)[c.key];
+        if (v == null) return "";
+        const s = String(v).replace(/"/g, '""');
+        return /[",\n]/.test(s) ? `"${s}"` : s;
+      });
+      csv.push(cells.join(","));
+    }
+    const BOM = "﻿";
+    const blob = new Blob([BOM + csv.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
+      {(searchable || exportable) && (
+        <div className="flex items-center gap-2 mb-2">
+          {searchable && (
+            <div className="relative flex-1 max-w-sm">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full pl-8 pr-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+              />
+            </div>
+          )}
+          {exportable && (
+            <button
+              onClick={downloadCsv}
+              className="flex items-center gap-1 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+              title="현재 페이지 + 검색 결과를 CSV로 다운로드"
+            >
+              <Download size={14} /> CSV
+            </button>
+          )}
+          {searchable && search && (
+            <span className="text-caption text-text-tertiary">
+              {visibleRows.length}/{rows.length}건
+            </span>
+          )}
+        </div>
+      )}
       <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-bg-secondary">
-              {columns.map((c) => (
-                <th
-                  key={c.key}
-                  className={`px-4 py-2 ${alignCls(c.align)} text-caption text-text-tertiary font-medium ${c.width ?? ""} ${c.thClassName ?? ""}`}
-                >
-                  {c.label}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const isSorted = sort?.key === c.key;
+                const sortable = c.sortable;
+                return (
+                  <th
+                    key={c.key}
+                    onClick={sortable ? () => toggleSort(c.key) : undefined}
+                    className={`px-4 py-2 ${alignCls(c.align)} text-caption text-text-tertiary font-medium ${c.width ?? ""} ${c.thClassName ?? ""} ${sortable ? "cursor-pointer select-none hover:text-text-primary" : ""}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {c.label}
+                      {sortable && isSorted && (
+                        sort.dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+                      )}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => (
+            {visibleRows.map((row, idx) => (
               <tr
                 key={keyExtractor(row, idx)}
                 className={`border-t border-border-default hover:bg-bg-secondary ${
@@ -103,10 +223,10 @@ export function DataTable<T>({
                 ))}
               </tr>
             ))}
-            {rows.length === 0 && (
+            {visibleRows.length === 0 && (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-8 text-center text-body text-text-tertiary">
-                  {loading ? "로딩 중..." : emptyText}
+                  {loading ? "로딩 중..." : search ? "검색 결과가 없습니다" : emptyText}
                 </td>
               </tr>
             )}

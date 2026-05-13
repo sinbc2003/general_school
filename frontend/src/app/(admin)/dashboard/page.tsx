@@ -48,7 +48,8 @@ function StudentDashboard() {
     if (!user) return;
     api.get<CurrentSemester | null>("/api/timetable/semesters/current")
       .then(setSem).catch(() => {});
-    api.get(`/api/students/${user.id}/stats`).then(setStats).catch(() => setStats({}));
+    // 학생 본인 통계 — 가벼운 dashboard 전용 엔드포인트
+    api.get("/api/me/dashboard-stats").then(setStats).catch(() => setStats({}));
   }, [user]);
 
   return (

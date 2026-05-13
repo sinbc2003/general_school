@@ -326,3 +326,45 @@ async def browse_alumni_research(
         }
         for r in rows
     ]}
+
+
+# ── 학생 본인 Dashboard 통계 ──
+
+@router.get("/dashboard-stats")
+async def my_dashboard_stats(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인 대시보드용 요약 통계.
+
+    교사/관리자가 호출하면 0 또는 빈 값 (자기 학생 데이터 기준).
+    학생만 의미있는 값 반환.
+    """
+    from sqlalchemy import func as sa_func
+    from app.models.portfolio import StudentAward, StudentThesis
+    from app.models.club import ClubSubmission
+    from app.models.assignment import AssignmentSubmission
+
+    awards_count = (await db.execute(
+        select(sa_func.count(StudentAward.id)).where(StudentAward.student_id == user.id)
+    )).scalar() or 0
+    theses_count = (await db.execute(
+        select(sa_func.count(StudentThesis.id)).where(StudentThesis.student_id == user.id)
+    )).scalars().first() or 0
+    club_activities = (await db.execute(
+        select(sa_func.count(ClubSubmission.id)).where(ClubSubmission.author_id == user.id)
+    )).scalar() or 0
+    assignments_submitted = (await db.execute(
+        select(sa_func.count(AssignmentSubmission.id)).where(AssignmentSubmission.user_id == user.id)
+    )).scalar() or 0
+    artifacts_count = (await db.execute(
+        select(sa_func.count(StudentArtifact.id)).where(StudentArtifact.user_id == user.id)
+    )).scalar() or 0
+
+    return {
+        "awards_count": int(awards_count),
+        "theses_count": int(theses_count),
+        "club_activities": int(club_activities),
+        "assignments_submitted": int(assignments_submitted),
+        "artifacts_count": int(artifacts_count),
+    }

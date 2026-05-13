@@ -229,8 +229,12 @@ export default function UsersPage() {
       )}
 
       <DataTable<UserItem>
+        searchable
+        searchPlaceholder="이름·이메일 검색"
+        exportable
+        exportFileName="users.csv"
         columns={[
-          { key: "name", label: "이름" },
+          { key: "name", label: "이름", sortable: true },
           { key: "email", label: "이메일", render: (u) => <span className="text-text-secondary">{u.email}</span> },
           {
             key: "role", label: "역할",

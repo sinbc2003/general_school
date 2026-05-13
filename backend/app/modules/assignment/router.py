@@ -16,6 +16,7 @@ from app.core.semester import (
 )
 from app.models.assignment import Assignment, AssignmentStatus, AssignmentSubmission, SubmissionStatus
 from app.models.user import User
+from app.modules.assignment.schemas import AssignmentCreate, AssignmentUpdate, SubmissionReview
 
 router = APIRouter(prefix="/api/assignment", tags=["assignment"])
 UPLOAD_DIR = os.path.join("storage", "assignments")
@@ -23,20 +24,21 @@ UPLOAD_DIR = os.path.join("storage", "assignments")
 
 @router.post("")
 async def create_assignment(
-    body: dict,
+    body: AssignmentCreate,
     user: User = Depends(require_permission("assignment.manage.create")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    sid = await resolve_semester_id(body, db)
+    sid = await resolve_semester_id({"semester_id": body.semester_id} if body.semester_id else None, db)
     a = Assignment(
         semester_id=sid,
-        title=body["title"],
-        subject=body["subject"],
-        description=body.get("description"),
-        target_grades=body.get("target_grades"),
-        due_date=body["due_date"],
-        submission_format=body.get("submission_format", "pdf"),
+        title=body.title,
+        subject=body.subject,
+        description=body.description,
+        target_grades=body.target_grades,
+        due_date=body.due_date,
+        submission_format=body.submission_format,
+        is_visible=body.is_visible,
         created_by_id=user.id,
     )
     db.add(a)
@@ -119,7 +121,7 @@ async def get_assignment(
 
 @router.put("/{aid}")
 async def update_assignment(
-    aid: int, body: dict,
+    aid: int, body: AssignmentUpdate,
     user: User = Depends(require_permission("assignment.manage.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -127,12 +129,13 @@ async def update_assignment(
     a = (await db.execute(select(Assignment).where(Assignment.id == aid))).scalar_one_or_none()
     if not a:
         raise HTTPException(404, "과제를 찾을 수 없습니다")
+    data = body.model_dump(exclude_unset=True)
     for f in ["title", "subject", "description", "target_grades", "due_date",
               "submission_format", "is_visible"]:
-        if f in body:
-            setattr(a, f, body[f])
-    if "status" in body:
-        a.status = AssignmentStatus(body["status"])
+        if f in data:
+            setattr(a, f, data[f])
+    if "status" in data and data["status"]:
+        a.status = AssignmentStatus(data["status"])
     await db.flush()
     await log_action(db, user, "assignment.update", f"assignment:{aid}", request=request)
     return {"ok": True}
@@ -212,7 +215,7 @@ async def list_submissions(
 
 @router.put("/{aid}/submissions/{sid}/review")
 async def review_submission(
-    aid: int, sid: int, body: dict,
+    aid: int, sid: int, body: SubmissionReview,
     user: User = Depends(require_permission("assignment.manage.review")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -223,8 +226,8 @@ async def review_submission(
     )).scalar_one_or_none()
     if not sub:
         raise HTTPException(404, "제출물을 찾을 수 없습니다")
-    sub.status = SubmissionStatus(body.get("status", "reviewed"))
-    sub.review_comment = body.get("review_comment")
+    sub.status = SubmissionStatus(body.status)
+    sub.review_comment = body.review_comment
     sub.reviewed_by_id = user.id
     await db.flush()
     await log_action(db, user, "submission.review", f"submission:{sid}", request=request)
