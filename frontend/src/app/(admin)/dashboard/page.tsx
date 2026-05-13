@@ -96,16 +96,18 @@ function TeacherDashboard() {
   const { user } = useAuth();
   const [sem, setSem] = useState<CurrentSemester | null>(null);
   const [myEnroll, setMyEnroll] = useState<any>(null);
-  const [studentCount, setStudentCount] = useState<number | null>(null);
+  const [teacherStats, setTeacherStats] = useState<{ by_grade: Record<string, number>; total: number } | null>(null);
 
   useEffect(() => {
     if (!user) return;
     api.get<CurrentSemester | null>("/api/timetable/semesters/current")
       .then(setSem).catch(() => {});
     api.get("/api/timetable/my-enrollment").then((d) => setMyEnroll(d?.enrollment)).catch(() => {});
-    api.get<{ total: number }>("/api/users?role=student&per_page=1")
-      .then((d) => setStudentCount(d.total)).catch(() => {});
+    api.get<{ by_grade: Record<string, number>; total: number }>("/api/timetable/teacher-dashboard-stats")
+      .then(setTeacherStats).catch(() => {});
   }, [user]);
+
+  const studentCount = teacherStats?.total ?? null;
 
   return (
     <div>
@@ -147,6 +149,31 @@ function TeacherDashboard() {
           color={myEnroll?.onboarded ? "text-status-success" : "text-status-error"}
         />
       </div>
+
+      {/* 담당 학생 학년별 분포 */}
+      {teacherStats && teacherStats.total > 0 && (
+        <div className="bg-bg-primary rounded-lg border border-border-default p-4 mb-6">
+          <h3 className="text-caption text-text-tertiary mb-3">담당 학생 학년별 분포</h3>
+          <div className="flex items-end gap-3">
+            {Object.entries(teacherStats.by_grade)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([grade, count]) => {
+                const max = Math.max(...Object.values(teacherStats.by_grade));
+                const heightPx = Math.max(8, Math.round((count / max) * 80));
+                return (
+                  <div key={grade} className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-caption text-text-secondary">{count}</span>
+                    <div
+                      className="w-full bg-accent/70 rounded-t"
+                      style={{ height: `${heightPx}px` }}
+                    />
+                    <span className="text-caption text-text-tertiary">{grade}학년</span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <QuickCard href="/students" icon={Users} label="학생 관리" color="bg-blue-50 text-blue-600" />

@@ -65,6 +65,13 @@ interface DataTableProps<T> {
   /** CSV export 버튼 노출 + 다운로드 파일명 */
   exportable?: boolean;
   exportFileName?: string;
+  /**
+   * 클라이언트 측 페이지네이션 활성화 (서버 페이지네이션과 충돌 시 사용 X).
+   * 지정하면 rows 전체를 받아 클라이언트에서 슬라이스. page/totalPages props는 무시.
+   */
+  clientPagination?: boolean;
+  /** clientPagination=true일 때 페이지당 행 수 (기본 20) */
+  clientPageSize?: number;
 }
 
 export function DataTable<T>({
@@ -83,7 +90,10 @@ export function DataTable<T>({
   searchPlaceholder = "검색...",
   exportable,
   exportFileName = "data.csv",
+  clientPagination,
+  clientPageSize = 20,
 }: DataTableProps<T>) {
+  const [clientPage, setClientPage] = useState(1);
   const alignCls = (a?: "left" | "center" | "right") =>
     a === "center" ? "text-center" : a === "right" ? "text-right" : "text-left";
 
@@ -120,6 +130,14 @@ export function DataTable<T>({
     }
     return out;
   }, [rows, search, sort, searchable, columns]);
+
+  // 클라이언트 페이지네이션 적용 (서버 페이지네이션과 별개)
+  const clientTotalPages = clientPagination
+    ? Math.max(1, Math.ceil(visibleRows.length / clientPageSize))
+    : 1;
+  const pagedRows = clientPagination
+    ? visibleRows.slice((clientPage - 1) * clientPageSize, clientPage * clientPageSize)
+    : visibleRows;
 
   const toggleSort = (key: string) => {
     setSort((cur) => {
@@ -208,7 +226,7 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row, idx) => (
+            {pagedRows.map((row, idx) => (
               <tr
                 key={keyExtractor(row, idx)}
                 className={`border-t border-border-default hover:bg-bg-secondary ${
@@ -223,7 +241,7 @@ export function DataTable<T>({
                 ))}
               </tr>
             ))}
-            {visibleRows.length === 0 && (
+            {pagedRows.length === 0 && (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-8 text-center text-body text-text-tertiary">
                   {loading ? "로딩 중..." : search ? "검색 결과가 없습니다" : emptyText}
@@ -234,8 +252,28 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {/* 페이지네이션 */}
-      {totalPages !== undefined && totalPages > 1 && onPageChange && page !== undefined && (
+      {/* 페이지네이션 — 서버 또는 클라이언트 */}
+      {clientPagination && clientTotalPages > 1 ? (
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <button
+            onClick={() => setClientPage((p) => Math.max(1, p - 1))}
+            disabled={clientPage === 1}
+            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-caption text-text-secondary">
+            {clientPage} / {clientTotalPages} ({visibleRows.length}건)
+          </span>
+          <button
+            onClick={() => setClientPage((p) => Math.min(clientTotalPages, p + 1))}
+            disabled={clientPage === clientTotalPages}
+            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      ) : totalPages !== undefined && totalPages > 1 && onPageChange && page !== undefined ? (
         <div className="flex items-center justify-center gap-2 mt-4">
           <button
             onClick={() => onPageChange(Math.max(1, page - 1))}
@@ -256,7 +294,7 @@ export function DataTable<T>({
             <ChevronRight size={16} />
           </button>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

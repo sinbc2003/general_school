@@ -116,12 +116,6 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["dashboard", "chat"],
     },
     {
-      id: "study",
-      name: "학습",
-      icon: "PenTool",
-      items: ["problems", "challenge"],
-    },
-    {
       id: "competition",
       name: "대회/과제",
       icon: "Trophy",

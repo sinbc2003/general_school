@@ -29,8 +29,6 @@ export interface StudentMenuItem {
 export const studentMenu: StudentMenuItem[] = [
   { key: "dashboard", label: "홈", icon: Home, path: "/s/dashboard", permission: "student.dashboard.view" },
   { key: "chat", label: "AI 도우미", icon: Sparkles, path: "/s/chat", permission: "chatbot.use", newTab: true },
-  { key: "problems", label: "문제풀기", icon: BookOpen, path: "/s/problems", permission: "problem.library.view" },
-  { key: "challenge", label: "챌린지", icon: Flame, path: "/s/challenge", permission: "challenge.participate.view" },
   { key: "community", label: "커뮤니티", icon: Users, path: "/s/community", permission: "community.problem.create" },
   { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: "contest.participate.view" },
   { key: "assignment", label: "과제", icon: ClipboardList, path: "/s/assignment", permission: "assignment.submit.view" },

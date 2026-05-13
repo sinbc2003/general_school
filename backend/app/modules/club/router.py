@@ -14,25 +14,27 @@ from app.core.semester import (
 )
 from app.models.club import Club, ClubActivity, ClubSubmission
 from app.models.user import User
+from app.modules.club.schemas import (
+    ClubCreate, ClubUpdate, ClubActivityCreate, ClubSubmissionCreate,
+)
 
 router = APIRouter(prefix="/api/club", tags=["club"])
 
 
 @router.post("")
 async def create_club(
-    body: dict,
+    body: ClubCreate,
     user: User = Depends(require_permission("club.manage.create")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    sid = await resolve_semester_id(body, db)
-    # year는 학기에서 추출 (호환을 위해 채워둠)
+    sid = await resolve_semester_id({"semester_id": body.semester_id} if body.semester_id else None, db)
     sem = await get_semester_by_id_or_404(db, sid)
     c = Club(
         semester_id=sid,
-        name=body["name"], description=body.get("description"),
-        advisor_id=body.get("advisor_id"), members=body.get("members"),
-        year=body.get("year") or sem.year, budget=body.get("budget"),
+        name=body.name, description=body.description,
+        advisor_id=body.advisor_id, members=body.members,
+        year=body.year or sem.year, budget=body.budget,
     )
     db.add(c)
     await db.flush()
@@ -87,7 +89,7 @@ async def get_club(
 
 @router.put("/{cid}")
 async def update_club(
-    cid: int, body: dict,
+    cid: int, body: ClubUpdate,
     user: User = Depends(require_permission("club.manage.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -95,9 +97,9 @@ async def update_club(
     c = (await db.execute(select(Club).where(Club.id == cid))).scalar_one_or_none()
     if not c:
         raise HTTPException(404)
-    for f in ["name", "description", "members", "status", "budget"]:
-        if f in body:
-            setattr(c, f, body[f])
+    data = body.model_dump(exclude_unset=True)
+    for f, v in data.items():
+        setattr(c, f, v)
     await db.flush()
     await log_action(db, user, "club.update", f"club:{cid}", request=request)
     return {"ok": True}
@@ -107,14 +109,14 @@ async def update_club(
 
 @router.post("/{cid}/activities")
 async def create_activity(
-    cid: int, body: dict,
+    cid: int, body: ClubActivityCreate,
     user: User = Depends(require_permission("club.activity.write")),
     db: AsyncSession = Depends(get_db),
 ):
     a = ClubActivity(
-        club_id=cid, title=body["title"], content=body["content"],
-        activity_date=body["activity_date"],
-        attendees=body.get("attendees"), created_by_id=user.id,
+        club_id=cid, title=body.title, content=body.content,
+        activity_date=body.activity_date,
+        attendees=body.attendees, created_by_id=user.id,
     )
     db.add(a)
     await db.flush()
@@ -142,14 +144,14 @@ async def list_activities(
 
 @router.post("/{cid}/submissions")
 async def create_submission(
-    cid: int, body: dict,
+    cid: int, body: ClubSubmissionCreate,
     user: User = Depends(require_permission("club.submission.upload")),
     db: AsyncSession = Depends(get_db),
 ):
     s = ClubSubmission(
         club_id=cid, author_id=user.id,
-        title=body["title"], submission_type=body["submission_type"],
-        file_path=body.get("file_path"),
+        title=body.title, submission_type=body.submission_type,
+        file_path=body.file_path,
     )
     db.add(s)
     await db.flush()

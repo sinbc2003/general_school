@@ -244,6 +244,67 @@ def _serialize_list_field(v) -> str | None:
     return str(v).strip() or None
 
 
+@router.get("/teacher-dashboard-stats")
+async def teacher_dashboard_stats(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """교사 대시보드용 — 현재 학기 기준 담당 학생 학년별 분포 + 핵심 통계.
+
+    정책 무관 본인 enrollment 기반 (담임/부담임/수업 학년·학급).
+    """
+    from app.core.visibility import visible_student_user_ids
+    from sqlalchemy import func as sa_func
+
+    if user.role not in ("teacher", "staff"):
+        return {"by_grade": {}, "total": 0, "homeroom_class": None, "subhomeroom_class": None}
+
+    try:
+        sid = await get_active_semester_id_or_404(db)
+    except HTTPException:
+        return {"by_grade": {}, "total": 0, "homeroom_class": None, "subhomeroom_class": None}
+
+    visible = await visible_student_user_ids(db, user, sid)
+
+    # 본인 enrollment
+    my_enroll = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.semester_id == sid,
+            SemesterEnrollment.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+
+    # 학년별 학생 수 (visible 적용)
+    q = (
+        select(SemesterEnrollment.grade, sa_func.count(SemesterEnrollment.id))
+        .where(
+            SemesterEnrollment.semester_id == sid,
+            SemesterEnrollment.role == "student",
+            SemesterEnrollment.status == "active",
+        )
+        .group_by(SemesterEnrollment.grade)
+    )
+    if visible is not None:  # None = 무제한 (관리자 등)
+        if not visible:
+            return {
+                "by_grade": {}, "total": 0,
+                "homeroom_class": my_enroll.homeroom_class if my_enroll else None,
+                "subhomeroom_class": my_enroll.subhomeroom_class if my_enroll else None,
+            }
+        q = q.where(SemesterEnrollment.user_id.in_(visible))
+    rows = (await db.execute(q)).all()
+    by_grade = {str(r[0]): int(r[1]) for r in rows if r[0] is not None}
+    total = sum(by_grade.values())
+
+    return {
+        "by_grade": by_grade,
+        "total": total,
+        "homeroom_class": my_enroll.homeroom_class if my_enroll else None,
+        "subhomeroom_class": my_enroll.subhomeroom_class if my_enroll else None,
+        "teaching_grades": _parse_csv_list(my_enroll.teaching_grades) if my_enroll else [],
+    }
+
+
 @router.get("/my-enrollment")
 async def get_my_enrollment(
     semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
