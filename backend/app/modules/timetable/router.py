@@ -14,6 +14,10 @@ from app.core.permissions import require_permission
 from app.core.semester import get_current_semester, get_semester_by_id_or_404
 from app.models.timetable import Semester, TimetableEntry, SemesterEnrollment
 from app.models.user import User
+from app.modules.timetable.schemas import (
+    SemesterCreate,
+    SemesterStructureUpdate,
+)
 from app.services.semester_import import (
     import_enrollments_csv,
     template_csv as semester_template_csv,
@@ -79,31 +83,28 @@ async def get_current_semester_endpoint(
 
 @router.post("/semesters")
 async def create_semester(
-    body: dict,
+    body: SemesterCreate,
     user: User = Depends(require_permission("system.semester.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    year = int(body["year"])
-    semester = int(body["semester"])
+    """학기 생성 — Pydantic SemesterCreate로 입력 자동 검증 (year/semester/날짜 범위)."""
     # 중복 체크
     exists = (await db.execute(
-        select(Semester).where(Semester.year == year, Semester.semester == semester)
+        select(Semester).where(Semester.year == body.year, Semester.semester == body.semester)
     )).scalar_one_or_none()
     if exists:
-        raise HTTPException(400, f"이미 {year}년 {semester}학기가 존재합니다")
+        raise HTTPException(400, f"이미 {body.year}년 {body.semester}학기가 존재합니다")
 
-    is_current = bool(body.get("is_current", False))
-    if is_current:
-        # 기존 current 해제
+    if body.is_current:
         await db.execute(sql_update(Semester).values(is_current=False))
 
     s = Semester(
-        year=year, semester=semester,
-        name=body.get("name") or f"{year}학년도 {semester}학기",
-        start_date=_parse_date(body["start_date"]),
-        end_date=_parse_date(body["end_date"]),
-        is_current=is_current,
+        year=body.year, semester=body.semester,
+        name=body.name or f"{body.year}학년도 {body.semester}학기",
+        start_date=body.start_date,
+        end_date=body.end_date,
+        is_current=body.is_current,
     )
     db.add(s)
     await db.flush()

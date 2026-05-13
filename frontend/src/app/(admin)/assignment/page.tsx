@@ -4,8 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 import {
   Plus,
-  ChevronLeft,
-  ChevronRight,
   Trash2,
   Edit3,
   X,
@@ -13,6 +11,7 @@ import {
   Clock,
   CalendarRange,
 } from "lucide-react";
+import { DataTable } from "@/components/ui/DataTable";
 
 interface CurrentSemester {
   id: number;
@@ -373,108 +372,63 @@ export default function AssignmentPage() {
         </span>
       </div>
 
-      {/* 테이블 */}
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">과제명</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">과목</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">상태</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">마감일</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">제출</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">생성일</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assignments.map((a) => (
-              <tr key={a.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList size={14} className="text-text-tertiary flex-shrink-0" />
-                    {a.title}
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">{a.subject}</td>
-                <td className="px-4 py-2">
-                  <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_COLORS[a.status] || "bg-gray-100 text-gray-700"}`}>
-                    {STATUS_LABELS[a.status] || a.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-1">
-                    {isDueSoon(a.due_date) && (
-                      <Clock size={12} className="text-status-warning" />
-                    )}
-                    <span className={`text-caption ${
-                      isOverdue(a.due_date) && a.status === "active"
-                        ? "text-status-error"
-                        : isDueSoon(a.due_date)
-                        ? "text-status-warning"
-                        : "text-text-secondary"
-                    }`}>
-                      {formatDate(a.due_date)}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-center text-body text-text-secondary">
-                  {a.submission_count}명
-                </td>
-                <td className="px-4 py-2 text-caption text-text-tertiary">{formatDate(a.created_at)}</td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center justify-center gap-1">
-                    <button
-                      onClick={() => openEdit(a)}
-                      title="수정"
-                      className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(a.id)}
-                      title="삭제"
-                      className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-status-error"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {assignments.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-body text-text-tertiary">
-                  {loading ? "로딩 중..." : "과제가 없습니다"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-caption text-text-secondary">
-            {page} / {totalPages} ({total}건)
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
+      <DataTable<AssignmentItem>
+        columns={[
+          {
+            key: "title", label: "과제명",
+            render: (a) => (
+              <div className="flex items-center gap-2">
+                <ClipboardList size={14} className="text-text-tertiary flex-shrink-0" />
+                {a.title}
+              </div>
+            ),
+          },
+          { key: "subject", label: "과목", render: (a) => <span className="text-text-secondary">{a.subject}</span> },
+          {
+            key: "status", label: "상태",
+            render: (a) => (
+              <span className={`inline-block px-2 py-0.5 text-caption rounded ${STATUS_COLORS[a.status] || "bg-gray-100 text-gray-700"}`}>
+                {STATUS_LABELS[a.status] || a.status}
+              </span>
+            ),
+          },
+          {
+            key: "due_date", label: "마감일",
+            render: (a) => (
+              <div className="flex items-center gap-1">
+                {isDueSoon(a.due_date) && <Clock size={12} className="text-status-warning" />}
+                <span className={`text-caption ${
+                  isOverdue(a.due_date) && a.status === "active" ? "text-status-error" :
+                  isDueSoon(a.due_date) ? "text-status-warning" : "text-text-secondary"
+                }`}>{formatDate(a.due_date)}</span>
+              </div>
+            ),
+          },
+          { key: "submission_count", label: "제출", align: "center", render: (a) => `${a.submission_count}명` },
+          { key: "created_at", label: "생성일", render: (a) => <span className="text-caption text-text-tertiary">{formatDate(a.created_at)}</span> },
+          {
+            key: "actions", label: "작업", align: "center",
+            render: (a) => (
+              <div className="flex items-center justify-center gap-1">
+                <button onClick={() => openEdit(a)} title="수정" className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent">
+                  <Edit3 size={14} />
+                </button>
+                <button onClick={() => handleDelete(a.id)} title="삭제" className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-status-error">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ),
+          },
+        ]}
+        rows={assignments}
+        keyExtractor={(a) => a.id}
+        loading={loading}
+        emptyText="과제가 없습니다"
+        page={page}
+        totalPages={totalPages}
+        totalCount={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

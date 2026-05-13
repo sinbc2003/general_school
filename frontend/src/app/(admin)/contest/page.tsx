@@ -6,12 +6,12 @@ import {
   Plus,
   Trash2,
   Edit3,
-  X,
   Trophy,
   Users,
   CalendarRange,
 } from "lucide-react";
-import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { DataTable } from "@/components/ui/DataTable";
+import { Modal, ModalFooter } from "@/components/ui/Modal";
 
 interface CurrentSemester {
   id: number;
@@ -240,18 +240,13 @@ export default function ContestPage() {
       </div>
 
       {/* 생성/수정 모달 */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-bg-primary rounded-lg border border-border-default w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-body font-medium text-text-primary">
-                {editingId ? "대회 수정" : "대회 생성"}
-              </h2>
-              <button onClick={() => { setShowForm(false); setEditingId(null); }} className="text-text-tertiary hover:text-text-primary">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+      <Modal
+        open={showForm}
+        onClose={() => { setShowForm(false); setEditingId(null); }}
+        title={editingId ? "대회 수정" : "대회 생성"}
+        maxWidth="2xl"
+      >
+        <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="block text-caption text-text-secondary mb-1">대회 제목 *</label>
                 <input
@@ -338,25 +333,23 @@ export default function ContestPage() {
                   className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary focus:outline-none focus:border-accent resize-y"
                 />
               </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => { setShowForm(false); setEditingId(null); }}
-                className="px-4 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
-              >
-                {submitting ? "저장 중..." : editingId ? "수정" : "생성"}
-              </button>
-            </div>
-          </div>
         </div>
-      )}
+        <ModalFooter>
+          <button
+            onClick={() => { setShowForm(false); setEditingId(null); }}
+            className="px-4 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+          >
+            {submitting ? "저장 중..." : editingId ? "수정" : "생성"}
+          </button>
+        </ModalFooter>
+      </Modal>
 
       {/* 필터 */}
       <div className="flex items-center gap-3 mb-4">

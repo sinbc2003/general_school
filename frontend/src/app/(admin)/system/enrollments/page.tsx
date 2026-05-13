@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { CsvUploader, type CsvUploadResult } from "@/components/ui/CsvUploader";
+import { InlineCell as SharedInlineCell, type InlineCellOption } from "@/components/ui/InlineCell";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 
@@ -121,121 +122,54 @@ export default function EnrollmentsPage() {
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
 
-  // 인라인 편집 상태 — { eid: { field: value } }로 진행 중 편집 추적
-  const [inlineEditCell, setInlineEditCell] = useState<{ eid: number; field: string } | null>(null);
-  const [inlineEditValue, setInlineEditValue] = useState<string>("");
-
-  // 인라인 patch — 한 필드만 PUT
+  // 인라인 patch — 한 필드만 PUT + 낙관적 갱신
   const patchField = async (eid: number, field: string, value: string | number | null) => {
     if (!selectedSid) return;
-    try {
-      await api.put(`/api/timetable/semesters/${selectedSid}/enrollments/${eid}`, {
-        [field]: value === "" ? null : value,
-      });
-      // 로컬 갱신 (낙관적)
-      setEnrollments((prev) =>
-        prev.map((e) => {
-          if (e.id !== eid) return e;
-          if (["teaching_grades", "teaching_classes", "teaching_subjects"].includes(field)) {
-            const list = typeof value === "string" && value
-              ? value.split(",").map((s) => s.trim()).filter(Boolean)
-              : [];
-            return { ...e, [field]: list };
-          }
-          return { ...e, [field]: value === "" ? null : value };
-        }),
-      );
-    } catch (err: any) {
-      alert(err?.detail || "수정 실패");
-      fetchEnrollments();  // 실패 시 서버 상태로 동기화
-    }
-  };
-
-  const startInlineEdit = (eid: number, field: string, currentValue: any) => {
-    setInlineEditCell({ eid, field });
-    setInlineEditValue(currentValue == null ? "" : String(currentValue));
-  };
-
-  const commitInlineEdit = async () => {
-    if (!inlineEditCell) return;
-    const { eid, field } = inlineEditCell;
-    setInlineEditCell(null);
-    // 숫자 필드는 number로 변환
-    let v: any = inlineEditValue.trim();
-    if (["grade", "class_number", "student_number"].includes(field)) {
-      v = v ? parseInt(v) : null;
-    }
-    await patchField(eid, field, v);
-  };
-
-  // 인라인 셀 컴포넌트 — text/number 또는 select 모드
-  const InlineCell = ({
-    eid, field, value, placeholder, type = "text", width = "w-20", options,
-  }: {
-    eid: number; field: string; value: any;
-    placeholder?: string; type?: string; width?: string;
-    /** 지정 시 select 모드 (드롭다운) */
-    options?: Array<{ value: string; label: string }>;
-  }) => {
-    const isEditing = inlineEditCell?.eid === eid && inlineEditCell?.field === field;
-    if (isEditing) {
-      if (options) {
-        return (
-          <select
-            value={inlineEditValue}
-            onChange={(e) => setInlineEditValue(e.target.value)}
-            onBlur={commitInlineEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLSelectElement).blur();
-              if (e.key === "Escape") setInlineEditCell(null);
-            }}
-            autoFocus
-            className={`${width} px-1 py-0.5 text-caption border border-accent rounded bg-bg-primary`}
-          >
-            <option value="">—</option>
-            {options.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        );
-      }
-      return (
-        <input
-          type={type}
-          value={inlineEditValue}
-          onChange={(e) => setInlineEditValue(e.target.value)}
-          onBlur={commitInlineEdit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            if (e.key === "Escape") setInlineEditCell(null);
-          }}
-          autoFocus
-          placeholder={placeholder}
-          className={`${width} px-1 py-0.5 text-caption border border-accent rounded bg-bg-primary`}
-        />
-      );
-    }
-    const rawDisplay = Array.isArray(value)
-      ? value.join(",")
-      : value != null && value !== ""
-      ? String(value)
-      : "";
-    // select 모드면 옵션 라벨로 표시
-    let display = rawDisplay;
-    if (options && rawDisplay) {
-      const opt = options.find((o) => o.value === rawDisplay);
-      if (opt) display = opt.label;
-    }
-    return (
-      <button
-        onClick={() => startInlineEdit(eid, field, Array.isArray(value) ? value.join(",") : value)}
-        className={`${width} text-left px-1 py-0.5 text-caption rounded hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors`}
-        title="클릭해서 편집"
-      >
-        {display || <span className="text-text-tertiary">{placeholder || "—"}</span>}
-      </button>
+    await api.put(`/api/timetable/semesters/${selectedSid}/enrollments/${eid}`, {
+      [field]: value === "" ? null : value,
+    });
+    setEnrollments((prev) =>
+      prev.map((e) => {
+        if (e.id !== eid) return e;
+        if (["teaching_grades", "teaching_classes", "teaching_subjects"].includes(field)) {
+          const list = typeof value === "string" && value
+            ? value.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
+          return { ...e, [field]: list };
+        }
+        return { ...e, [field]: value === "" ? null : value };
+      }),
     );
   };
+
+  // 셀 보조 — 공통 SharedInlineCell 래퍼
+  const Cell = ({
+    eid, field, value, options, type = "text", width = "w-20", placeholder,
+  }: {
+    eid: number; field: string; value: any;
+    options?: InlineCellOption[]; type?: "text" | "number"; width?: string; placeholder?: string;
+  }) => (
+    <SharedInlineCell
+      value={Array.isArray(value) ? value.join(",") : value}
+      options={options}
+      type={type}
+      width={width}
+      placeholder={placeholder}
+      onSave={async (raw) => {
+        let v: any = raw;
+        if (["grade", "class_number", "student_number"].includes(field)) {
+          v = raw ? parseInt(raw) : null;
+        }
+        try {
+          await patchField(eid, field, v);
+        } catch (err: any) {
+          alert(err?.detail || "수정 실패");
+          fetchEnrollments();
+          throw err;
+        }
+      }}
+    />
+  );
 
   // 현재 선택된 학기의 학교 구조 → 드롭다운 옵션
   const currentSemester = semesters.find((s) => s.id === selectedSid);
@@ -756,7 +690,7 @@ export default function EnrollmentsPage() {
                 <td className="px-4 py-2 text-body text-text-secondary">
                   {e.role === "student" ? (
                     <div className="flex items-center gap-1">
-                      <InlineCell
+                      <Cell
                         eid={e.id}
                         field="grade"
                         value={e.grade}
@@ -766,7 +700,7 @@ export default function EnrollmentsPage() {
                         type="number"
                       />
                       <span>-</span>
-                      <InlineCell
+                      <Cell
                         eid={e.id}
                         field="class_number"
                         value={e.class_number}
@@ -780,11 +714,11 @@ export default function EnrollmentsPage() {
                         type="number"
                       />
                       <span>/</span>
-                      <InlineCell eid={e.id} field="student_number" value={e.student_number} placeholder="번호" type="number" width="w-14" />
+                      <Cell eid={e.id} field="student_number" value={e.student_number} placeholder="번호" type="number" width="w-14" />
                     </div>
                   ) : (
                     <div className="flex items-center gap-1">
-                      <InlineCell
+                      <Cell
                         eid={e.id}
                         field="department"
                         value={e.department}
@@ -793,7 +727,7 @@ export default function EnrollmentsPage() {
                         options={departmentOptions.length > 0 ? departmentOptions : undefined}
                       />
                       <span>/</span>
-                      <InlineCell eid={e.id} field="position" value={e.position} placeholder="직위" width="w-20" />
+                      <Cell eid={e.id} field="position" value={e.position} placeholder="직위" width="w-20" />
                     </div>
                   )}
                 </td>
@@ -802,7 +736,7 @@ export default function EnrollmentsPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-1">
                         <span className="text-caption text-text-tertiary w-6">담임</span>
-                        <InlineCell
+                        <Cell
                           eid={e.id}
                           field="homeroom_class"
                           value={e.homeroom_class}
@@ -813,7 +747,7 @@ export default function EnrollmentsPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-caption text-text-tertiary w-6">부</span>
-                        <InlineCell
+                        <Cell
                           eid={e.id}
                           field="subhomeroom_class"
                           value={e.subhomeroom_class}
@@ -832,11 +766,11 @@ export default function EnrollmentsPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-1">
                         <span className="text-caption text-text-tertiary w-8">학년</span>
-                        <InlineCell eid={e.id} field="teaching_grades" value={e.teaching_grades} placeholder="예 1,2" width="w-20" />
+                        <Cell eid={e.id} field="teaching_grades" value={e.teaching_grades} placeholder="예 1,2" width="w-20" />
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-caption text-text-tertiary w-8">과목</span>
-                        <InlineCell eid={e.id} field="teaching_subjects" value={e.teaching_subjects} placeholder="예 수학" width="w-32" />
+                        <Cell eid={e.id} field="teaching_subjects" value={e.teaching_subjects} placeholder="예 수학" width="w-32" />
                       </div>
                     </div>
                   ) : (

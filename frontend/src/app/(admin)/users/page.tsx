@@ -9,13 +9,13 @@ import {
   Download,
   Plus,
   Search,
-  ChevronLeft,
-  ChevronRight,
   RotateCcw,
   FileText,
   X,
   AlertCircle,
 } from "lucide-react";
+import { DataTable } from "@/components/ui/DataTable";
+import { InlineCell } from "@/components/ui/InlineCell";
 
 interface UserItem {
   id: number;
@@ -228,89 +228,72 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* 테이블 */}
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">이름</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">이메일</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">역할</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">상태</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학년/반/번호</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">부서</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">{u.name}</td>
-                <td className="px-4 py-2 text-body text-text-secondary">{u.email}</td>
-                <td className="px-4 py-2">
-                  <span className={`inline-block px-2 py-0.5 text-caption rounded ${
-                    u.role === "super_admin" ? "bg-red-100 text-red-700" :
-                    u.role === "designated_admin" ? "bg-purple-100 text-purple-700" :
-                    u.role === "teacher" ? "bg-blue-100 text-blue-700" :
-                    u.role === "staff" ? "bg-green-100 text-green-700" :
-                    "bg-gray-100 text-gray-700"
-                  }`}>
-                    {ROLE_LABELS[u.role] || u.role}
-                  </span>
-                </td>
-                <td className="px-4 py-2">
-                  <span className={`text-caption ${u.status === "approved" ? "text-status-success" : "text-status-error"}`}>
-                    {STATUS_LABELS[u.status] || u.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">
-                  {u.grade ? `${u.grade}-${u.class_number || "?"}-${u.student_number || "?"}` : "-"}
-                </td>
-                <td className="px-4 py-2 text-body text-text-secondary">{u.department || "-"}</td>
-                <td className="px-4 py-2 text-center">
-                  <button
-                    onClick={() => handleResetPassword(u.id)}
-                    title="비밀번호 초기화"
-                    className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-status-warning"
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-body text-text-tertiary">
-                  {loading ? "로딩 중..." : "사용자가 없습니다"}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-caption text-text-secondary">
-            {page} / {totalPages} ({total}명)
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
+      <DataTable<UserItem>
+        columns={[
+          { key: "name", label: "이름" },
+          { key: "email", label: "이메일", render: (u) => <span className="text-text-secondary">{u.email}</span> },
+          {
+            key: "role", label: "역할",
+            render: (u) => (
+              <span className={`inline-block px-2 py-0.5 text-caption rounded ${
+                u.role === "super_admin" ? "bg-red-100 text-red-700" :
+                u.role === "designated_admin" ? "bg-purple-100 text-purple-700" :
+                u.role === "teacher" ? "bg-blue-100 text-blue-700" :
+                u.role === "staff" ? "bg-green-100 text-green-700" :
+                "bg-gray-100 text-gray-700"
+              }`}>
+                {ROLE_LABELS[u.role] || u.role}
+              </span>
+            ),
+          },
+          {
+            key: "status", label: "상태",
+            render: (u) => (
+              <span className={`text-caption ${u.status === "approved" ? "text-status-success" : "text-status-error"}`}>
+                {STATUS_LABELS[u.status] || u.status}
+              </span>
+            ),
+          },
+          {
+            key: "grade", label: "학년/반/번호",
+            render: (u) => u.grade ? `${u.grade}-${u.class_number || "?"}-${u.student_number || "?"}` : "-",
+          },
+          {
+            key: "department", label: "부서",
+            render: (u) => (
+              <InlineCell
+                value={u.department}
+                width="w-28"
+                placeholder="-"
+                onSave={async (v) => {
+                  await api.put(`/api/users/${u.id}`, { department: v || null });
+                  setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, department: v || null } : x));
+                }}
+              />
+            ),
+          },
+          {
+            key: "actions", label: "작업", align: "center",
+            render: (u) => (
+              <button
+                onClick={() => handleResetPassword(u.id)}
+                title="비밀번호 초기화"
+                className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-status-warning"
+              >
+                <RotateCcw size={14} />
+              </button>
+            ),
+          },
+        ]}
+        rows={users}
+        keyExtractor={(u) => u.id}
+        loading={loading}
+        emptyText="사용자가 없습니다"
+        page={page}
+        totalPages={totalPages}
+        totalCount={total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
+import { DataTable } from "@/components/ui/DataTable";
 
 interface StudentItem {
   id: number;
@@ -358,35 +359,20 @@ function GradesTab({ studentId }: { studentId: number }) {
         </div>
       )}
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">년도/학기</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">시험</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">과목</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">점수</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">학년석차</th>
-              <th className="px-4 py-2 text-right text-caption text-text-tertiary font-medium">반석차</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary">{r.year}-{r.semester}학기</td>
-                <td className="px-4 py-2 text-body text-text-secondary">{r.exam_type === "midterm" ? "중간" : "기말"}</td>
-                <td className="px-4 py-2 text-body text-text-primary">{r.subject}</td>
-                <td className="px-4 py-2 text-body text-text-primary text-right">{r.score}/{r.max_score}</td>
-                <td className="px-4 py-2 text-body text-text-secondary text-right">{r.grade_rank || "-"}</td>
-                <td className="px-4 py-2 text-body text-text-secondary text-right">{r.class_rank || "-"}</td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "성적 기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<any>
+        columns={[
+          { key: "period", label: "년도/학기", render: (r) => `${r.year}-${r.semester}학기` },
+          { key: "exam_type", label: "시험", render: (r) => (r.exam_type === "midterm" ? "중간" : "기말") },
+          { key: "subject", label: "과목" },
+          { key: "score", label: "점수", align: "right", render: (r) => `${r.score}/${r.max_score}` },
+          { key: "grade_rank", label: "학년석차", align: "right", render: (r) => r.grade_rank || "-" },
+          { key: "class_rank", label: "반석차", align: "right", render: (r) => r.class_rank || "-" },
+        ]}
+        rows={records}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="성적 기록이 없습니다"
+      />
     </div>
   );
 }
