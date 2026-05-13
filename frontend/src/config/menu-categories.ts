@@ -67,10 +67,11 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["archive", "contest", "assignment", "club", "research"],
     },
     {
-      id: "guidance",
-      name: "학생지도",
+      id: "students",
+      name: "학생 관리",
       icon: "GraduationCap",
-      items: ["students"],
+      // 토글 한 단계 줄임 — 학생 관리 카테고리 직속 메뉴
+      items: ["student-list", "admissions", "student-artifacts", "alumni-research"],
     },
     {
       id: "search",
