@@ -34,3 +34,20 @@ class TwoFactorVerifyRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class RegisterRequest(BaseModel):
+    """첫 회원가입 (BOOTSTRAP_MODE=first_signup일 때만 동작).
+    User count가 0일 때만 통과 — 가입자가 자동으로 super_admin이 됨.
+    """
+    name: str
+    email: str
+    username: str
+    password: str
+
+
+class BootstrapStatus(BaseModel):
+    """가입 페이지가 호출 — 첫 가입 가능 여부"""
+    can_register: bool
+    bootstrap_mode: str
+    user_count: int

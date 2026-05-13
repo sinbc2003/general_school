@@ -33,10 +33,13 @@ class Settings(BaseSettings):
     SITE_LOGO_PATH: str = "/static/logo.png"
     PRIMARY_COLOR: str = "#1a56db"
 
-    # ── 최고관리자 ──
-    SUPER_ADMIN_USERNAME: str = "adminssh"
-    SUPER_ADMIN_PASSWORD: str = "19550425!@!@"
-    SUPER_ADMIN_EMAIL: str = "adminssh@school.local"
+    # ── 최고관리자 부트스트랩 ──
+    # "first_signup" (기본): 첫 회원가입자가 자동으로 super_admin (OpenWebUI 방식)
+    # "env_seed":            아래 값으로 시드 시 자동 생성
+    BOOTSTRAP_MODE: str = "first_signup"
+    SUPER_ADMIN_USERNAME: str = "admin"
+    SUPER_ADMIN_PASSWORD: str = "ChangeMe!2026"
+    SUPER_ADMIN_EMAIL: str = "admin@school.local"
 
     # ── URL ──
     FRONTEND_URL: str = "http://localhost:3000"

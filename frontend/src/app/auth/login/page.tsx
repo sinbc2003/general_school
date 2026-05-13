@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { api } from "@/lib/api/client";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -9,6 +11,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [canRegister, setCanRegister] = useState(false);
+
+  useEffect(() => {
+    api.get("/api/auth/bootstrap-status")
+      .then((d) => setCanRegister(!!d.can_register))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +86,20 @@ export default function LoginPage() {
             {loading ? "로그인 중..." : "로그인"}
           </button>
         </form>
+
+        {canRegister && (
+          <div className="mt-6 pt-4 border-t border-border-default text-center">
+            <p className="text-caption text-text-tertiary mb-2">
+              아직 등록된 사용자가 없습니다.
+            </p>
+            <Link
+              href="/auth/register"
+              className="inline-block text-body text-accent hover:underline font-medium"
+            >
+              첫 가입자(최고관리자) 등록하기 →
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

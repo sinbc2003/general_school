@@ -3,8 +3,8 @@
 import io
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,12 @@ from app.services.excel_service import (
     parse_user_excel,
     generate_user_export,
 )
+from app.services.user_csv_io import (
+    CSV_TEMPLATES as USER_CSV_TEMPLATES,
+    template_csv as user_template_csv,
+    import_users_csv,
+)
+from app.core.permissions import require_super_admin
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -416,3 +422,47 @@ async def list_graduates(
             "results": ar.results if ar else None,
         })
     return {"items": items}
+
+
+# ── CSV 일괄 등록 (역할별) ──
+# /_csv 접두로 /{user_id} 충돌 회피
+
+@router.get("/_csv/template/{role}")
+async def download_user_csv_template(
+    role: str,
+    user: User = Depends(require_super_admin()),
+):
+    """역할별 CSV 템플릿 다운로드 (최고관리자 전용)"""
+    if role not in USER_CSV_TEMPLATES:
+        raise HTTPException(400, f"valid roles: {list(USER_CSV_TEMPLATES.keys())}")
+    content = user_template_csv(role)
+    return Response(
+        content=content, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="users_{role}_template.csv"'},
+    )
+
+
+@router.post("/_csv/import/{role}")
+async def import_users_from_csv(
+    role: str,
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False),
+    request: Request = None,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """CSV 일괄 등록 (최고관리자 전용).
+    role: designated_admin | teacher | student
+    dry_run=true → 검증만 (DB 변경 없음)
+    """
+    if role not in USER_CSV_TEMPLATES:
+        raise HTTPException(400, f"valid roles: {list(USER_CSV_TEMPLATES.keys())}")
+    raw = await file.read()
+    result = await import_users_csv(db, role, raw, granted_by_user_id=user.id, dry_run=dry_run)
+    if not dry_run:
+        await log_action(
+            db, user, f"users.csv_import.{role}",
+            target=f"ok={result['ok_count']}, errors={len(result['errors'])}",
+            request=request,
+        )
+    return result

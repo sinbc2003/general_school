@@ -19,7 +19,26 @@ from app.models.permission import Permission
 
 
 async def seed_super_admin(db: AsyncSession) -> None:
-    """최고관리자 계정 시드"""
+    """최고관리자 시드.
+
+    BOOTSTRAP_MODE에 따라 동작 분기:
+      - "first_signup" (기본): 자동 생성하지 않음. 첫 회원가입자가 super_admin이 됨.
+      - "env_seed":            .env의 SUPER_ADMIN_* 값으로 자동 생성.
+    """
+    mode = (settings.BOOTSTRAP_MODE or "first_signup").lower()
+
+    if mode == "first_signup":
+        any_user = (await db.execute(select(User).limit(1))).scalar_one_or_none()
+        if any_user:
+            print(f"[SEED] BOOTSTRAP_MODE=first_signup, 사용자 이미 존재 — 시드 생략")
+        else:
+            print(
+                f"[SEED] BOOTSTRAP_MODE=first_signup, 사용자 없음 — "
+                f"브라우저로 /auth/register 접속 시 첫 가입자가 super_admin이 됩니다."
+            )
+        return
+
+    # env_seed 모드 — 기존 동작
     result = await db.execute(
         select(User).where(User.username == settings.SUPER_ADMIN_USERNAME)
     )
@@ -37,7 +56,7 @@ async def seed_super_admin(db: AsyncSession) -> None:
         )
         db.add(admin)
         await db.flush()
-        print(f"[SEED] 최고관리자 생성: {settings.SUPER_ADMIN_USERNAME}")
+        print(f"[SEED] 최고관리자 생성 (env_seed): {settings.SUPER_ADMIN_USERNAME}")
     else:
         print(f"[SEED] 최고관리자 이미 존재: {settings.SUPER_ADMIN_USERNAME}")
 
