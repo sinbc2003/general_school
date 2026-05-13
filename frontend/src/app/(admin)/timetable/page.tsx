@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * 시간표 페이지.
+ *
+ * TODO(시간표 CSV 일괄 업로드):
+ *   컴시/알리미 등 시간표 업체의 표준 export 포맷이 확보되면
+ *   /api/timetable/entries/bulk + CSV 파서 추가 예정.
+ *   교사별 시간표를 한 번에 import 가능하게.
+ */
+
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 import { Plus, Save, Calendar } from "lucide-react";

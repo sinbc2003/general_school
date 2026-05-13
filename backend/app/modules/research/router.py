@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.research import ResearchProject, ResearchLog, ResearchSubmission, ResearchJournal
 from app.models.user import User
+from app.modules.research.schemas import ResearchProjectCreate, ResearchProjectUpdate
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 UPLOAD_DIR = os.path.join("storage", "research")
@@ -20,16 +21,16 @@ UPLOAD_DIR = os.path.join("storage", "research")
 
 @router.post("")
 async def create_project(
-    body: dict,
+    body: ResearchProjectCreate,
     user: User = Depends(require_permission("research.project.create")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     p = ResearchProject(
-        title=body["title"], research_type=body["research_type"],
-        description=body.get("description"), advisor_id=body.get("advisor_id"),
-        members=body.get("members"), year=body["year"],
-        semester=body.get("semester"), created_by_id=user.id,
+        title=body.title, research_type=body.research_type,
+        description=body.description, advisor_id=body.advisor_id,
+        members=body.members, year=body.year,
+        semester=body.semester, created_by_id=user.id,
     )
     db.add(p)
     await db.flush()
@@ -89,7 +90,7 @@ async def get_project(
 
 @router.put("/{pid}")
 async def update_project(
-    pid: int, body: dict,
+    pid: int, body: ResearchProjectUpdate,
     user: User = Depends(require_permission("research.project.assign")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -97,9 +98,9 @@ async def update_project(
     p = (await db.execute(select(ResearchProject).where(ResearchProject.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    for f in ["title", "research_type", "description", "status", "members", "milestones"]:
-        if f in body:
-            setattr(p, f, body[f])
+    data = body.model_dump(exclude_unset=True)
+    for f, v in data.items():
+        setattr(p, f, v)
     await db.flush()
     await log_action(db, user, "research.update", f"project:{pid}", request=request)
     return {"ok": True}

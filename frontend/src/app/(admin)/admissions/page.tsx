@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Search,
 } from "lucide-react";
+import { DataTable } from "@/components/ui/DataTable";
 
 type MainTab = "questions" | "records";
 
@@ -119,52 +120,34 @@ function QuestionsTab() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">대학교</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학과</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">년도</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">분류</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">질문</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((q) => (
-              <tr key={q.id} className="border-t border-border-default hover:bg-bg-secondary">
-                <td className="px-4 py-2 text-body text-text-primary whitespace-nowrap">{q.university}</td>
-                <td className="px-4 py-2 text-body text-text-secondary whitespace-nowrap">{q.department}</td>
-                <td className="px-4 py-2 text-body text-text-tertiary">{q.year}</td>
-                <td className="px-4 py-2">
-                  {q.category && (
-                    <span className="inline-block px-2 py-0.5 text-caption rounded bg-blue-100 text-blue-700">{q.category}</span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-body text-text-primary max-w-md">
-                  <div className="line-clamp-2">{q.question_text}</div>
-                </td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "면접질문이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30">
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-caption text-text-secondary">{page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
+      <DataTable<any>
+        searchable
+        searchPlaceholder="대학교·학과·질문 검색"
+        exportable
+        exportFileName="admissions_questions.csv"
+        columns={[
+          { key: "university", label: "대학교", sortable: true },
+          { key: "department", label: "학과", sortable: true, render: (q) => <span className="text-text-secondary whitespace-nowrap">{q.department}</span> },
+          { key: "year", label: "년도", sortable: true, render: (q) => <span className="text-text-tertiary">{q.year}</span> },
+          {
+            key: "category", label: "분류",
+            render: (q) => q.category && (
+              <span className="inline-block px-2 py-0.5 text-caption rounded bg-blue-100 text-blue-700">{q.category}</span>
+            ),
+          },
+          {
+            key: "question_text", label: "질문",
+            render: (q) => <div className="line-clamp-2 max-w-md">{q.question_text}</div>,
+          },
+        ]}
+        rows={items}
+        keyExtractor={(q) => q.id}
+        loading={loading}
+        emptyText="면접질문이 없습니다"
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+      />
     </div>
   );
 }
@@ -214,54 +197,37 @@ function RecordsTab() {
         </div>
       </div>
 
-      <div className="bg-bg-primary rounded-lg border border-border-default overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-bg-secondary">
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학생</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">대학교</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학과</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">전형</th>
-              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">년도</th>
-              <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium">결과</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((r) => {
+      <DataTable<any>
+        searchable
+        searchPlaceholder="학생·대학교·학과 검색"
+        exportable
+        exportFileName="admissions_records.csv"
+        columns={[
+          { key: "student_name", label: "학생", sortable: true },
+          { key: "university", label: "대학교", sortable: true },
+          { key: "department", label: "학과", render: (r) => <span className="text-text-secondary">{r.department}</span> },
+          { key: "admission_type", label: "전형", render: (r) => <span className="text-text-secondary">{r.admission_type}</span> },
+          { key: "year", label: "년도", sortable: true, render: (r) => <span className="text-text-tertiary">{r.year}</span> },
+          {
+            key: "result", label: "결과", align: "center",
+            render: (r) => {
               const result = RESULT_CONFIG[r.result] || { label: r.result, className: "bg-gray-100 text-gray-700" };
               return (
-                <tr key={r.id} className="border-t border-border-default hover:bg-bg-secondary">
-                  <td className="px-4 py-2 text-body text-text-primary">{r.student_name}</td>
-                  <td className="px-4 py-2 text-body text-text-primary">{r.university}</td>
-                  <td className="px-4 py-2 text-body text-text-secondary">{r.department}</td>
-                  <td className="px-4 py-2 text-body text-text-secondary">{r.admission_type}</td>
-                  <td className="px-4 py-2 text-body text-text-tertiary">{r.year}</td>
-                  <td className="px-4 py-2 text-center">
-                    <span className={`inline-block px-2 py-0.5 text-caption rounded ${result.className}`}>
-                      {result.label}
-                    </span>
-                  </td>
-                </tr>
+                <span className={`inline-block px-2 py-0.5 text-caption rounded ${result.className}`}>
+                  {result.label}
+                </span>
               );
-            })}
-            {items.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-body text-text-tertiary">{loading ? "로딩 중..." : "진학기록이 없습니다"}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30">
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-caption text-text-secondary">{page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 hover:bg-bg-secondary rounded disabled:opacity-30">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      )}
+            },
+          },
+        ]}
+        rows={items}
+        keyExtractor={(r) => r.id}
+        loading={loading}
+        emptyText="진학기록이 없습니다"
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

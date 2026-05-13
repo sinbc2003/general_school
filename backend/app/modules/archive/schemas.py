@@ -1,4 +1,4 @@
-"""Pydantic schemas — archive 모듈."""
+"""Pydantic schemas — archive 모듈 (Problem CRUD)."""
 
 from typing import Literal
 
@@ -6,11 +6,13 @@ from pydantic import BaseModel, Field
 
 
 class ProblemCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
+    department: str = "math"
+    subject: str = Field(..., min_length=1)
+    difficulty: int = Field(..., ge=1, le=5)
+    question_type: str
     content: str
+    solution: str | None = None
     answer: str | None = None
-    difficulty: int | None = Field(None, ge=1, le=5)
-    subject: str | None = None
     grade_semester: str | None = None  # "2-1" 등
     year: int | None = None
     tags: list[str] | None = None
@@ -18,11 +20,13 @@ class ProblemCreate(BaseModel):
 
 
 class ProblemUpdate(BaseModel):
-    title: str | None = None
-    content: str | None = None
-    answer: str | None = None
-    difficulty: int | None = Field(None, ge=1, le=5)
+    department: str | None = None
     subject: str | None = None
+    difficulty: int | None = Field(None, ge=1, le=5)
+    question_type: str | None = None
+    content: str | None = None
+    solution: str | None = None
+    answer: str | None = None
     grade_semester: str | None = None
     year: int | None = None
     tags: list[str] | None = None

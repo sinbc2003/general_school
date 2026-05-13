@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.archive import Document, DocumentStatus, Problem, Tag, PublishedProblemSet
 from app.models.user import User
+from app.modules.archive.schemas import ProblemCreate, ProblemUpdate
 
 router = APIRouter(prefix="/api/archive", tags=["archive"])
 UPLOAD_DIR = os.path.join("storage", "documents")
@@ -229,23 +230,23 @@ async def get_problem(
 
 @router.post("/problems")
 async def create_problem(
-    body: dict,
+    body: ProblemCreate,
     user: User = Depends(require_permission("problem.library.create")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     p = Problem(
-        department=body.get("department", "math"),
-        subject=body["subject"],
-        difficulty=body["difficulty"],
-        question_type=body["question_type"],
-        content=body["content"],
-        solution=body.get("solution"),
-        answer=body.get("answer"),
-        grade_semester=body.get("grade_semester"),
-        year=body.get("year"),
-        tags=body.get("tags"),
-        extra=body.get("extra"),
+        department=body.department,
+        subject=body.subject,
+        difficulty=body.difficulty,
+        question_type=body.question_type,
+        content=body.content,
+        solution=body.solution,
+        answer=body.answer,
+        grade_semester=body.grade_semester,
+        year=body.year,
+        tags=body.tags,
+        extra=body.extra,
         created_by_id=user.id,
     )
     db.add(p)
@@ -257,7 +258,7 @@ async def create_problem(
 @router.put("/problems/{pid}")
 async def update_problem(
     pid: int,
-    body: dict,
+    body: ProblemUpdate,
     user: User = Depends(require_permission("problem.library.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -265,10 +266,9 @@ async def update_problem(
     p = (await db.execute(select(Problem).where(Problem.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404, "문제를 찾을 수 없습니다")
-    for field in ["subject", "difficulty", "question_type", "content", "solution",
-                   "answer", "grade_semester", "year", "tags", "extra", "review_status", "is_visible"]:
-        if field in body:
-            setattr(p, field, body[field])
+    data = body.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(p, field, value)
     await db.flush()
     await log_action(db, user, "problem.update", f"problem:{pid}", request=request)
     return {"ok": True}
