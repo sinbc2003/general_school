@@ -3,6 +3,52 @@
 ## 개요
 교사/학생 통합 학교 관리 플랫폼. gshs_teacher + gshs_student를 하나로 병합한 일반 학교용 버전.
 
+## 개발 정책 (AI 개발자 필독)
+
+**이 프로젝트는 Claude Code(또는 동일 계열 AI)로 계속 개발됩니다.**
+새 기능 추가 시 아래 보장을 반드시 지킬 것:
+
+### 1. 전체 백업 자동 포함 보장
+
+데이터 백업/복원은 `app/services/backup.py`의 `export_all()` / `restore_all()`가 담당.
+SQLAlchemy `Base.metadata.sorted_tables`를 기반으로 모든 테이블을 동적 수집하므로
+**일반적으로는 새 테이블/컬럼이 자동으로 백업에 포함**됨. 그러나 다음 규칙을 어기면 누락된다:
+
+- **새 모델 추가 시 반드시 `app/models/__init__.py`에 import** 등록할 것.
+  (import해야 `Base.metadata`에 등록됨. 모듈 내부에서 import 안 되면 백업에서 빠짐)
+- 모델 파일은 `app/models/<X>.py` 위치에 두고, `Base` 상속.
+- **테이블에 file_path 같은 외부 파일 참조 컬럼이 있으면**:
+  - 파일은 반드시 `backend/storage/` 하위에 저장 (백업 `storage.tar.gz`에 포함됨)
+  - 외부 절대 경로 저장 금지
+- `app/services/backup.py`는 수정하지 말 것. 모델 추가만 신경 쓰면 자동 동작.
+
+### 2. Alembic 마이그레이션 일관성
+
+- 모델 변경 후 반드시 `alembic revision --autogenerate -m "변경 설명"` 생성
+- 변경 사항을 dev DB에서 `alembic upgrade head`로 검증
+- 마이그레이션 파일을 commit에 포함
+
+### 3. 권한 일관성 (이미 RuntimeError로 강제됨)
+
+새 권한 키는 라우터의 `require_permission(...)` 호출과 `app/modules/<X>/permissions.py`에 동시에 정의.
+누락 시 부팅 RuntimeError로 실패. 시드 안전망 작동.
+
+### 4. 운영 시나리오 — 학교 자체 서버 설치
+
+- 사용자가 학교 방문 → `git clone` → `SETUP.md` 따라 30분~1시간 셋업
+- 자동 배포 없음. 코드 업데이트는 학교가 `git pull` 또는 사용자 재방문
+- 학교 데이터는 학교가 통제. 백업도 학교 책임 (외장 SSD 권장)
+- 장비 교체 시: `/system/backup`에서 ZIP 받아 새 장비에 그대로 업로드 → 자동 복원
+
+### 5. 보호된 파일 — 큰 변경 전 사용자 확인 권장
+
+- `app/services/backup.py` — 백업 형식 깨면 과거 백업 호환성 잃음
+- `app/core/visibility.py` — 학생 데이터 접근 정책 (보안 critical)
+- `app/core/permission_registry.py` — 권한 일관성 검증 (부팅 안전망)
+- `alembic/versions/` — 과거 마이그레이션 절대 수정 X (새 revision만 추가)
+- `app/models/__init__.py` — 모델 등록 (백업 일관성 보장)
+- `frontend/src/components/ui/*` — 6개 페이지가 공유, 시그니처 변경 신중
+
 ## 기술 스택
 - **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
 - **Backend**: FastAPI + async SQLAlchemy 2.0 + PostgreSQL/SQLite
@@ -188,3 +234,28 @@ cd frontend && npm run build && npm start
 - 라우트 path 충돌 주의: `/api/users/{user_id}` 같은 1세그먼트 패턴이 있으면 추가 액션은 `/_action/...` 같은 다세그먼트 prefix로 등록 (이미 적용: `/_cohort/promote`, `/_io/csv-template/{type}`)
 - LLM API 키는 절대 코드/로그에 평문 출력 금지 (mask_secret 사용)
 - ENCRYPTION_MASTER_KEY는 production 배포 시 반드시 강한 랜덤 키로 교체 (현재는 "change-this-in-production" 기본값)
+
+## 백업 시스템 (자동 포함 보장)
+
+`/system/backup` 페이지 — super_admin 전용. 전체 데이터 ZIP 다운로드/복원.
+
+**자동 포함 규칙**:
+- DB 모든 테이블 → `app/services/backup.py`의 `export_all()`이 `Base.metadata.sorted_tables`로 수집
+  - 새 모델은 **반드시 `app/models/__init__.py`에 import** (안 하면 백업에서 빠짐)
+- `backend/storage/` 디렉터리 → tar.gz로 포함 (사용자 업로드 파일 안전)
+  - 파일 저장 시 반드시 `storage/` 하위에 (외부 경로 X)
+- manifest.json — alembic revision, 날짜, 학교명, 테이블별 행수
+
+**복원 안전망**:
+- 외래키 순서로 wipe → insert (트랜잭션)
+- alembic revision 불일치 시 경고 (자동 차단 X, 사용자 결정)
+- 백업에만 있는 테이블·컬럼은 안전 무시 (downgrade 안전)
+- 복원 후 token 무효화 — 자동 로그아웃
+
+**새 기능 추가 시 백업 자동 포함 체크리스트**:
+1. 새 모델 → `app/models/__init__.py`에 import 추가 ✅
+2. 파일 저장 경로는 `backend/storage/` 하위 ✅
+3. Alembic 마이그레이션 생성 (`alembic revision --autogenerate`) ✅
+4. (자동 처리 안 되는 외부 의존성은 없는지 확인)
+
+`app/services/backup.py`는 모델 정보를 모르고 메타데이터로만 동작하므로 새 모델/컬럼이 자동 반영됨.

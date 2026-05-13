@@ -474,6 +474,65 @@ sudo ufw allow from 192.168.0.0/16 to any port 22  # SSH (관리용)
 sudo ufw enable
 ```
 
+### 외장 SSD 백업 셋업 (학교 운영 권장)
+
+**3-2-1 백업 규칙**: 사본 3개 / 매체 2종 / 외부 1개
+
+#### 외장 SSD 자동 마운트 (Ubuntu)
+
+```bash
+# 1. 외장 SSD 연결 후 식별
+lsblk
+# 출력 예: sdb1   1.8T ...
+
+# 2. UUID 확인
+sudo blkid /dev/sdb1
+# UUID="xxxx-xxxx-xxxx" TYPE="ext4"
+
+# 3. 마운트 포인트 + fstab 등록
+sudo mkdir /mnt/backup_ssd
+sudo nano /etc/fstab
+# 마지막 줄에 추가:
+# UUID=xxxx-xxxx-xxxx  /mnt/backup_ssd  ext4  defaults,nofail  0  2
+
+# 4. 마운트 + 권한
+sudo mount -a
+sudo chown sinbc:sinbc /mnt/backup_ssd
+```
+
+#### crontab 자동 백업 (서버 → 외장 SSD)
+
+```bash
+crontab -e
+```
+
+```cron
+# 매일 새벽 3시: DB + storage → 외장 SSD
+0 3 * * * cp ~/general_school/backend/general_school.db /mnt/backup_ssd/db_$(date +\%F).db 2>>/var/log/school_backup.log
+0 4 * * * tar czf /mnt/backup_ssd/storage_$(date +\%F).tar.gz ~/general_school/backend/storage/ 2>>/var/log/school_backup.log
+
+# 30일 보존 (오래된 백업 자동 삭제)
+0 5 * * * find /mnt/backup_ssd -name 'db_*.db' -mtime +30 -delete
+5 5 * * * find /mnt/backup_ssd -name 'storage_*.tar.gz' -mtime +30 -delete
+
+# PostgreSQL 운영 중이면 위 db_*.db 대신:
+# 0 3 * * * pg_dump -F c general_school > /mnt/backup_ssd/db_$(date +\%F).dump
+```
+
+#### 월 1회 외부 보관 (화재·도난 대비)
+
+```bash
+# 매월 1일 새벽 6시 — 두 번째 외장 SSD 또는 클라우드(rsync, rclone 등)
+0 6 1 * * rsync -av /mnt/backup_ssd/ /mnt/backup_ssd_2/
+# 또는 rclone으로 클라우드:
+# 0 6 1 * * rclone copy /mnt/backup_ssd remote:school_backup
+```
+
+#### 웹 UI 백업 (수동·이관용)
+
+`/system/backup` 페이지에서 ZIP 받기 — 외장 SSD에 저장.
+새 장비로 이관 시 이 ZIP을 새 장비의 같은 페이지에서 업로드.
+
 ### 10.7 자동 백업 (crontab)
 
 PostgreSQL:

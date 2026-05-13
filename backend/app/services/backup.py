@@ -110,15 +110,20 @@ async def export_all(db: AsyncSession) -> bytes:
         data[table.name] = serialized
         row_counts[table.name] = len(serialized)
 
-    # 2. manifest
+    # 2. manifest — 호환성 검증 + 새 기능 추가 시 검출 용도
     revision = await _alembic_revision(db)
+    from app.core.config import settings as _settings
     manifest = {
         "format_version": 1,
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "alembic_revision": revision,
+        "school_name": _settings.SCHOOL_NAME,
+        "school_short": _settings.SCHOOL_SHORT,
         "table_count": len(tables),
+        "table_names": [t.name for t in tables],  # 새 테이블 자동 감지
         "row_counts": row_counts,
         "total_rows": sum(row_counts.values()),
+        "storage_included": STORAGE_DIR.exists() and any(STORAGE_DIR.iterdir()),
     }
 
     # 3. zip 패키징
