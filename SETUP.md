@@ -152,8 +152,9 @@ npm run dev
 
 ---
 
-## 7. 첫 사용 — 최고관리자 가입
+## 7. 첫 사용 — 최고관리자 가입 + 초기 설정
 
+### 7.1 첫 가입 (super_admin)
 DB가 비어있으므로 자동으로 첫 가입 모드:
 
 1. http://localhost:3000/auth/login 접속
@@ -161,10 +162,60 @@ DB가 비어있으므로 자동으로 첫 가입 모드:
 3. 클릭 → 이름·이메일·아이디·비밀번호(8자+) 입력
 4. 가입 → super_admin 자동 부여 + 자동 로그인
 
-이후 추가 사용자는 `/users` 페이지의 **"CSV 일괄 등록"** 버튼으로:
+### 7.2 기본 권한 매트릭스 부여 (Critical, 1회만)
+
+가입 직후 super_admin만 메뉴를 볼 수 있습니다. teacher/staff/student에게 합리적 기본 권한을 일괄 부여하려면:
+
+```bash
+cd ~/general_school/backend
+source venv/bin/activate
+python -m scripts.grant_default_roles
+```
+
+출력:
+```
+전체 권한: 101개
++ teacher 권한 추가: 82
++ staff 권한 추가: 8
++ student 권한 추가: 23
+```
+
+이후 super_admin이 `/permissions` 페이지에서 개별 조정 가능.
+
+### 7.3 학기 시스템 초기 설정
+
+학기는 시드 시 자동 생성됩니다 (예: 2026학년도 1학기). 명단·구조 설정:
+
+1. **시스템 → 학기 관리** → 🏫 아이콘 클릭 → **학교 구조 설정**:
+   - 학년별 학급 수 (예: 1학년 5반, 2학년 5반, 3학년 4반)
+   - 개설 과목 (Enter로 칩 추가, 예: 수학·수학I·물리)
+   - 부서 목록 (예: 수학과·과학과·행정실)
+
+2. **시스템 → 학기별 명단** → **CSV 일괄 등록**:
+   - **교직원** CSV: `department, name, phone` (최소 양식)
+     - 이름이 자동 아이디로 부여 (동명이인은 `홍길동_2` 자동)
+     - 핸드폰 숫자가 초기 비밀번호
+   - **학생** CSV: `student_no, name, phone`
+     - 학번은 `1-3-5` 또는 `10305` 형식 자동 parse → 학년/반/번호로 분리
+
+3. **교사 첫 로그인**: 자동으로 `/auth/teacher-onboarding` 페이지로 강제 이동
+   - 드롭다운으로 본인 담임 학급 / 부담임 학급 / 수업 학년 / 가르치는 과목 선택
+   - 저장 → 일반 사용 가능
+
+### 7.4 정책 토글 (선택)
+
+**시스템 → 설정 → 교사 학생 열람 범위**:
+- "모든 학생 열람" (기본)
+- "담당 학생만" — 본인 담임/부담임 학급 + 본인 수업 학년·학급 학생만 보임
+
+### 7.5 기타 사용자 일괄 등록 (옵션)
+
+`/users` 페이지의 **"CSV 일괄 등록"** 버튼 — 옛 양식 (학기 시스템 무관):
 - 역할 선택 (지정관리자 / 교사 / 학생)
 - 템플릿 다운로드 (예시 1행 포함, UTF-8 BOM)
 - 채워서 업로드 → dry-run 검증 → 실행
+
+**권장**: 학기별 명단 CSV (7.3) 사용. 학기 격리·진급/전출·교사 onboarding과 자동 연동됨.
 
 ---
 
@@ -191,28 +242,62 @@ git commit -m "변경 내용"
 git push
 ```
 
-### 다른 곳에서 변경한 거 받기
+### 다른 곳에서 변경한 거 받기 (업그레이드)
 ```bash
 cd ~/general_school
+
+# 1. 코드 받기
 git pull
-```
 
-### 의존성 업데이트 후
-```bash
-# requirements.txt 변경 시
+# 2. 의존성 변경분 적용
 cd backend && source venv/bin/activate && pip install -r requirements.txt
+cd ../frontend && npm install
 
-# package.json 변경 시
-cd frontend && npm install
+# 3. DB 스키마 변경 적용 (Alembic 마이그레이션)
+cd ../backend && alembic upgrade head
+
+# 4. 서비스 재시작 (systemd 운영 중인 경우)
+sudo systemctl restart school-backend
+# 또는 dev 모드면 uvicorn 종료 후 재실행
+
+# 5. 프론트엔드 production 재빌드 (운영 중)
+cd ../frontend && npm run build && sudo systemctl restart school-frontend
 ```
+
+**Alembic이 처음 활성화될 때**: 기존 DB는 한 번 `alembic stamp head`로 표시 (마이그레이션 baseline 동기화). 위 명령은 dev 환경에서 한 번만.
 
 ### 백업 (운영 데이터)
 ```bash
-# DB
+mkdir -p ~/backup
+
+# DB (가장 중요)
 cp ~/general_school/backend/general_school.db ~/backup/general_school_$(date +%F).db
 
-# 사용자 업로드 파일
+# 사용자 업로드 파일 (학생 산출물, 과제 제출물, 학교 로고 등)
 tar czf ~/backup/storage_$(date +%F).tar.gz ~/general_school/backend/storage/
+
+# .env (JWT_SECRET, ENCRYPTION_MASTER_KEY 분실 시 기존 데이터 복호화 불가 — 별도 안전 보관)
+cp ~/general_school/.env ~/backup/env_$(date +%F).backup
+```
+
+**자동 백업 (매일 새벽 3시)**: `crontab -e`에 추가
+```
+0 3 * * * cp ~/general_school/backend/general_school.db ~/backup/general_school_$(date +\%F).db && find ~/backup -name 'general_school_*.db' -mtime +30 -delete
+```
+
+### 복원
+```bash
+# 1. 서비스 중지
+sudo systemctl stop school-backend school-frontend
+
+# 2. DB 복원
+cp ~/backup/general_school_2026-05-14.db ~/general_school/backend/general_school.db
+
+# 3. storage 복원
+tar xzf ~/backup/storage_2026-05-14.tar.gz -C ~/general_school/backend/
+
+# 4. 서비스 재시작
+sudo systemctl start school-backend school-frontend
 ```
 
 ---
