@@ -10,6 +10,10 @@
 
 ## 다른 컴퓨터에 옮기는 방법
 
+**👉 자세한 단계별 가이드: [SETUP.md](./SETUP.md)** (복붙용 명령어 모음)
+
+요약:
+
 ### 1. Clone
 ```bash
 git clone <repo-url> general_school
