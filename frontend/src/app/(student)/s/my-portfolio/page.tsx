@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Plus, Upload, ExternalLink, Trash2, Edit3, Eye, EyeOff,
+  Plus, ExternalLink, Trash2, Edit3, Eye, EyeOff,
   FileText, Image as ImageIcon, Film, Folder, Globe, Save, X,
+  ClipboardList, Users2, LayoutGrid, ListChecks,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -24,6 +25,50 @@ interface Artifact {
   created_at: string | null;
 }
 
+interface AssignmentSubmission {
+  id: number;
+  assignment_id: number;
+  assignment_title: string;
+  subject: string;
+  filename: string | null;
+  file_size: number | null;
+  status: string;
+  submitted_at: string | null;
+  review_comment: string | null;
+  show_in_portfolio: boolean;
+}
+
+interface ClubSubmission {
+  id: number;
+  club_id: number;
+  club_name: string;
+  title: string;
+  submission_type: string;
+  file_path: string | null;
+  created_at: string | null;
+}
+
+interface TimelineItem {
+  type: "artifact" | "assignment_submission" | "club_submission";
+  id: number;
+  title: string;
+  date: string | null;
+  // 공통 외 분기 필드들
+  category?: string;
+  description?: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
+  is_public?: boolean;
+  subject?: string;
+  filename?: string | null;
+  status?: string;
+  review_comment?: string | null;
+  show_in_portfolio?: boolean;
+  club_name?: string;
+  submission_type?: string;
+  file_path?: string | null;
+}
+
 const CATEGORIES = [
   { key: "report", label: "보고서/논문", icon: FileText },
   { key: "presentation", label: "발표자료", icon: FileText },
@@ -32,7 +77,164 @@ const CATEGORIES = [
   { key: "other", label: "기타", icon: Folder },
 ];
 
+type Tab = "timeline" | "artifacts" | "assignments" | "clubs";
+
+const TABS: { key: Tab; label: string; icon: any }[] = [
+  { key: "timeline", label: "전체 (timeline)", icon: ListChecks },
+  { key: "artifacts", label: "자유 산출물", icon: LayoutGrid },
+  { key: "assignments", label: "과제 제출물", icon: ClipboardList },
+  { key: "clubs", label: "동아리 산출물", icon: Users2 },
+];
+
 export default function MyPortfolioPage() {
+  const [tab, setTab] = useState<Tab>("timeline");
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h1 className="text-title text-text-primary">나의 포트폴리오</h1>
+        <p className="text-caption text-text-tertiary mt-0.5">
+          자유 업로드 산출물 · 과제 제출물 · 동아리 산출물을 한 곳에서 관리하세요.
+        </p>
+      </div>
+
+      {/* 탭 */}
+      <div className="flex gap-1 mb-5 bg-bg-secondary rounded-lg p-1 w-fit flex-wrap">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-body rounded transition-colors ${
+              tab === key
+                ? "bg-bg-primary text-accent font-medium shadow-sm"
+                : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "timeline" && <TimelineTab />}
+      {tab === "artifacts" && <ArtifactsTab />}
+      {tab === "assignments" && <AssignmentsTab />}
+      {tab === "clubs" && <ClubsTab />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 전체 timeline 탭
+// ─────────────────────────────────────────────────────────────
+function TimelineTab() {
+  const [items, setItems] = useState<TimelineItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get("/api/me/all-activities");
+      setItems(data.items);
+    } catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totals = {
+    artifact: items.filter(i => i.type === "artifact").length,
+    assignment: items.filter(i => i.type === "assignment_submission").length,
+    club: items.filter(i => i.type === "club_submission").length,
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <StatCard label="총 활동" value={items.length} icon={ListChecks} accent />
+        <StatCard label="자유 산출물" value={totals.artifact} icon={LayoutGrid} />
+        <StatCard label="과제 제출물" value={totals.assignment} icon={ClipboardList} />
+        <StatCard label="동아리 산출물" value={totals.club} icon={Users2} />
+      </div>
+
+      {loading ? (
+        <div className="text-text-tertiary">로딩 중...</div>
+      ) : items.length === 0 ? (
+        <EmptyState text="아직 활동 기록이 없습니다" />
+      ) : (
+        <div className="space-y-2">
+          {items.map((it) => <TimelineRow key={`${it.type}-${it.id}`} item={it} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, icon: Icon, accent = false }: any) {
+  return (
+    <div className={`bg-bg-primary border ${accent ? "border-accent" : "border-border-default"} rounded-lg p-3`}>
+      <div className="flex items-center gap-2 text-caption text-text-tertiary mb-1">
+        <Icon size={14} /> {label}
+      </div>
+      <div className={`text-title ${accent ? "text-accent" : "text-text-primary"}`}>{value}</div>
+    </div>
+  );
+}
+
+function TimelineRow({ item }: { item: TimelineItem }) {
+  const typeMeta = {
+    artifact: { label: "자유 산출물", color: "bg-blue-100 text-blue-700", icon: LayoutGrid },
+    assignment_submission: { label: "과제 제출", color: "bg-purple-100 text-purple-700", icon: ClipboardList },
+    club_submission: { label: "동아리 산출", color: "bg-orange-100 text-orange-700", icon: Users2 },
+  }[item.type];
+  const Icon = typeMeta.icon;
+
+  return (
+    <div className="bg-bg-primary border border-border-default rounded-lg p-3 flex items-start gap-3">
+      <div className="flex-shrink-0 mt-0.5">
+        <Icon size={16} className="text-text-tertiary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <span className={`px-2 py-0.5 text-caption rounded ${typeMeta.color}`}>{typeMeta.label}</span>
+          {item.type === "assignment_submission" && item.show_in_portfolio && (
+            <span className="px-2 py-0.5 text-caption rounded bg-green-100 text-green-700">포트폴리오 노출 ON</span>
+          )}
+          {item.type === "artifact" && item.is_public && (
+            <span className="px-2 py-0.5 text-caption rounded bg-green-100 text-green-700">공개</span>
+          )}
+          {item.date && <span className="text-caption text-text-tertiary">{item.date.slice(0, 10)}</span>}
+        </div>
+        <div className="text-body text-text-primary font-medium truncate">{item.title}</div>
+        {item.type === "artifact" && item.description && (
+          <div className="text-caption text-text-secondary line-clamp-2 mt-0.5">{item.description}</div>
+        )}
+        {item.type === "assignment_submission" && (
+          <div className="text-caption text-text-tertiary mt-0.5">
+            {item.subject} {item.filename && `· ${item.filename}`} {item.status && `· ${item.status}`}
+          </div>
+        )}
+        {item.type === "club_submission" && (
+          <div className="text-caption text-text-tertiary mt-0.5">
+            {item.club_name} · {item.submission_type}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="bg-bg-primary border-2 border-dashed border-border-default rounded-lg py-10 text-center">
+      <Folder size={28} className="mx-auto text-text-tertiary mb-2" />
+      <div className="text-body text-text-tertiary">{text}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 자유 산출물 탭 (기존 로직)
+// ─────────────────────────────────────────────────────────────
+function ArtifactsTab() {
   const [items, setItems] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -82,7 +284,6 @@ export default function MyPortfolioPage() {
     setUploading(true);
     try {
       if (editingId) {
-        // 메타 수정 (파일 교체는 일단 미지원)
         await api.put(`/api/me/artifacts/${editingId}`, {
           title: form.title, description: form.description || null,
           category: form.category, external_link: form.external_link || null,
@@ -122,20 +323,14 @@ export default function MyPortfolioPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-title text-text-primary">나의 포트폴리오</h1>
-          <p className="text-caption text-text-tertiary mt-0.5">
-            보고서, 발표자료, 프로젝트, 영상 등 본인의 산출물을 누적 보관하세요.
-          </p>
-        </div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-caption text-text-tertiary">총 {items.length}건</span>
         <button onClick={() => { resetForm(); setShowForm(true); }}
                 className="flex items-center gap-1 px-3 py-2 bg-accent text-white rounded text-body">
           <Plus size={14} /> 산출물 추가
         </button>
       </div>
 
-      {/* 필터 */}
       <div className="flex flex-wrap gap-1 mb-4">
         <button
           onClick={() => setFilter("all")}
@@ -153,7 +348,6 @@ export default function MyPortfolioPage() {
         })}
       </div>
 
-      {/* 폼 */}
       {showForm && (
         <div className="mb-4 bg-bg-primary border border-accent rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -225,7 +419,6 @@ export default function MyPortfolioPage() {
         </div>
       )}
 
-      {/* 목록 */}
       {loading ? (
         <div className="text-text-tertiary">로딩 중...</div>
       ) : filtered.length === 0 ? (
@@ -305,6 +498,135 @@ function ArtifactCard({ a, onEdit, onRemove, onTogglePublic }: any) {
           <Trash2 size={13} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 과제 제출물 탭 (toggle 포함)
+// ─────────────────────────────────────────────────────────────
+function AssignmentsTab() {
+  const [items, setItems] = useState<AssignmentSubmission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get("/api/me/assignment-submissions");
+      setItems(data.items);
+    } catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = async (s: AssignmentSubmission) => {
+    try {
+      await api.put(`/api/me/assignment-submissions/${s.id}/portfolio-visibility`, {
+        show_in_portfolio: !s.show_in_portfolio,
+      });
+      setItems((prev) => prev.map((p) => p.id === s.id ? { ...p, show_in_portfolio: !p.show_in_portfolio } : p));
+    } catch (e: any) {
+      alert(e?.detail || "토글 실패");
+    }
+  };
+
+  const visibleCount = items.filter((s) => s.show_in_portfolio).length;
+
+  return (
+    <div>
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="text-caption text-blue-900">
+          ⓘ 과제 제출물을 <b>"포트폴리오 노출"</b>로 켜면 PDF 생기부, 공개 갤러리에 자동으로 포함됩니다.
+          {" "}현재 노출 중: <b>{visibleCount}개</b> / 전체 {items.length}개
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-text-tertiary">로딩 중...</div>
+      ) : items.length === 0 ? (
+        <EmptyState text="아직 과제 제출 기록이 없습니다" />
+      ) : (
+        <div className="space-y-2">
+          {items.map((s) => (
+            <div key={s.id} className="bg-bg-primary border border-border-default rounded-lg p-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="text-body text-text-primary font-medium">{s.assignment_title}</div>
+                  <div className="text-caption text-text-tertiary mt-0.5">
+                    {s.subject} {s.filename && `· ${s.filename}`} {s.submitted_at && `· ${s.submitted_at.slice(0, 10)}`}
+                  </div>
+                  {s.review_comment && (
+                    <div className="text-caption text-text-secondary mt-1 italic">교사 코멘트: {s.review_comment}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => toggle(s)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded text-caption border ${
+                    s.show_in_portfolio
+                      ? "bg-green-50 border-green-300 text-green-700"
+                      : "bg-bg-secondary border-border-default text-text-tertiary"
+                  }`}
+                >
+                  {s.show_in_portfolio ? <Eye size={13} /> : <EyeOff size={13} />}
+                  {s.show_in_portfolio ? "노출 ON" : "노출 OFF"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 동아리 산출물 탭 (read-only)
+// ─────────────────────────────────────────────────────────────
+function ClubsTab() {
+  const [items, setItems] = useState<ClubSubmission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.get("/api/me/club-submissions");
+      setItems(data.items);
+    } catch {} finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+        <div className="text-caption text-orange-900">
+          ⓘ 동아리 산출물은 동아리 페이지(<b>활동/대회/과제</b>)에서 등록·관리합니다. 여기서는 본인 제출 기록을 확인만 합니다.
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-text-tertiary">로딩 중...</div>
+      ) : items.length === 0 ? (
+        <EmptyState text="아직 동아리 산출물이 없습니다" />
+      ) : (
+        <div className="space-y-2">
+          {items.map((c) => (
+            <div key={c.id} className="bg-bg-primary border border-border-default rounded-lg p-3">
+              <div className="text-body text-text-primary font-medium">{c.title}</div>
+              <div className="text-caption text-text-tertiary mt-0.5">
+                {c.club_name} · {c.submission_type}
+                {c.created_at && ` · ${c.created_at.slice(0, 10)}`}
+              </div>
+              {c.file_path && (
+                <a href={`${API_URL}${c.file_path}`} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 text-caption bg-bg-secondary rounded">
+                  <FileText size={12} /> 파일 열기
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

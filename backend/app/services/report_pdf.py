@@ -223,6 +223,9 @@ def generate_student_pdf(
     counselings: list,
     records: list,
     school_name: str = "학교 통합 플랫폼",
+    artifacts: list | None = None,
+    assignment_submissions: list | None = None,
+    club_submissions: list | None = None,
 ) -> bytes:
     """학생 종합 포트폴리오 PDF 바이트 반환"""
     font, font_bold = _register_korean_font()
@@ -362,6 +365,71 @@ def generate_student_pdf(
             if t.abstract:
                 story.append(Paragraph(t.abstract[:500], S["body_sm"]))
             story.append(Spacer(1, 1*mm))
+        story.append(Spacer(1, 3*mm))
+
+    # 6-3. 자유 산출물 포트폴리오 (학생 본인이 is_public=True로 공개한 항목만)
+    public_artifacts = [a for a in (artifacts or []) if getattr(a, "is_public", False)]
+    if public_artifacts:
+        story.append(Paragraph("• 산출물 포트폴리오 (학생 본인 등록)", S["subgroup"]))
+        story.append(_grid_table(
+            ["제목", "분류", "설명/요약", "등록일자"],
+            [[a.title, a.category or "-",
+              (a.description or "")[:120] + ("…" if a.description and len(a.description) > 120 else ""),
+              a.created_at.isoformat()[:10] if a.created_at else ""]
+             for a in sorted(public_artifacts, key=lambda x: x.created_at or datetime(1900, 1, 1), reverse=True)],
+            S, col_widths=[50*mm, 25*mm, 65*mm, 30*mm],
+        ))
+        story.append(Spacer(1, 3*mm))
+
+    # 6-4. 과제 제출 활동 (show_in_portfolio=True만 포함)
+    visible_subs = [s for s in (assignment_submissions or []) if getattr(s, "show_in_portfolio", False)]
+    if visible_subs:
+        story.append(Paragraph("• 과제 제출 활동", S["subgroup"]))
+        # tuple unpacking 지원: (submission, assignment) 형태로 전달
+        rows = []
+        for entry in sorted(visible_subs, key=lambda x: x[0].submitted_at if isinstance(x, tuple) and x[0].submitted_at else (x.submitted_at if hasattr(x, "submitted_at") and x.submitted_at else datetime(1900, 1, 1)), reverse=True):
+            if isinstance(entry, tuple):
+                sub, asn = entry
+            else:
+                sub = entry
+                asn = None
+            title = (asn.title if asn else getattr(sub, "assignment_title", "-"))
+            subject = (asn.subject if asn else "-")
+            status_val = sub.status.value if hasattr(sub.status, "value") else (sub.status or "-")
+            rows.append([
+                title,
+                subject,
+                status_val,
+                (sub.review_comment or "")[:100] + ("…" if sub.review_comment and len(sub.review_comment) > 100 else ""),
+                sub.submitted_at.isoformat()[:10] if sub.submitted_at else "",
+            ])
+        story.append(_grid_table(
+            ["과제명", "교과", "상태", "교사 코멘트", "제출일자"],
+            rows, S, col_widths=[45*mm, 22*mm, 20*mm, 55*mm, 28*mm],
+        ))
+        story.append(Spacer(1, 3*mm))
+
+    # 6-5. 동아리 산출물
+    if club_submissions:
+        story.append(Paragraph("• 동아리 산출물", S["subgroup"]))
+        rows = []
+        for entry in sorted(club_submissions, key=lambda x: (x[0].created_at if isinstance(x, tuple) and x[0].created_at else (x.created_at if hasattr(x, "created_at") and x.created_at else datetime(1900, 1, 1))), reverse=True):
+            if isinstance(entry, tuple):
+                cs, club = entry
+            else:
+                cs = entry
+                club = None
+            club_name = (club.name if club else getattr(cs, "club_name", "-"))
+            rows.append([
+                cs.title,
+                club_name,
+                cs.submission_type or "-",
+                cs.created_at.isoformat()[:10] if cs.created_at else "",
+            ])
+        story.append(_grid_table(
+            ["제목", "동아리", "유형", "등록일자"],
+            rows, S, col_widths=[60*mm, 45*mm, 30*mm, 35*mm],
+        ))
         story.append(Spacer(1, 3*mm))
 
     # 7. 독서활동상황

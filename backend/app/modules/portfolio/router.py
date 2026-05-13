@@ -559,6 +559,25 @@ async def student_report_pdf(
     counselings = (await db.execute(select(StudentCounseling).where(StudentCounseling.student_id == sid))).scalars().all()
     records = (await db.execute(select(StudentRecord).where(StudentRecord.student_id == sid))).scalars().all()
 
+    # 학생 본인이 등록한 자유 산출물 (is_public 필터링은 PDF generator 내부에서 수행)
+    artifacts = (await db.execute(
+        select(StudentArtifact).where(StudentArtifact.student_id == sid)
+    )).scalars().all()
+
+    # 과제 제출물 (show_in_portfolio=True인 것만 사용) + 동아리 산출물
+    from app.models.assignment import Assignment, AssignmentSubmission
+    from app.models.club import Club, ClubSubmission
+    assignment_subs = (await db.execute(
+        select(AssignmentSubmission, Assignment)
+        .join(Assignment, Assignment.id == AssignmentSubmission.assignment_id)
+        .where(AssignmentSubmission.user_id == sid)
+    )).all()
+    club_subs = (await db.execute(
+        select(ClubSubmission, Club)
+        .join(Club, Club.id == ClubSubmission.club_id)
+        .where(ClubSubmission.author_id == sid)
+    )).all()
+
     pdf_bytes = generate_student_pdf(
         student={
             "name": student.name, "email": student.email, "grade": student.grade,
@@ -569,6 +588,9 @@ async def student_report_pdf(
         grades=list(grades), awards=list(awards), mock_exams=list(mocks),
         theses=list(theses), counselings=list(counselings), records=list(records),
         school_name=settings.SCHOOL_NAME,
+        artifacts=list(artifacts),
+        assignment_submissions=list(assignment_subs),
+        club_submissions=list(club_subs),
     )
 
     await log_action(db, user, "portfolio.report.export", f"student:{sid}", request=request, is_sensitive=True)

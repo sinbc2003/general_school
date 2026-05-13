@@ -358,7 +358,7 @@ async def my_dashboard_stats(
         select(sa_func.count(AssignmentSubmission.id)).where(AssignmentSubmission.user_id == user.id)
     )).scalar() or 0
     artifacts_count = (await db.execute(
-        select(sa_func.count(StudentArtifact.id)).where(StudentArtifact.user_id == user.id)
+        select(sa_func.count(StudentArtifact.id)).where(StudentArtifact.student_id == user.id)
     )).scalar() or 0
 
     return {
@@ -368,3 +368,164 @@ async def my_dashboard_stats(
         "assignments_submitted": int(assignments_submitted),
         "artifacts_count": int(artifacts_count),
     }
+
+
+# ── 학생 본인 통합 활동 (포트폴리오 페이지) ──
+
+@router.get("/assignment-submissions")
+async def my_assignment_submissions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인이 제출한 과제 목록 + 노출 토글 상태."""
+    from app.models.assignment import Assignment, AssignmentSubmission
+    rows = (await db.execute(
+        select(AssignmentSubmission, Assignment)
+        .join(Assignment, Assignment.id == AssignmentSubmission.assignment_id)
+        .where(AssignmentSubmission.user_id == user.id)
+        .order_by(desc(AssignmentSubmission.submitted_at))
+    )).all()
+    return {
+        "items": [
+            {
+                "id": s.id,
+                "assignment_id": s.assignment_id,
+                "assignment_title": a.title,
+                "subject": a.subject,
+                "filename": s.filename,
+                "file_size": s.file_size,
+                "status": s.status.value if hasattr(s.status, "value") else s.status,
+                "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                "review_comment": s.review_comment,
+                "show_in_portfolio": bool(s.show_in_portfolio),
+            }
+            for s, a in rows
+        ]
+    }
+
+
+@router.put("/assignment-submissions/{sub_id}/portfolio-visibility")
+async def toggle_submission_portfolio_visibility(
+    sub_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인 제출물의 포트폴리오 노출 토글.
+
+    show_in_portfolio=True면 /students/artifacts-gallery 공개 갤러리,
+    PDF 생기부 등에 자동 포함.
+    """
+    from app.models.assignment import AssignmentSubmission
+    s = (await db.execute(
+        select(AssignmentSubmission).where(
+            AssignmentSubmission.id == sub_id,
+            AssignmentSubmission.user_id == user.id,  # 본인만
+        )
+    )).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "본인의 제출물만 토글 가능합니다")
+    s.show_in_portfolio = bool(body.get("show_in_portfolio", False))
+    await db.flush()
+    return {"id": s.id, "show_in_portfolio": s.show_in_portfolio}
+
+
+@router.get("/club-submissions")
+async def my_club_submissions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인이 동아리에 제출한 산출물."""
+    from app.models.club import Club, ClubSubmission
+    rows = (await db.execute(
+        select(ClubSubmission, Club)
+        .join(Club, Club.id == ClubSubmission.club_id)
+        .where(ClubSubmission.author_id == user.id)
+        .order_by(desc(ClubSubmission.created_at))
+    )).all()
+    return {
+        "items": [
+            {
+                "id": s.id,
+                "club_id": s.club_id,
+                "club_name": c.name,
+                "title": s.title,
+                "submission_type": s.submission_type,
+                "file_path": s.file_path,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s, c in rows
+        ]
+    }
+
+
+@router.get("/all-activities")
+async def my_all_activities(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인 모든 활동 통합 (포트폴리오 단일 timeline).
+
+    종류: 자유 업로드 산출물 / 과제 제출물 / 동아리 산출물.
+    최신순.
+    """
+    from app.models.assignment import Assignment, AssignmentSubmission
+    from app.models.club import Club, ClubSubmission
+
+    artifacts = (await db.execute(
+        select(StudentArtifact).where(StudentArtifact.student_id == user.id)
+        .order_by(desc(StudentArtifact.created_at))
+    )).scalars().all()
+
+    submissions = (await db.execute(
+        select(AssignmentSubmission, Assignment)
+        .join(Assignment, Assignment.id == AssignmentSubmission.assignment_id)
+        .where(AssignmentSubmission.user_id == user.id)
+        .order_by(desc(AssignmentSubmission.submitted_at))
+    )).all()
+
+    club_subs = (await db.execute(
+        select(ClubSubmission, Club)
+        .join(Club, Club.id == ClubSubmission.club_id)
+        .where(ClubSubmission.author_id == user.id)
+        .order_by(desc(ClubSubmission.created_at))
+    )).all()
+
+    timeline = []
+    for a in artifacts:
+        timeline.append({
+            "type": "artifact",
+            "id": a.id,
+            "title": a.title,
+            "category": a.category,
+            "description": a.description,
+            "file_url": a.file_url,
+            "file_name": a.file_name,
+            "is_public": a.is_public,
+            "date": a.created_at.isoformat() if a.created_at else None,
+        })
+    for s, asn in submissions:
+        timeline.append({
+            "type": "assignment_submission",
+            "id": s.id,
+            "title": asn.title,
+            "subject": asn.subject,
+            "filename": s.filename,
+            "status": s.status.value if hasattr(s.status, "value") else s.status,
+            "review_comment": s.review_comment,
+            "show_in_portfolio": bool(s.show_in_portfolio),
+            "date": s.submitted_at.isoformat() if s.submitted_at else None,
+        })
+    for cs, club in club_subs:
+        timeline.append({
+            "type": "club_submission",
+            "id": cs.id,
+            "title": cs.title,
+            "club_name": club.name,
+            "submission_type": cs.submission_type,
+            "file_path": cs.file_path,
+            "date": cs.created_at.isoformat() if cs.created_at else None,
+        })
+
+    timeline.sort(key=lambda x: x.get("date") or "", reverse=True)
+    return {"items": timeline}

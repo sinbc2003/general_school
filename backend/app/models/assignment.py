@@ -103,6 +103,9 @@ class AssignmentSubmission(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # 학생이 본인 포트폴리오·공개 갤러리·PDF 생기부에 노출시킬지 토글
+    show_in_portfolio: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     assignment: Mapped["Assignment"] = relationship(back_populates="submissions")
 
     __table_args__ = (
