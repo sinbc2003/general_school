@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.papers import Paper, PaperStatus, CrawlKeyword, PaperNote, Newsletter
 from app.models.user import User
+from app.modules.papers.schemas import PaperStatusUpdate, KeywordCreate, PaperNoteCreate
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -69,7 +70,7 @@ async def get_paper(
 
 @router.put("/{pid}/status")
 async def update_paper_status(
-    pid: int, body: dict,
+    pid: int, body: PaperStatusUpdate,
     user: User = Depends(require_permission("papers.approve")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -77,9 +78,9 @@ async def update_paper_status(
     p = (await db.execute(select(Paper).where(Paper.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404, "논문을 찾을 수 없습니다")
-    p.status = PaperStatus(body["status"])
+    p.status = PaperStatus(body.status)
     await db.flush()
-    await log_action(db, user, "paper.status", f"paper:{pid}", body["status"], request)
+    await log_action(db, user, "paper.status", f"paper:{pid}", body.status, request)
     return {"ok": True}
 
 
@@ -96,11 +97,11 @@ async def list_keywords(
 
 @router.post("/keywords")
 async def create_keyword(
-    body: dict,
+    body: KeywordCreate,
     user: User = Depends(require_permission("papers.keyword.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    k = CrawlKeyword(keyword=body["keyword"], category=body.get("category"))
+    k = CrawlKeyword(keyword=body.keyword, category=body.category)
     db.add(k)
     await db.flush()
     return {"id": k.id, "keyword": k.keyword}
@@ -123,15 +124,15 @@ async def delete_keyword(
 
 @router.post("/{pid}/notes")
 async def create_note(
-    pid: int, body: dict,
+    pid: int, body: PaperNoteCreate,
     user: User = Depends(require_permission("papers.note.write")),
     db: AsyncSession = Depends(get_db),
 ):
     n = PaperNote(
         paper_id=pid, user_id=user.id,
-        content=body["content"],
-        page_number=body.get("page_number"),
-        highlight_text=body.get("highlight_text"),
+        content=body.content,
+        page_number=body.page_number,
+        highlight_text=body.highlight_text,
     )
     db.add(n)
     await db.flush()

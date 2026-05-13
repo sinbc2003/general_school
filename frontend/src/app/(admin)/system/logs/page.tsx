@@ -36,6 +36,10 @@ export default function AuditLogsPage() {
   const [page, setPage] = useState(1);
   const [perPage] = useState(50);
   const [actionFilter, setActionFilter] = useState("");
+  const [userEmailFilter, setUserEmailFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sensitiveOnly, setSensitiveOnly] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -45,6 +49,10 @@ export default function AuditLogsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
       if (actionFilter) params.set("action", actionFilter);
+      if (userEmailFilter) params.set("user_email", userEmailFilter);
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+      if (sensitiveOnly) params.set("sensitive_only", "true");
       const data = await api.get(`/api/system/audit-logs?${params}`);
       setItems(data.items || []);
       setTotal(data.total || 0);
@@ -53,7 +61,10 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, actionFilter]);
+  }, [page, perPage, actionFilter, userEmailFilter, dateFrom, dateTo, sensitiveOnly]);
+
+  // 필터 변경 시 페이지 1로
+  useEffect(() => { setPage(1); }, [actionFilter, userEmailFilter, dateFrom, dateTo, sensitiveOnly]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -76,14 +87,39 @@ export default function AuditLogsPage() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="bg-bg-primary border border-border-default rounded-lg p-3 mb-4 flex items-center gap-3 flex-wrap">
         <input
           type="text"
           value={actionFilter}
-          onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
-          placeholder="action 필터 (예: login, semester.create)"
-          className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary min-w-[260px]"
+          onChange={(e) => setActionFilter(e.target.value)}
+          placeholder="action (login, semester.create)"
+          className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary min-w-[200px]"
         />
+        <input
+          type="text"
+          value={userEmailFilter}
+          onChange={(e) => setUserEmailFilter(e.target.value)}
+          placeholder="사용자 이메일"
+          className="px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary min-w-[180px]"
+        />
+        <div className="flex items-center gap-1">
+          <label className="text-caption text-text-secondary">기간:</label>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            className="px-2 py-1 text-caption border border-border-default rounded bg-bg-primary" />
+          <span className="text-text-tertiary">~</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            className="px-2 py-1 text-caption border border-border-default rounded bg-bg-primary" />
+        </div>
+        <label className="flex items-center gap-1 text-caption">
+          <input type="checkbox" checked={sensitiveOnly} onChange={(e) => setSensitiveOnly(e.target.checked)} />
+          민감 로그만
+        </label>
+        <button
+          onClick={() => { setActionFilter(""); setUserEmailFilter(""); setDateFrom(""); setDateTo(""); setSensitiveOnly(false); }}
+          className="px-2 py-1 text-caption text-text-tertiary hover:text-text-primary"
+        >
+          필터 초기화
+        </button>
         <span className="text-caption text-text-tertiary ml-auto">총 {total}건</span>
       </div>
 

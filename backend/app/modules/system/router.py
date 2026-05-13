@@ -36,12 +36,35 @@ async def get_audit_logs(
     page: int = 1,
     per_page: int = 50,
     action: str | None = None,
+    date_from: str | None = None,      # ISO 8601 (예: "2026-05-01")
+    date_to: str | None = None,
+    sensitive_only: bool = False,
+    user_email: str | None = None,
     user: User = Depends(require_permission("system.audit.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    """감사 로그 조회. 필터: action 부분일치, 날짜 범위, sensitive only, user_email 부분일치."""
+    from datetime import datetime
     query = select(AuditLog)
     if action:
-        query = query.where(AuditLog.action == action)
+        query = query.where(AuditLog.action.ilike(f"%{action}%"))
+    if user_email:
+        query = query.where(AuditLog.user_email.ilike(f"%{user_email}%"))
+    if sensitive_only:
+        query = query.where(AuditLog.is_sensitive == True)
+    if date_from:
+        try:
+            query = query.where(AuditLog.timestamp >= datetime.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            # date_to 끝까지 포함
+            end = datetime.fromisoformat(date_to)
+            from datetime import timedelta
+            query = query.where(AuditLog.timestamp < end + timedelta(days=1))
+        except ValueError:
+            pass
 
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
