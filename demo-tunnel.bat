@@ -56,7 +56,8 @@ REM frontend를 데모 모드로 새 창에 띄움
 echo [2/3] frontend를 데모 모드로 시작...
 echo   NEXT_PUBLIC_API_URL="" (same-origin)
 echo   BACKEND_PROXY_URL=%BACKEND_PROXY_URL%
-start "General School - Frontend (Demo)" cmd /k "cd /d %~dp0frontend && set NEXT_PUBLIC_API_URL= && set BACKEND_PROXY_URL=%BACKEND_PROXY_URL% && npx next dev --turbo -p 3000"
+REM pushd: UNC 경로(예: \\wsl.localhost\...)도 자동 매핑됨. cd /d는 UNC 미지원이라 WSL 프로젝트에서 실패.
+start "General School - Frontend (Demo)" cmd /k "pushd %~dp0frontend && set NEXT_PUBLIC_API_URL= && set BACKEND_PROXY_URL=%BACKEND_PROXY_URL% && npx next dev --turbo -p 3000"
 
 REM frontend 부팅 대기
 echo   frontend 부팅 대기 (8초)...
