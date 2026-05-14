@@ -169,18 +169,8 @@ export const adminMenu: MenuItem[] = [
     permission: "club.manage.create",
     excludeRoles: ["student"],
   },
-  {
-    key: "papers",
-    label: "논문/뉴스레터",
-    icon: Newspaper,
-    permission: "papers.keyword.manage",
-    excludeRoles: ["student"],
-    children: [
-      { key: "keywords", label: "키워드 관리", icon: Newspaper, path: "/papers/keywords", permission: "papers.keyword.manage" },
-      { key: "feed", label: "수집 논문", icon: Newspaper, path: "/papers/feed", permission: "papers.approve" },
-      { key: "newsletter", label: "뉴스레터", icon: Newspaper, path: "/papers/newsletter", permission: "papers.publish" },
-    ],
-  },
+  // ※ papers (논문/뉴스레터) 메뉴 제거 — 일반 고등학교 운영에서 미사용.
+  //   backend papers 라우터/모델은 그대로 둠 (필요 시 menu만 다시 추가하면 됨).
   {
     key: "timetable",
     label: "시간표",

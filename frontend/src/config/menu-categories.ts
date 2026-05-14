@@ -125,12 +125,6 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["research", "club"],
     },
     {
-      id: "resources",
-      name: "자료",
-      icon: "BookOpen",
-      items: ["papers", "admissions"],
-    },
-    {
       id: "mypage",
       name: "내 정보",
       icon: "GraduationCap",
