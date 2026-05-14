@@ -11,7 +11,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
-import { Plus, Save, Calendar } from "lucide-react";
+import { Plus, Save, Calendar, CalendarClock } from "lucide-react";
+import { MyEventsModal } from "@/components/timetable/MyEventsModal";
 
 interface Semester {
   id: number;
@@ -43,6 +44,7 @@ export default function TimetablePage() {
   const [showNewSemester, setShowNewSemester] = useState(false);
   const [newYear, setNewYear] = useState(new Date().getFullYear());
   const [newSemester, setNewSemester] = useState(1);
+  const [showMyEvents, setShowMyEvents] = useState(false);
 
   const fetchSemesters = useCallback(async () => {
     try {
@@ -163,6 +165,14 @@ export default function TimetablePage() {
         <h1 className="text-title text-text-primary">시간표 관리</h1>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowMyEvents(true)}
+            disabled={!selectedSemester}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption border border-border-default text-text-primary rounded hover:bg-bg-secondary disabled:opacity-40"
+            title="회의·면담·행사 등 개인 일정 추가/수정"
+          >
+            <CalendarClock size={14} /> 내 개인 일정
+          </button>
+          <button
             onClick={handleSave}
             disabled={saving || !selectedSemester}
             className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:opacity-90 disabled:opacity-40"
@@ -172,6 +182,12 @@ export default function TimetablePage() {
           </button>
         </div>
       </div>
+
+      <MyEventsModal
+        show={showMyEvents}
+        onClose={() => { setShowMyEvents(false); fetchEntries(); }}
+        semesterId={selectedSemester}
+      />
 
       {/* 학기 선택 */}
       <div className="flex items-center gap-3 mb-6">
