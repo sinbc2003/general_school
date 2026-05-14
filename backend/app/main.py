@@ -90,6 +90,7 @@ from app.modules.feedback.router import router as feedback_router
 from app.modules.ai_developer.router import router as ai_developer_router
 from app.modules.chatbot.router import router as chatbot_router
 from app.modules.student_self.router import router as student_self_router
+from app.modules.announcement.router import router as announcement_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -115,6 +116,7 @@ app.include_router(feedback_router)
 app.include_router(ai_developer_router)
 app.include_router(chatbot_router)
 app.include_router(student_self_router)
+app.include_router(announcement_router)
 
 
 @app.get("/api/health")

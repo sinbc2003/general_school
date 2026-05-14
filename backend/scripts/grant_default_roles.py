@@ -52,6 +52,9 @@ STAFF_KEYS = {
     "timetable.view",
     "chatbot.use", "chatbot.session.view_own", "chatbot.session.delete_own",
     "portfolio.artifact.view",
+    # 공지사항: 직원도 작성/열람 가능
+    "announcement.post.view", "announcement.post.create",
+    "announcement.post.edit", "announcement.post.delete",
 }
 
 STUDENT_KEYS = {
@@ -75,6 +78,8 @@ STUDENT_KEYS = {
     "portfolio.career.view",
     "admissions.record.view",
     "research.project.view",
+    # 학생도 공지사항 열람 가능 (라우터에서 audience=all만 노출)
+    "announcement.post.view",
 }
 
 

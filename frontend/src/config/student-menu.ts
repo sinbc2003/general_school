@@ -14,6 +14,7 @@ import {
   Briefcase,
   Target,
   Library,
+  Megaphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,6 +29,7 @@ export interface StudentMenuItem {
 
 export const studentMenu: StudentMenuItem[] = [
   { key: "dashboard", label: "홈", icon: Home, path: "/s/dashboard", permission: "student.dashboard.view" },
+  { key: "announcements", label: "공지사항", icon: Megaphone, path: "/s/announcements", permission: "announcement.post.view" },
   { key: "chat", label: "AI 도우미", icon: Sparkles, path: "/s/chat", permission: "chatbot.use", newTab: true },
   { key: "community", label: "커뮤니티", icon: Users, path: "/s/community", permission: "community.problem.create" },
   { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: "contest.participate.view" },

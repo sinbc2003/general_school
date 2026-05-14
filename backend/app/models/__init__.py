@@ -75,6 +75,9 @@ from app.models.chatbot import (
     ChatSession, ChatMessage, ChatUsageDaily, ChatbotConfig,
 )
 
+# ── Announcement (공지사항) ──
+from app.models.announcement import Announcement, AnnouncementAudience
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -118,4 +121,6 @@ __all__ = [
     # Chatbot
     "LLMProvider", "LLMModel", "SystemPrompt",
     "ChatSession", "ChatMessage", "ChatUsageDaily", "ChatbotConfig",
+    # Announcement
+    "Announcement", "AnnouncementAudience",
 ]
