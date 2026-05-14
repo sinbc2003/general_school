@@ -210,7 +210,7 @@ function StatCard({
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-700",
-    active: "bg-blue-100 text-blue-700",
+    active: "bg-cream-200 text-blue-700",
     completed: "bg-green-100 text-green-700",
     graded: "bg-green-100 text-green-700",
     overdue: "bg-red-100 text-red-700",

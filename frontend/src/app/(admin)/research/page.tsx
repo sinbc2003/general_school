@@ -26,7 +26,7 @@ interface ResearchItem {
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   planning: { label: "계획", className: "bg-gray-100 text-gray-700" },
-  in_progress: { label: "진행중", className: "bg-blue-100 text-blue-700" },
+  in_progress: { label: "진행중", className: "bg-cream-200 text-blue-700" },
   completed: { label: "완료", className: "bg-green-100 text-green-700" },
   cancelled: { label: "취소", className: "bg-red-100 text-red-700" },
 };

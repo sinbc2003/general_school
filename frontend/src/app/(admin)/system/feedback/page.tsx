@@ -23,7 +23,7 @@ const TYPE_ICONS: Record<string, any> = {
 
 const STATUS_OPTIONS = [
   { value: "pending", label: "접수", color: "bg-gray-200 text-gray-700" },
-  { value: "in_progress", label: "처리중", color: "bg-blue-100 text-blue-700" },
+  { value: "in_progress", label: "처리중", color: "bg-cream-200 text-blue-700" },
   { value: "resolved", label: "완료", color: "bg-green-100 text-green-700" },
   { value: "dismissed", label: "반려", color: "bg-red-100 text-red-700" },
 ];

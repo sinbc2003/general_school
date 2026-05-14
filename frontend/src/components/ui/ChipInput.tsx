@@ -67,7 +67,7 @@ export function ChipInput({ items, onChange, placeholder, normalize }: ChipInput
       {items.map((it, i) => (
         <span
           key={`${it}-${i}`}
-          className="inline-flex items-center gap-1 px-2 py-0.5 text-caption bg-blue-50 text-text-primary border border-blue-200 rounded"
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-caption bg-cream-100 text-text-primary border border-cream-300 rounded"
         >
           {it}
           <button

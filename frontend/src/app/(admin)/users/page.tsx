@@ -242,7 +242,7 @@ export default function UsersPage() {
               <span className={`inline-block px-2 py-0.5 text-caption rounded ${
                 u.role === "super_admin" ? "bg-red-100 text-red-700" :
                 u.role === "designated_admin" ? "bg-purple-100 text-purple-700" :
-                u.role === "teacher" ? "bg-blue-100 text-blue-700" :
+                u.role === "teacher" ? "bg-cream-200 text-blue-700" :
                 u.role === "staff" ? "bg-green-100 text-green-700" :
                 "bg-gray-100 text-gray-700"
               }`}>

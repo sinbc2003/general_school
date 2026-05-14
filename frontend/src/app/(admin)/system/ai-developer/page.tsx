@@ -38,7 +38,7 @@ interface ModelInfo {
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   draft: { label: "초안", color: "bg-gray-200 text-gray-700" },
   generating: { label: "생성중", color: "bg-yellow-100 text-yellow-700" },
-  generated: { label: "생성완료", color: "bg-blue-100 text-blue-700" },
+  generated: { label: "생성완료", color: "bg-cream-200 text-blue-700" },
   approved: { label: "승인", color: "bg-green-100 text-green-700" },
   applied: { label: "적용됨", color: "bg-green-200 text-green-800" },
   rejected: { label: "거부", color: "bg-red-100 text-red-700" },
@@ -314,7 +314,7 @@ export default function AiDeveloperPage() {
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                           change.action === "create" ? "bg-green-100 text-green-700"
                           : change.action === "delete" ? "bg-red-100 text-red-700"
-                          : "bg-blue-100 text-blue-700"
+                          : "bg-cream-200 text-blue-700"
                         }`}>
                           {change.action}
                         </span>

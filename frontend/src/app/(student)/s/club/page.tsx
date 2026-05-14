@@ -89,7 +89,7 @@ export default function ClubPage() {
           )}
           <div className="flex flex-wrap items-center gap-3 text-caption text-text-tertiary">
             {selectedClub.category && (
-              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[11px]">
+              <span className="px-2 py-0.5 rounded-full bg-cream-100 text-blue-600 text-[11px]">
                 {selectedClub.category}
               </span>
             )}
@@ -188,7 +188,7 @@ export default function ClubPage() {
                   {club.name}
                 </h3>
                 {club.category && (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 flex-shrink-0 ml-2">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600 flex-shrink-0 ml-2">
                     {club.category}
                   </span>
                 )}

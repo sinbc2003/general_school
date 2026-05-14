@@ -124,7 +124,7 @@ export function InlineCell({
       className={`${width} text-left px-1 py-0.5 text-caption rounded border border-transparent transition-colors ${
         disabled
           ? "cursor-default text-text-tertiary"
-          : "hover:bg-blue-50 hover:border-blue-200"
+          : "hover:bg-cream-100 hover:border-cream-300"
       } ${saving ? "opacity-50" : ""}`}
       title={disabled ? "" : "클릭해서 편집"}
     >

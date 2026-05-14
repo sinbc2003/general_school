@@ -65,7 +65,7 @@ function StudentDashboard() {
 
       {/* 빠른 진입 카드 — 학생용 핵심 4개 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <QuickCard href="/s/my-portfolio" icon={Briefcase} label="나의 포트폴리오" color="bg-blue-50 text-blue-600" />
+        <QuickCard href="/s/my-portfolio" icon={Briefcase} label="나의 포트폴리오" color="bg-cream-100 text-blue-600" />
         <QuickCard href="/s/career" icon={Target} label="진로/진학 설계" color="bg-emerald-50 text-emerald-600" />
         <QuickCard href="/s/research-archive" icon={Library} label="과거 연구 자료" color="bg-purple-50 text-purple-600" />
         <QuickCard href="/s/chat" icon={Sparkles} label="AI 도우미" color="bg-amber-50 text-amber-600" newTab />
@@ -176,7 +176,7 @@ function TeacherDashboard() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <QuickCard href="/students" icon={Users} label="학생 관리" color="bg-blue-50 text-blue-600" />
+        <QuickCard href="/students" icon={Users} label="학생 관리" color="bg-cream-100 text-blue-600" />
         <QuickCard href="/contest" icon={Trophy} label="대회 관리" color="bg-amber-50 text-amber-600" />
         <QuickCard href="/assignment" icon={ClipboardList} label="과제 관리" color="bg-emerald-50 text-emerald-600" />
         <QuickCard href="/chat" icon={Sparkles} label="AI 챗봇" color="bg-purple-50 text-purple-600" newTab />

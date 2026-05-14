@@ -84,7 +84,7 @@ export default function AdmissionsPage() {
               </span>
             )}
             {selectedQuestion.university && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600">
                 {selectedQuestion.university}
               </span>
             )}
@@ -220,7 +220,7 @@ export default function AdmissionsPage() {
                   </span>
                 )}
                 {q.university && (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600">
                     {q.university}
                   </span>
                 )}

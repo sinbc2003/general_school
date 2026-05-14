@@ -201,7 +201,7 @@ export default function TeacherOnboardingPage() {
                   key={g}
                   className={`flex items-center gap-1 px-3 py-1.5 text-body border rounded cursor-pointer transition-colors ${
                     grades.has(g)
-                      ? "border-accent bg-blue-50 text-accent"
+                      ? "border-accent bg-cream-100 text-accent"
                       : "border-border-default hover:bg-bg-secondary"
                   }`}
                 >
@@ -232,7 +232,7 @@ export default function TeacherOnboardingPage() {
                     key={c}
                     className={`px-2 py-0.5 text-caption border rounded cursor-pointer transition-colors ${
                       checked
-                        ? "border-accent bg-blue-50 text-accent"
+                        ? "border-accent bg-cream-100 text-accent"
                         : enabledByGrade
                         ? "border-border-default hover:bg-bg-secondary"
                         : "border-border-default opacity-40"
@@ -267,7 +267,7 @@ export default function TeacherOnboardingPage() {
                   key={s}
                   className={`px-3 py-1 text-body border rounded cursor-pointer transition-colors ${
                     subjects.has(s)
-                      ? "border-accent bg-blue-50 text-accent"
+                      ? "border-accent bg-cream-100 text-accent"
                       : "border-border-default hover:bg-bg-secondary"
                   }`}
                 >

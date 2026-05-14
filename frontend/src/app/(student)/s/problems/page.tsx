@@ -170,7 +170,7 @@ export default function ProblemsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       {problem.subject && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600">
                           {problem.subject}
                         </span>
                       )}

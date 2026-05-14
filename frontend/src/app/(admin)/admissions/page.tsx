@@ -168,7 +168,7 @@ function QuestionsTab() {
           {
             key: "category", label: "분류",
             render: (q) => q.category && (
-              <span className="inline-block px-2 py-0.5 text-caption rounded bg-blue-100 text-blue-700">{q.category}</span>
+              <span className="inline-block px-2 py-0.5 text-caption rounded bg-cream-200 text-blue-700">{q.category}</span>
             ),
           },
           {

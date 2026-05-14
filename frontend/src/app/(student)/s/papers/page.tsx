@@ -116,7 +116,7 @@ export default function PapersPage() {
         <div className="bg-bg-primary rounded-lg border border-border-default p-4 mb-4">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             {selectedPaper.subject && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600">
                 {selectedPaper.subject}
               </span>
             )}
@@ -276,7 +276,7 @@ export default function PapersPage() {
               className="w-full text-left bg-bg-primary rounded-lg border border-border-default p-4 hover:border-accent transition"
             >
               {paper.subject && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 inline-block mb-1">
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600 inline-block mb-1">
                   {paper.subject}
                 </span>
               )}

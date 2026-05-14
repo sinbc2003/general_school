@@ -241,7 +241,7 @@ export default function AdminAnnouncementsPage() {
                     )}
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 text-caption rounded ${
-                        a.audience === "staff" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                        a.audience === "staff" ? "bg-purple-100 text-purple-700" : "bg-cream-200 text-blue-700"
                       }`}
                     >
                       {a.audience === "staff" ? <><Shield size={11} /> 교직원 전용</> : <><Users size={11} /> 모두</>}

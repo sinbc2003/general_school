@@ -906,7 +906,7 @@ export default function SemestersPage() {
           </thead>
           <tbody>
             {items.map((s) => (
-              <tr key={s.id} className={`border-t border-border-default hover:bg-bg-secondary ${s.is_current ? "bg-blue-50/40" : ""}`}>
+              <tr key={s.id} className={`border-t border-border-default hover:bg-bg-secondary ${s.is_current ? "bg-cream-100/40" : ""}`}>
                 <td className="px-4 py-2">
                   {s.is_current ? (
                     <span className="inline-flex items-center gap-1 text-caption text-accent font-medium">

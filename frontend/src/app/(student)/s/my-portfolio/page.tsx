@@ -181,7 +181,7 @@ function StatCard({ label, value, icon: Icon, accent = false }: any) {
 
 function TimelineRow({ item }: { item: TimelineItem }) {
   const typeMeta = {
-    artifact: { label: "자유 산출물", color: "bg-blue-100 text-blue-700", icon: LayoutGrid },
+    artifact: { label: "자유 산출물", color: "bg-cream-200 text-blue-700", icon: LayoutGrid },
     assignment_submission: { label: "과제 제출", color: "bg-purple-100 text-purple-700", icon: ClipboardList },
     club_submission: { label: "동아리 산출", color: "bg-orange-100 text-orange-700", icon: Users2 },
   }[item.type];
@@ -544,7 +544,7 @@ function AssignmentsTab() {
 
   return (
     <div>
-      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+      <div className="mb-4 p-3 bg-cream-100 border border-cream-300 rounded-lg">
         <div className="text-caption text-blue-900">
           ⓘ 과제 제출물을 <b>"포트폴리오 노출"</b>로 켜면 PDF 생기부, 공개 갤러리에 자동으로 포함됩니다.
           {" "}현재 노출 중: <b>{visibleCount}개</b> / 전체 {items.length}개

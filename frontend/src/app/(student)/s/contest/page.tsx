@@ -87,7 +87,7 @@ export default function ContestPage() {
   const getStatusStyle = (status?: string) => {
     switch (status) {
       case "upcoming":
-        return "bg-blue-50 text-blue-600";
+        return "bg-cream-100 text-blue-600";
       case "active":
       case "in_progress":
         return "bg-green-50 text-green-600";

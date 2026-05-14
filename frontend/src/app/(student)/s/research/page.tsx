@@ -116,7 +116,7 @@ export default function ResearchPage() {
         return "bg-yellow-50 text-yellow-600";
       case "in_progress":
       case "active":
-        return "bg-blue-50 text-blue-600";
+        return "bg-cream-100 text-blue-600";
       case "completed":
         return "bg-green-50 text-green-600";
       default:
@@ -158,7 +158,7 @@ export default function ResearchPage() {
         <div className="bg-bg-primary rounded-lg border border-border-default p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             {selectedProject.subject && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-cream-100 text-blue-600">
                 {selectedProject.subject}
               </span>
             )}

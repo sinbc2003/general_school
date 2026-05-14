@@ -17,12 +17,12 @@ import { usePathname } from "next/navigation";
 const TYPES = [
   { key: "bug", label: "오류 신고", icon: Bug, color: "text-red-500", bg: "bg-red-50" },
   { key: "feature", label: "기능 건의", icon: Lightbulb, color: "text-amber-500", bg: "bg-amber-50" },
-  { key: "other", label: "기타 문의", icon: HelpCircle, color: "text-blue-500", bg: "bg-blue-50" },
+  { key: "other", label: "기타 문의", icon: HelpCircle, color: "text-blue-500", bg: "bg-cream-100" },
 ] as const;
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   pending: { label: "접수", color: "bg-gray-200 text-gray-700" },
-  in_progress: { label: "처리중", color: "bg-blue-100 text-blue-700" },
+  in_progress: { label: "처리중", color: "bg-cream-200 text-blue-700" },
   resolved: { label: "완료", color: "bg-green-100 text-green-700" },
   dismissed: { label: "반려", color: "bg-red-100 text-red-700" },
 };

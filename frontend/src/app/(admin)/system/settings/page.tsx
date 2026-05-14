@@ -371,7 +371,7 @@ function TeacherViewScopeSection() {
             key={opt.value}
             className={`flex items-start gap-2 p-2 border rounded cursor-pointer transition-colors ${
               scope === opt.value
-                ? "border-accent bg-blue-50"
+                ? "border-accent bg-cream-100"
                 : "border-border-default hover:bg-bg-secondary"
             }`}
           >

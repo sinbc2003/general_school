@@ -480,7 +480,7 @@ function ThesesTab({ studentId }: { studentId: number }) {
 
   const STATUS_LABELS: Record<string, { label: string; className: string }> = {
     draft: { label: "초안", className: "bg-gray-100 text-gray-700" },
-    in_review: { label: "심사중", className: "bg-blue-100 text-blue-700" },
+    in_review: { label: "심사중", className: "bg-cream-200 text-blue-700" },
     published: { label: "출판", className: "bg-green-100 text-green-700" },
     rejected: { label: "반려", className: "bg-red-100 text-red-700" },
   };
@@ -892,7 +892,7 @@ function MockExamsTab({ studentId }: { studentId: number }) {
             render: (r) => r.grade_level ? (
               <span className={`inline-block px-2 py-0.5 text-caption rounded font-medium ${
                 r.grade_level <= 2 ? "bg-green-100 text-green-700" :
-                r.grade_level <= 4 ? "bg-blue-100 text-blue-700" :
+                r.grade_level <= 4 ? "bg-cream-200 text-blue-700" :
                 r.grade_level <= 6 ? "bg-yellow-100 text-yellow-700" :
                 "bg-red-100 text-red-700"
               }`}>{r.grade_level}등급</span>

@@ -66,7 +66,7 @@ export function CsvUploader({
   return (
     <div className="space-y-3">
       {description && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-caption text-text-secondary">
+        <div className="p-3 bg-cream-100 border border-cream-300 rounded text-caption text-text-secondary">
           <div className="flex items-start gap-2">
             <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-accent" />
             <div>{description}</div>

@@ -51,7 +51,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  scheduled: "bg-blue-100 text-blue-700",
+  scheduled: "bg-cream-200 text-blue-700",
   in_progress: "bg-yellow-100 text-yellow-700",
   completed: "bg-green-100 text-green-700",
   cancelled: "bg-gray-100 text-gray-700",

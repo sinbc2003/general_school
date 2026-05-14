@@ -25,7 +25,7 @@ function studentMenuAsItems(): MenuItem[] {
 }
 
 // 대메뉴(카테고리) 블록 — 항상 표시. 파스텔 블루 (펼치든 접든 동일).
-const CATEGORY_BG_DEFAULT = "bg-blue-50";
+const CATEGORY_BG_DEFAULT = "bg-cream-100";
 // 카테고리 내부의 토글(자식 있는 메뉴) — 카테고리와 구분되는 작은 블록.
 // 파스텔 앰버 (warm)로 시각적으로 다른 위계 표시.
 const SUBMENU_BG_DEFAULT = "bg-amber-50/70";
@@ -321,7 +321,7 @@ export function AdminSidebar() {
           const headerCls = collapsed
             ? "text-text-secondary hover:text-text-primary"
             : isActiveCategory
-            ? `${CATEGORY_BG_DEFAULT} text-accent border border-blue-200`
+            ? `${CATEGORY_BG_DEFAULT} text-accent border border-cream-300`
             : `${CATEGORY_BG_DEFAULT} text-text-primary hover:brightness-95`;
 
           return (
@@ -346,7 +346,7 @@ export function AdminSidebar() {
               {isOpen && !collapsed && (
                 <div
                   className={`space-y-0.5 mt-0.5 ml-3 pl-2 border-l-2 ${
-                    isActiveCategory ? "border-accent" : "border-blue-100"
+                    isActiveCategory ? "border-accent" : "border-cream-200"
                   }`}
                 >
                   {cat.items.map((key) => {

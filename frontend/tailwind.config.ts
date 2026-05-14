@@ -27,6 +27,19 @@ const config: Config = {
         caption: ["12px", { lineHeight: "1.5", fontWeight: "400" }],
       },
       colors: {
+        // 옅은 파란색 → 따뜻한 크림 톤으로 대체 (UI 전체 통일)
+        cream: {
+          50: "#fbf9f4",
+          100: "#f5f1e7",
+          200: "#ebe4d0",
+          300: "#dccfae",
+          400: "#c8b685",
+          500: "#b29c63",
+          600: "#9a8550",
+          700: "#7e6b42",
+          800: "#5e5031",
+          900: "#403721",
+        },
         bg: {
           primary: "var(--bg-primary)",
           secondary: "var(--bg-secondary)",
