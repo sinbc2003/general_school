@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, ChevronRight, LogOut, Menu, MoreHorizontal, CalendarRange } from "lucide-react";
@@ -47,6 +47,24 @@ export function AdminSidebar() {
     () => new Set(categories.admin.map((c) => c.id))
   );
   const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set());
+
+  // 사이드바 스크롤 위치 보존 — (admin) ↔ (student) layout 전환으로 nav가 재마운트돼도
+  // 마지막 scrollTop을 sessionStorage에 저장 → 다음 마운트 시 복원.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const saved = sessionStorage.getItem("admin-sidebar-scroll");
+    if (saved) {
+      const top = parseInt(saved, 10);
+      if (!Number.isNaN(top)) el.scrollTop = top;
+    }
+  }, []);
+  const handleNavScroll = () => {
+    if (navRef.current) {
+      sessionStorage.setItem("admin-sidebar-scroll", String(navRef.current.scrollTop));
+    }
+  };
 
   const toggleCategory = (id: string) => {
     setOpenCategories((prev) => {
@@ -235,7 +253,11 @@ export function AdminSidebar() {
       )}
 
       {/* Menu — 카테고리별 그룹 */}
-      <nav className="flex-1 overflow-y-auto p-2 space-y-2">
+      <nav
+        ref={navRef}
+        onScroll={handleNavScroll}
+        className="flex-1 overflow-y-auto p-2 space-y-2"
+      >
         {categories.admin.map((cat) => {
           if (!categoryHasVisibleItems(cat)) return null;
 
