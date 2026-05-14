@@ -293,7 +293,7 @@ export default function ChatInterface({ audience }: ChatInterfaceProps) {
     <div className={`h-screen flex ${C.bg} ${C.text} font-sans`} style={{ fontFamily: '"Söhne", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       {/* Sidebar */}
       {sidebarOpen && (
-        <aside className={`w-64 flex-shrink-0 ${C.bgSidebar} border-r ${C.border} flex flex-col`}>
+        <aside className={`w-64 flex-shrink-0 ${C.bgSidebar} flex flex-col shadow-[1px_0_0_rgba(0,0,0,0.04),3px_0_10px_-3px_rgba(0,0,0,0.05)]`}>
           {/* Top */}
           <div className="px-3 pt-3 pb-2 flex items-center justify-between">
             <div className={`flex items-center gap-1.5 ${C.text}`}>

@@ -228,7 +228,7 @@ export function AdminSidebar() {
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-full bg-bg-primary border-r border-border-default flex flex-col transition-all duration-200 z-30 ${
+      className={`fixed top-0 left-0 h-full bg-bg-primary flex flex-col transition-all duration-200 z-30 shadow-[1px_0_0_rgba(0,0,0,0.04),3px_0_10px_-3px_rgba(0,0,0,0.05)] ${
         collapsed ? "w-sidebar-collapsed" : "w-sidebar"
       }`}
     >
