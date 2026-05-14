@@ -12,6 +12,7 @@ import {
   Calendar,
   CalendarRange,
 } from "lucide-react";
+import { ClubAssignmentModal } from "@/components/admin/ClubAssignmentModal";
 
 interface CurrentSemester {
   id: number;
@@ -66,6 +67,7 @@ export default function ClubPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
   const [selectedClub, setSelectedClub] = useState<ClubItem | null>(null);
   const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
 
@@ -121,13 +123,28 @@ export default function ClubPage() {
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1 px-4 py-2 bg-accent text-white text-body rounded hover:bg-accent-hover"
-        >
-          <Plus size={16} /> 동아리 생성
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAssign(true)}
+            className="flex items-center gap-1 px-3 py-2 border border-border-default text-text-primary text-body rounded hover:bg-bg-secondary"
+            title="CSV로 학생 동아리 일괄 배정"
+          >
+            <Users size={14} /> 학생 일괄 배정
+          </button>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-1 px-4 py-2 bg-accent text-white text-body rounded hover:bg-accent-hover"
+          >
+            <Plus size={16} /> 동아리 생성
+          </button>
+        </div>
       </div>
+
+      <ClubAssignmentModal
+        show={showAssign}
+        onClose={() => setShowAssign(false)}
+        onApplied={fetchData}
+      />
 
       {/* Create form */}
       {showCreate && (

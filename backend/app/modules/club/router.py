@@ -1,7 +1,11 @@
 """동아리 라우터 — 동아리, 활동, 제출"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select, desc
+import csv
+import io
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
+from sqlalchemy import func, select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -175,3 +179,139 @@ async def list_submissions(
         "title": s[0].title, "submission_type": s[0].submission_type,
         "created_at": s[0].created_at.isoformat() if s[0].created_at else None,
     } for s in rows]
+
+
+# ── 학생 동아리 일괄 배정 (CSV import) ─────────────────────────────────
+# 컬럼: student_number, name, club_name
+# - 한 학생이 여러 동아리에 동시 가입 가능 (여러 행)
+# - 학기 단위 (현재 학기 또는 지정 학기). 같은 학기 내 동아리만 매칭.
+# - 학생 매칭 우선순위: student_number > name (학번 있으면 학번 사용)
+# - dry_run=true면 검증만, false면 실제 적용.
+
+@router.get("/_assignments/csv-template")
+async def assignment_csv_template(
+    user: User = Depends(require_permission("club.manage.edit")),
+):
+    """동아리 일괄 배정용 CSV 템플릿 (UTF-8 with BOM, Excel 한글 호환)."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["student_number", "name", "club_name"])
+    w.writerow(["1001", "홍길동", "수학 동아리"])
+    w.writerow(["1002", "김철수", "과학 탐구반"])
+    data = "﻿" + buf.getvalue()
+    return Response(
+        content=data.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="club_assignments_template.csv"'},
+    )
+
+
+@router.post("/_assignments/import")
+async def assignment_csv_import(
+    file: UploadFile = File(...),
+    semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
+    dry_run: bool = Query(True, description="true면 검증만, false면 실제 적용"),
+    user: User = Depends(require_permission("club.manage.edit")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """학번/이름/동아리명 CSV로 학생을 동아리에 일괄 배정.
+
+    한 학생을 여러 동아리에 가입시키려면 행을 여러 줄 작성.
+    같은 동아리에 이미 가입된 학생이면 skip (멱등).
+    """
+    sid = await resolve_semester_id({"semester_id": semester_id} if semester_id else None, db)
+
+    # CSV 파싱 (BOM 제거)
+    raw = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(raw))
+    rows: list[dict] = []
+    for r in reader:
+        rows.append({k.strip().lower(): (v or "").strip() for k, v in r.items() if k})
+
+    # 학기 내 동아리 + 학생 모두 미리 로딩 (N+1 회피)
+    clubs = (await db.execute(select(Club).where(Club.semester_id == sid))).scalars().all()
+    club_by_name: dict[str, Club] = {c.name.strip(): c for c in clubs}
+
+    students = (await db.execute(
+        select(User).where(User.role == "student")
+    )).scalars().all()
+    by_student_number: dict[str, User] = {}
+    by_name: dict[str, list[User]] = {}
+    for u in students:
+        if u.student_number is not None:
+            by_student_number[str(u.student_number)] = u
+        by_name.setdefault(u.name, []).append(u)
+
+    added = 0
+    skipped_already_member = 0
+    errors: list[dict] = []
+    # 동아리별 누적 멤버 ID set (CSV 내 중복 행도 동일 동아리에 한 번만 추가)
+    pending: dict[int, set[int]] = {}  # club_id -> {user_id, ...}
+
+    for idx, r in enumerate(rows, start=2):  # header는 1행
+        student_number = r.get("student_number", "")
+        name = r.get("name", "")
+        club_name = r.get("club_name", "")
+        if not club_name:
+            errors.append({"row": idx, "error": "club_name 비어있음"})
+            continue
+        # 학생 매칭
+        u = None
+        if student_number and student_number in by_student_number:
+            u = by_student_number[student_number]
+        elif name:
+            candidates = by_name.get(name, [])
+            if len(candidates) == 1:
+                u = candidates[0]
+            elif len(candidates) > 1:
+                errors.append({"row": idx, "error": f"동명이인 {len(candidates)}명 — student_number 필요"})
+                continue
+        if not u:
+            errors.append({"row": idx, "error": f"학생 미발견 (number={student_number}, name={name})"})
+            continue
+
+        # 동아리 매칭
+        club = club_by_name.get(club_name.strip())
+        if not club:
+            errors.append({"row": idx, "error": f"동아리 미발견: {club_name}"})
+            continue
+
+        # 기존 members 정규화
+        if club.id not in pending:
+            existing_ids = set()
+            for m in (club.members or []):
+                if isinstance(m, dict) and "user_id" in m:
+                    existing_ids.add(m["user_id"])
+                elif isinstance(m, int):
+                    existing_ids.add(m)
+            pending[club.id] = existing_ids
+
+        if u.id in pending[club.id]:
+            skipped_already_member += 1
+            continue
+
+        pending[club.id].add(u.id)
+        added += 1
+
+    if not dry_run and added > 0:
+        for club_id, ids in pending.items():
+            club = next((c for c in clubs if c.id == club_id), None)
+            if not club:
+                continue
+            club.members = [{"user_id": uid} for uid in sorted(ids)]
+        await db.flush()
+        await log_action(
+            db, user, "club.assignments.import",
+            f"semester:{sid} added={added}",
+            request=request,
+        )
+
+    return {
+        "semester_id": sid,
+        "added": added,
+        "skipped_already_member": skipped_already_member,
+        "errors": errors,
+        "total_rows": len(rows),
+        "applied": (not dry_run) and added > 0,
+    }
