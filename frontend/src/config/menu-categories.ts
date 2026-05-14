@@ -50,7 +50,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "work",
       name: "업무",
       icon: "Briefcase",
-      items: ["dashboard", "announcements", "meeting", "timetable"],
+      items: ["dashboard", "announcements", "timetable"],
     },
     {
       id: "my-area",

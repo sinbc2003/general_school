@@ -28,8 +28,6 @@ from app.models.contest import (
 # ── Papers ──
 from app.models.papers import Paper, Newsletter, CrawlKeyword, PaperNote
 
-# ── Meeting ──
-from app.models.meeting import Meeting, MeetingAttachment
 
 # ── Timetable ──
 from app.models.timetable import Semester, TimetableEntry, SemesterEnrollment
@@ -90,8 +88,6 @@ __all__ = [
     "ContestTeam", "ContestSubmission",
     # Papers
     "Paper", "Newsletter", "CrawlKeyword", "PaperNote",
-    # Meeting
-    "Meeting", "MeetingAttachment",
     # Timetable
     "Semester", "TimetableEntry", "SemesterEnrollment",
     # Assignment

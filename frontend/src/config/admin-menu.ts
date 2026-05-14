@@ -146,14 +146,6 @@ export const adminMenu: MenuItem[] = [
     excludeRoles: ["student"],
   },
   {
-    key: "meeting",
-    label: "협의록",
-    icon: MessageSquare,
-    path: "/meeting",
-    permission: "meeting.view",
-    excludeRoles: ["student"],
-  },
-  {
     key: "research",
     label: "연구 프로젝트",
     icon: FlaskConical,

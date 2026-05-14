@@ -38,6 +38,22 @@ async def lifespan(app: FastAPI):
         await seed_permissions(db, defined)
         await seed_chatbot_defaults(db)
         await seed_default_semester(db)
+        # role-permission 기본값 자동 부여 (멱등 — 이미 부여된 권한은 skip).
+        # 새 모듈/권한 추가 시 backend 재시작만으로 teacher/staff/student에 자동 반영.
+        try:
+            from scripts.grant_default_roles import grant_for_role, STAFF_KEYS, STUDENT_KEYS, TEACHER_EXCLUDE_PREFIXES, TEACHER_EXCLUDE_KEYS
+            from sqlalchemy import select as _select
+            from app.models.permission import Permission as _Perm
+            all_keys = set((await db.execute(_select(_Perm.key))).scalars().all())
+            teacher_keys = {
+                k for k in all_keys
+                if not k.startswith(TEACHER_EXCLUDE_PREFIXES) and k not in TEACHER_EXCLUDE_KEYS
+            }
+            await grant_for_role(db, "teacher", teacher_keys)
+            await grant_for_role(db, "staff", STAFF_KEYS)
+            await grant_for_role(db, "student", STUDENT_KEYS)
+        except Exception as e:
+            print(f"[WARN] auto-grant default roles 실패 (수동 실행 가능): {e}")
         await db.commit()
     yield
 
@@ -77,7 +93,6 @@ from app.modules.archive.router import router as archive_router
 from app.modules.pipeline.router import router as pipeline_router
 from app.modules.contest.router import router as contest_router
 from app.modules.assignment.router import router as assignment_router
-from app.modules.meeting.router import router as meeting_router
 from app.modules.papers.router import router as papers_router
 from app.modules.timetable.router import router as timetable_router
 from app.modules.research.router import router as research_router
@@ -102,7 +117,6 @@ app.include_router(archive_router)
 app.include_router(pipeline_router)
 app.include_router(contest_router)
 app.include_router(assignment_router)
-app.include_router(meeting_router)
 app.include_router(papers_router)
 app.include_router(timetable_router)
 app.include_router(research_router)
