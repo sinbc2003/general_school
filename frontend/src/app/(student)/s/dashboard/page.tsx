@@ -3,7 +3,7 @@
 import { useAuth } from "@/lib/auth-context";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
-import { BookOpen, Flame, ClipboardList, Trophy, Calendar } from "lucide-react";
+import { ClipboardList, Trophy, Calendar } from "lucide-react";
 import Link from "next/link";
 
 interface Assignment {
@@ -25,25 +25,20 @@ export default function StudentDashboard() {
   const { user } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [contests, setContests] = useState<Contest[]>([]);
-  const [progress, setProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [assignRes, contestRes, progressRes] = await Promise.allSettled([
+        const [assignRes, contestRes] = await Promise.allSettled([
           api.get("/api/assignment?page=1&page_size=5"),
           api.get("/api/contest?page=1&page_size=5"),
-          api.get("/api/challenge/my-progress"),
         ]);
         if (assignRes.status === "fulfilled") {
           setAssignments(assignRes.value.items || assignRes.value || []);
         }
         if (contestRes.status === "fulfilled") {
           setContests(contestRes.value.items || contestRes.value || []);
-        }
-        if (progressRes.status === "fulfilled") {
-          setProgress(progressRes.value || []);
         }
       } catch {
         // ignore
@@ -54,8 +49,6 @@ export default function StudentDashboard() {
     load();
   }, []);
 
-  const solvedCount = progress.filter((p) => p.status === "solved").length;
-  const totalPoints = progress.reduce((sum: number, p: any) => sum + (p.score || 0), 0);
   const pendingAssignments = assignments.filter(
     (a) => a.status !== "completed" && a.status !== "graded"
   ).length;
@@ -74,18 +67,6 @@ export default function StudentDashboard() {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatCard
-          icon={BookOpen}
-          label="풀이 진행"
-          value={`${solvedCount}문제`}
-          color="text-accent"
-        />
-        <StatCard
-          icon={Flame}
-          label="챌린지 포인트"
-          value={`${totalPoints}점`}
-          color="text-status-warning"
-        />
         <StatCard
           icon={ClipboardList}
           label="과제 현황"
