@@ -23,7 +23,7 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { CsvUploader, type CsvUploadResult } from "@/components/ui/CsvUploader";
 import { InlineCell as SharedInlineCell, type InlineCellOption } from "@/components/ui/InlineCell";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface Semester {
   id: number;

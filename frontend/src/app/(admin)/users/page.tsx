@@ -109,7 +109,7 @@ export default function UsersPage() {
   const handleDownloadTemplate = async () => {
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002"}/api/users/excel-template`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002"}/api/users/excel-template`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("access_token")}`,
@@ -369,7 +369,7 @@ function CsvBulkImportModal({ onClose }: { onClose: () => void }) {
   const downloadTemplate = async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002"}/api/users/_csv/template/${role}`,
+      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002"}/api/users/_csv/template/${role}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) {

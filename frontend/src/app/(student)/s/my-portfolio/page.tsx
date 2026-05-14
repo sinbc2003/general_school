@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface Artifact {
   id: number;

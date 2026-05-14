@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { MenuProvider } from "@/lib/menu-context";
 import "./globals.css";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 /**
  * 백엔드에서 브랜딩 설정(탭 제목 / 파비콘 URL)을 가져와 동적 metadata 생성.

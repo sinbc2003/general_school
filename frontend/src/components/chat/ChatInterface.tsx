@@ -50,7 +50,7 @@ interface ModelInfo {
   context_window: number | null; active: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 // ─── 색상 팔레트 (Tailwind 인라인) ───
 const C = {

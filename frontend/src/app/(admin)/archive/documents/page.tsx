@@ -22,7 +22,7 @@ interface SemesterItem {
   is_current: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface DocumentItem {
   id: number;

@@ -5,7 +5,7 @@ import { Settings, School, Flag, Bell, Database, Image as ImageIcon, Save, Trash
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 export default function SystemSettingsPage() {
   return (

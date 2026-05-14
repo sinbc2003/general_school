@@ -18,7 +18,7 @@ import { useState } from "react";
 import { Download, Upload, AlertTriangle, CheckCircle2, FileArchive } from "lucide-react";
 import { api } from "@/lib/api/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface RestoreResult {
   manifest: {

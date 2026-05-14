@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Briefcase, FileText, ExternalLink, Search, Filter } from "lucide-react";
 import { api } from "@/lib/api/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 const CATS: Record<string, string> = {
   report: "보고서/논문", presentation: "발표자료",

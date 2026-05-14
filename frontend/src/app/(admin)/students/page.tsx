@@ -61,7 +61,7 @@ const TAB_CONFIG: { key: PortfolioTab; label: string; icon: any }[] = [
   { key: "career", label: "진로 설계", icon: Target },
 ];
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 export default function StudentsPage() {
   const { user } = useAuth();

@@ -71,7 +71,8 @@ npm run dev
 ```
 
 ## 초기 계정
-- **최고관리자**: adminssh / 19550425!@!@
+- **최고관리자**: 첫 가입자가 자동으로 super_admin 부여 (`/auth/setup` 온보딩)
+- DB 초기 상태에는 어떤 계정도 없음. 첫 가입 후 두 번째부터는 일반 회원가입.
 
 ## 권한 시스템
 - 5단계: super_admin > designated_admin > teacher > staff > student
