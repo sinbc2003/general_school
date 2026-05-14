@@ -9,7 +9,20 @@ import { useAuth } from "@/lib/auth-context";
 import { useMenuSettings } from "@/lib/menu-context";
 import { useSidebar } from "@/lib/sidebar-context";
 import { adminMenu, type MenuItem } from "@/config/admin-menu";
+import { studentMenu } from "@/config/student-menu";
 import { iconMap, type MenuCategory } from "@/config/menu-categories";
+
+// student-menu의 단순 항목을 admin-menu의 MenuItem 형태로 어댑팅
+function studentMenuAsItems(): MenuItem[] {
+  return studentMenu.map((s) => ({
+    key: s.key,
+    label: s.label,
+    icon: s.icon,
+    path: s.path,
+    permission: s.permission,
+    newTab: s.newTab,
+  }));
+}
 
 // 대메뉴(카테고리) 블록 — 항상 표시. 파스텔 블루 (펼치든 접든 동일).
 const CATEGORY_BG_DEFAULT = "bg-blue-50";
@@ -41,28 +54,34 @@ export function AdminSidebar() {
       .catch(() => setCurrentSem(null));
   }, [user, pathname]);
 
-  // 모든 admin 카테고리 default = 펼침. (admin) → (student) layout 전환으로
+  // 학생이면 학생 전용 메뉴/카테고리, 그 외(교사·관리자)는 admin 메뉴/카테고리.
+  const isStudent = user?.role === "student";
+  const baseMenu = isStudent ? studentMenuAsItems() : adminMenu;
+  const baseCategories = isStudent ? categories.student : categories.admin;
+
+  // 모든 카테고리 default = 펼침. (admin) → (student) layout 전환으로
   // 사이드바가 재마운트되더라도 토글이 닫히지 않게 categories 기반으로 초기화.
   const [openCategories, setOpenCategories] = useState<Set<string>>(
-    () => new Set(categories.admin.map((c) => c.id))
+    () => new Set(baseCategories.map((c) => c.id))
   );
   const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set());
 
   // 사이드바 스크롤 위치 보존 — (admin) ↔ (student) layout 전환으로 nav가 재마운트돼도
-  // 마지막 scrollTop을 sessionStorage에 저장 → 다음 마운트 시 복원.
+  // 마지막 scrollTop을 sessionStorage에 저장 → 다음 마운트 시 복원. role별 분리 키.
   const navRef = useRef<HTMLElement>(null);
+  const scrollKey = `sidebar-scroll-${user?.role || "anon"}`;
   useEffect(() => {
     const el = navRef.current;
     if (!el) return;
-    const saved = sessionStorage.getItem("admin-sidebar-scroll");
+    const saved = sessionStorage.getItem(scrollKey);
     if (saved) {
       const top = parseInt(saved, 10);
       if (!Number.isNaN(top)) el.scrollTop = top;
     }
-  }, []);
+  }, [scrollKey]);
   const handleNavScroll = () => {
     if (navRef.current) {
-      sessionStorage.setItem("admin-sidebar-scroll", String(navRef.current.scrollTop));
+      sessionStorage.setItem(scrollKey, String(navRef.current.scrollTop));
     }
   };
 
@@ -84,8 +103,8 @@ export function AdminSidebar() {
     });
   };
 
-  // adminMenu를 key로 빠르게 조회
-  const menuByKey = new Map(adminMenu.map((m) => [m.key, m]));
+  // 활성 메뉴 source(role 분기)를 key로 빠르게 조회
+  const menuByKey = new Map(baseMenu.map((m) => [m.key, m]));
 
   const isVisible = (item: MenuItem): boolean => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
@@ -192,8 +211,8 @@ export function AdminSidebar() {
   };
 
   // 어떤 카테고리에도 속하지 않은 메뉴 항목 수집
-  const categorizedKeys = new Set(categories.admin.flatMap((c) => c.items));
-  const uncategorized = adminMenu.filter(
+  const categorizedKeys = new Set(baseCategories.flatMap((c) => c.items));
+  const uncategorized = baseMenu.filter(
     (m) => !categorizedKeys.has(m.key) && isVisible(m)
   );
 
@@ -258,7 +277,7 @@ export function AdminSidebar() {
         onScroll={handleNavScroll}
         className="flex-1 overflow-y-auto p-2 space-y-2"
       >
-        {categories.admin.map((cat) => {
+        {baseCategories.map((cat) => {
           if (!categoryHasVisibleItems(cat)) return null;
 
           const CatIcon = iconMap[cat.icon] || MoreHorizontal;
