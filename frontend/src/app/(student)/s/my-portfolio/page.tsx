@@ -530,6 +530,16 @@ function AssignmentsTab() {
     }
   };
 
+  const remove = async (s: AssignmentSubmission) => {
+    if (!confirm(`"${s.assignment_title}" 제출물을 삭제하시겠습니까? (교사가 검토하기 전에만 가능)`)) return;
+    try {
+      await api.delete(`/api/me/assignment-submissions/${s.id}`);
+      setItems((prev) => prev.filter((p) => p.id !== s.id));
+    } catch (e: any) {
+      alert(e?.detail || "삭제 실패 (이미 검토되었을 수 있음)");
+    }
+  };
+
   const visibleCount = items.filter((s) => s.show_in_portfolio).length;
 
   return (
@@ -559,17 +569,26 @@ function AssignmentsTab() {
                     <div className="text-caption text-text-secondary mt-1 italic">교사 코멘트: {s.review_comment}</div>
                   )}
                 </div>
-                <button
-                  onClick={() => toggle(s)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded text-caption border ${
-                    s.show_in_portfolio
-                      ? "bg-green-50 border-green-300 text-green-700"
-                      : "bg-bg-secondary border-border-default text-text-tertiary"
-                  }`}
-                >
-                  {s.show_in_portfolio ? <Eye size={13} /> : <EyeOff size={13} />}
-                  {s.show_in_portfolio ? "노출 ON" : "노출 OFF"}
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => toggle(s)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded text-caption border ${
+                      s.show_in_portfolio
+                        ? "bg-green-50 border-green-300 text-green-700"
+                        : "bg-bg-secondary border-border-default text-text-tertiary"
+                    }`}
+                  >
+                    {s.show_in_portfolio ? <Eye size={13} /> : <EyeOff size={13} />}
+                    {s.show_in_portfolio ? "노출 ON" : "노출 OFF"}
+                  </button>
+                  <button
+                    onClick={() => remove(s)}
+                    className="p-1.5 text-text-tertiary hover:text-status-error"
+                    title="제출물 삭제 (검토 전만 가능)"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -580,11 +599,13 @@ function AssignmentsTab() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 동아리 산출물 탭 (read-only)
+// 동아리 산출물 탭 (수정/삭제 가능)
 // ─────────────────────────────────────────────────────────────
 function ClubsTab() {
   const [items, setItems] = useState<ClubSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -596,11 +617,36 @@ function ClubsTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  const startEdit = (c: ClubSubmission) => {
+    setEditingId(c.id);
+    setEditTitle(c.title);
+  };
+  const saveEdit = async () => {
+    if (!editingId) return;
+    if (!editTitle.trim()) return alert("제목을 입력하세요");
+    try {
+      await api.put(`/api/me/club-submissions/${editingId}`, { title: editTitle });
+      setItems((prev) => prev.map((p) => p.id === editingId ? { ...p, title: editTitle } : p));
+      setEditingId(null);
+    } catch (e: any) {
+      alert(e?.detail || "수정 실패");
+    }
+  };
+  const remove = async (c: ClubSubmission) => {
+    if (!confirm(`"${c.title}" 산출물을 삭제하시겠습니까?`)) return;
+    try {
+      await api.delete(`/api/me/club-submissions/${c.id}`);
+      setItems((prev) => prev.filter((p) => p.id !== c.id));
+    } catch (e: any) {
+      alert(e?.detail || "삭제 실패");
+    }
+  };
+
   return (
     <div>
       <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
         <div className="text-caption text-orange-900">
-          ⓘ 동아리 산출물은 동아리 페이지(<b>활동/대회/과제</b>)에서 등록·관리합니다. 여기서는 본인 제출 기록을 확인만 합니다.
+          ⓘ 동아리 산출물은 동아리 페이지(<b>활동/대회/과제</b>)에서 새로 등록합니다. 여기서는 본인 제출 기록 확인 + 제목 수정·삭제.
         </div>
       </div>
 
@@ -612,10 +658,37 @@ function ClubsTab() {
         <div className="space-y-2">
           {items.map((c) => (
             <div key={c.id} className="bg-bg-primary border border-border-default rounded-lg p-3">
-              <div className="text-body text-text-primary font-medium">{c.title}</div>
-              <div className="text-caption text-text-tertiary mt-0.5">
-                {c.club_name} · {c.submission_type}
-                {c.created_at && ` · ${c.created_at.slice(0, 10)}`}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  {editingId === c.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="flex-1 px-2 py-1 text-body border border-border-default rounded"
+                        autoFocus
+                      />
+                      <button onClick={saveEdit} className="px-2 py-1 bg-accent text-white text-caption rounded">저장</button>
+                      <button onClick={() => setEditingId(null)} className="px-2 py-1 border border-border-default text-caption rounded">취소</button>
+                    </div>
+                  ) : (
+                    <div className="text-body text-text-primary font-medium">{c.title}</div>
+                  )}
+                  <div className="text-caption text-text-tertiary mt-0.5">
+                    {c.club_name} · {c.submission_type}
+                    {c.created_at && ` · ${c.created_at.slice(0, 10)}`}
+                  </div>
+                </div>
+                {editingId !== c.id && (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => startEdit(c)} className="p-1.5 text-text-tertiary hover:text-accent" title="제목 수정">
+                      <Edit3 size={14} />
+                    </button>
+                    <button onClick={() => remove(c)} className="p-1.5 text-text-tertiary hover:text-status-error" title="삭제">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
               {c.file_path && (
                 <a href={`${API_URL}${c.file_path}`} target="_blank" rel="noopener noreferrer"

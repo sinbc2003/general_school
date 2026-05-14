@@ -430,6 +430,83 @@ async def toggle_submission_portfolio_visibility(
     return {"id": s.id, "show_in_portfolio": s.show_in_portfolio}
 
 
+@router.delete("/assignment-submissions/{sub_id}")
+async def delete_my_assignment_submission(
+    sub_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인이 제출한 과제를 삭제 (마감 전이거나 reviewed 전인 경우만).
+
+    교사가 이미 검토(reviewed)한 제출물은 무결성을 위해 학생 단독 삭제 차단.
+    """
+    from app.models.assignment import AssignmentSubmission, SubmissionStatus
+    s = (await db.execute(
+        select(AssignmentSubmission).where(
+            AssignmentSubmission.id == sub_id,
+            AssignmentSubmission.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "본인의 제출물만 삭제 가능합니다")
+    if s.status in (SubmissionStatus.REVIEWED, SubmissionStatus.ACCEPTED, SubmissionStatus.REJECTED):
+        raise HTTPException(400, "이미 교사가 검토한 제출물은 삭제할 수 없습니다 (교사에게 요청하세요)")
+    await db.delete(s)
+    await db.flush()
+    return {"ok": True, "id": sub_id}
+
+
+@router.put("/club-submissions/{sub_id}")
+async def update_my_club_submission(
+    sub_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인 동아리 산출물의 메타(제목/유형) 수정."""
+    from app.models.club import ClubSubmission
+    s = (await db.execute(
+        select(ClubSubmission).where(
+            ClubSubmission.id == sub_id,
+            ClubSubmission.author_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "본인의 산출물만 수정 가능합니다")
+    if "title" in body:
+        t = (body["title"] or "").strip()
+        if not t:
+            raise HTTPException(400, "제목은 비울 수 없습니다")
+        s.title = t[:200]
+    if "submission_type" in body:
+        st = (body["submission_type"] or "").strip()
+        if st:
+            s.submission_type = st[:30]
+    await db.flush()
+    return {"id": s.id, "title": s.title, "submission_type": s.submission_type}
+
+
+@router.delete("/club-submissions/{sub_id}")
+async def delete_my_club_submission(
+    sub_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 본인 동아리 산출물 삭제."""
+    from app.models.club import ClubSubmission
+    s = (await db.execute(
+        select(ClubSubmission).where(
+            ClubSubmission.id == sub_id,
+            ClubSubmission.author_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "본인의 산출물만 삭제 가능합니다")
+    await db.delete(s)
+    await db.flush()
+    return {"ok": True, "id": sub_id}
+
+
 @router.get("/club-submissions")
 async def my_club_submissions(
     user: User = Depends(get_current_user),
