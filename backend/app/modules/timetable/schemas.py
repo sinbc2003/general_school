@@ -20,6 +20,11 @@ class SemesterCreate(BaseModel):
     start_date: date
     end_date: date
     is_current: bool = False
+    # 이전 학기에서 복사할 항목들 (1학기 → 2학기 등). None이면 빈 학기로 생성.
+    copy_from_semester_id: int | None = None
+    copy_enrollments: bool = True   # 학생/교사 명단
+    copy_clubs: bool = True          # 동아리 + members
+    copy_structure: bool = True      # classes_per_grade, subjects, departments
 
     @field_validator("end_date")
     @classmethod

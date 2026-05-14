@@ -113,8 +113,76 @@ async def create_semester(
     )
     db.add(s)
     await db.flush()
-    await log_action(db, user, "semester.create", f"semester:{s.id}", request=request)
-    return _semester_to_dict(s)
+
+    # ── 이전 학기 데이터 복사 (옵션) ──
+    copy_stats = {"enrollments": 0, "clubs": 0, "club_members": 0, "structure": False}
+    if body.copy_from_semester_id:
+        src = await get_semester_by_id_or_404(db, body.copy_from_semester_id)
+        # 1) 학교 구조 (classes_per_grade / subjects / departments)
+        if body.copy_structure:
+            s.classes_per_grade = src.classes_per_grade
+            s.subjects = src.subjects
+            s.departments = src.departments
+            copy_stats["structure"] = True
+        # 2) Enrollments (학생/교사 명단)
+        if body.copy_enrollments:
+            src_enrolls = (await db.execute(
+                select(SemesterEnrollment).where(SemesterEnrollment.semester_id == src.id)
+            )).scalars().all()
+            for e in src_enrolls:
+                # status가 transferred/graduated이면 새 학기에 복사하지 않음
+                if e.status in ("transferred", "graduated"):
+                    continue
+                db.add(SemesterEnrollment(
+                    semester_id=s.id,
+                    user_id=e.user_id,
+                    role=e.role,
+                    status="active",
+                    grade=e.grade,
+                    class_number=e.class_number,
+                    student_number=e.student_number,
+                    department=e.department,
+                    position=e.position,
+                    homeroom_class=e.homeroom_class,
+                    subhomeroom_class=e.subhomeroom_class,
+                    teaching_grades=e.teaching_grades,
+                    teaching_classes=e.teaching_classes,
+                    teaching_subjects=e.teaching_subjects,
+                    phone=e.phone,
+                    note=e.note,
+                ))
+                copy_stats["enrollments"] += 1
+        # 3) Clubs + members
+        if body.copy_clubs:
+            from app.models.club import Club
+            src_clubs = (await db.execute(
+                select(Club).where(Club.semester_id == src.id)
+            )).scalars().all()
+            for c in src_clubs:
+                new_club = Club(
+                    semester_id=s.id,
+                    name=c.name,
+                    description=c.description,
+                    advisor_id=c.advisor_id,
+                    members=list(c.members or []),
+                    year=body.year,
+                    status="active",
+                    budget=c.budget,
+                    is_active=True,
+                )
+                db.add(new_club)
+                copy_stats["clubs"] += 1
+                copy_stats["club_members"] += len(c.members or [])
+        await db.flush()
+
+    await log_action(
+        db, user, "semester.create",
+        f"semester:{s.id}" + (f" copied_from:{body.copy_from_semester_id}" if body.copy_from_semester_id else ""),
+        request=request,
+    )
+    result = _semester_to_dict(s)
+    result["copied"] = copy_stats
+    return result
 
 
 @router.put("/semesters/{sid}")

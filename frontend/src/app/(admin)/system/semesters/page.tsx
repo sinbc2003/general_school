@@ -47,6 +47,11 @@ interface FormData {
   start_date: string;
   end_date: string;
   is_current: boolean;
+  // 이전 학기 데이터 복사 옵션
+  copy_from_semester_id: number | null;
+  copy_enrollments: boolean;
+  copy_clubs: boolean;
+  copy_structure: boolean;
 }
 
 const EMPTY_FORM: FormData = {
@@ -56,6 +61,10 @@ const EMPTY_FORM: FormData = {
   start_date: "",
   end_date: "",
   is_current: false,
+  copy_from_semester_id: null,
+  copy_enrollments: true,
+  copy_clubs: true,
+  copy_structure: true,
 };
 
 export default function SemestersPage() {
@@ -158,6 +167,10 @@ export default function SemestersPage() {
       start_date: s.start_date.slice(0, 10),
       end_date: s.end_date.slice(0, 10),
       is_current: s.is_current,
+      copy_from_semester_id: null,
+      copy_enrollments: true,
+      copy_clubs: true,
+      copy_structure: true,
     });
     setTeacherFile(null);
     setStudentFile(null);
@@ -217,6 +230,13 @@ export default function SemestersPage() {
         end_date: form.end_date,
         is_current: form.is_current,
       };
+      // 신규 학기일 때만 copy 옵션 전달
+      if (!editingId && form.copy_from_semester_id) {
+        body.copy_from_semester_id = form.copy_from_semester_id;
+        body.copy_enrollments = form.copy_enrollments;
+        body.copy_clubs = form.copy_clubs;
+        body.copy_structure = form.copy_structure;
+      }
       // 1. 학기 생성/수정
       let sid: number;
       let semObj: Semester | undefined;
@@ -436,6 +456,65 @@ export default function SemestersPage() {
                 </div>
               )}
             </div>
+
+            {/* 이전 학기 데이터 복사 — 학기 신규 생성 시만 */}
+            {!editingId && items.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-border-default">
+                <h3 className="text-body font-medium text-text-primary mb-2">
+                  이전 학기 데이터 복사 (선택)
+                </h3>
+                <p className="text-caption text-text-tertiary mb-3">
+                  학급·동아리·교직원 명단 등 거의 비슷한 경우 이전 학기를 가져와 시작.
+                  선택과목 등 달라진 부분만 수정하면 됨. transferred/graduated 상태는 자동 제외.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-caption text-text-secondary mb-1">복사 출처 학기</label>
+                    <select
+                      value={form.copy_from_semester_id ?? ""}
+                      onChange={(e) => update("copy_from_semester_id", e.target.value ? Number(e.target.value) : null)}
+                      className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    >
+                      <option value="">— 복사하지 않음 (빈 학기) —</option>
+                      {items.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.year}-{s.semester})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="flex items-center gap-2 text-caption text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={form.copy_enrollments}
+                        onChange={(e) => update("copy_enrollments", e.target.checked)}
+                        disabled={!form.copy_from_semester_id}
+                      />
+                      학생·교직원 명단
+                    </label>
+                    <label className="flex items-center gap-2 text-caption text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={form.copy_clubs}
+                        onChange={(e) => update("copy_clubs", e.target.checked)}
+                        disabled={!form.copy_from_semester_id}
+                      />
+                      동아리 + 멤버
+                    </label>
+                    <label className="flex items-center gap-2 text-caption text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={form.copy_structure}
+                        onChange={(e) => update("copy_structure", e.target.checked)}
+                        disabled={!form.copy_from_semester_id}
+                      />
+                      학교 구조 (학급 수·교과·부서)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 명단 CSV — 학기 생성과 함께 업로드 (선택). 교사/학생 한 곳에서 받음. */}
             <div className="mt-5 pt-4 border-t border-border-default">
