@@ -30,6 +30,7 @@ import {
   Megaphone,
   type LucideIcon,
 } from "lucide-react";
+import { studentMenu } from "./student-menu";
 
 export interface MenuItem {
   key: string;
@@ -208,19 +209,21 @@ export const adminMenu: MenuItem[] = [
     newTab: true,
   },
   // ── 학생 영역 (super_admin 디버깅용 미리보기) — 교사/학생에게 숨김 ──
+  // student-menu.ts 전체를 자동으로 children으로 매핑 → 학생 메뉴 추가/변경 시 자동 반영.
   {
     key: "student-area",
     label: "학생 화면 (미리보기)",
     icon: GraduationCap,
     permission: null,
     superAdminOnly: true,
-    children: [
-      { key: "stu-dashboard", label: "학생 홈", icon: Home, path: "/s/dashboard", permission: null },
-      { key: "stu-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
-      { key: "stu-career", label: "진로/진학 설계", icon: Target, path: "/s/career", permission: null },
-      { key: "stu-research-archive", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
-      { key: "stu-chat", label: "학생 AI 도우미", icon: Sparkles, path: "/s/chat", permission: null, newTab: true },
-    ],
+    children: studentMenu.map((s) => ({
+      key: `stu-${s.key}`,
+      label: s.label,
+      icon: s.icon,
+      path: s.path,
+      permission: null, // super_admin은 permission 무시되므로 null 그대로 OK
+      newTab: s.newTab,
+    })),
   },
   {
     key: "llm-admin",
