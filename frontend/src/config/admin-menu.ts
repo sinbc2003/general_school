@@ -79,7 +79,7 @@ export const adminMenu: MenuItem[] = [
   },
   {
     key: "alumni-research-student",
-    label: "선배 연구 자료",
+    label: "과거 연구 자료",
     icon: Library,
     path: "/s/research-archive",
     permission: null,
@@ -108,7 +108,7 @@ export const adminMenu: MenuItem[] = [
   { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view", excludeRoles: ["student"] },
   { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"] },
   { key: "student-artifacts", label: "공개 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
-  { key: "alumni-research", label: "선배 연구 자료", icon: Library, path: "/s/research-archive", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
+  { key: "alumni-research", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   {
     key: "archive",
     label: "수업 자료실",
@@ -210,7 +210,7 @@ export const adminMenu: MenuItem[] = [
       { key: "stu-dashboard", label: "학생 홈", icon: Home, path: "/s/dashboard", permission: null },
       { key: "stu-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
       { key: "stu-career", label: "진로/진학 설계", icon: Target, path: "/s/career", permission: null },
-      { key: "stu-research-archive", label: "선배 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
+      { key: "stu-research-archive", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
       { key: "stu-chat", label: "학생 AI 도우미", icon: Sparkles, path: "/s/chat", permission: null, newTab: true },
     ],
   },

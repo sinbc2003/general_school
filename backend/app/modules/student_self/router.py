@@ -1,4 +1,4 @@
-"""학생 본인 전용 라우터 — 산출물 업로드, 진로 설계, 선배 연구 열람"""
+"""학생 본인 전용 라우터 — 산출물 업로드, 진로 설계, 과거 연구 열람"""
 
 import os
 import time
@@ -161,7 +161,7 @@ async def delete_artifact(
     return {"ok": True}
 
 
-# 공개된 다른 학생 산출물 (선배/동기 참고용)
+# 공개된 다른 학생 산출물 (과거/동기 참고용)
 @router.get("/artifacts/public")
 async def list_public_artifacts(
     category: str | None = None,
@@ -280,7 +280,7 @@ async def delete_career_plan(
     return {"ok": True}
 
 
-# ── 선배 연구 열람 ──
+# ── 과거 연구 열람 ──
 
 @router.get("/research/browse")
 async def browse_alumni_research(
@@ -291,7 +291,7 @@ async def browse_alumni_research(
     user: User = Depends(require_permission("student.research.browse")),
     db: AsyncSession = Depends(get_db),
 ):
-    """선배들의 완료된 연구 목록.
+    """과거 학생들의 완료된 연구 목록.
     학생이 진로 탐색·연구 주제 잡을 때 참고용.
     민감 정보(개인 평가, 미공개 자료)는 제외하고 요약만 노출.
     """

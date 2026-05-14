@@ -52,7 +52,7 @@ export default function ResearchArchivePage() {
     <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-180px)]">
       {/* 좌측 목록 */}
       <aside className="lg:w-96 flex-shrink-0 flex flex-col">
-        <h1 className="text-title text-text-primary mb-1">선배 연구 자료</h1>
+        <h1 className="text-title text-text-primary mb-1">과거 연구 자료</h1>
         <p className="text-caption text-text-tertiary mb-3">
           졸업 선배·재학생의 완료된 연구를 열람하여 진로 탐색과 연구 주제 결정에 활용하세요.
         </p>
@@ -150,7 +150,7 @@ export default function ResearchArchivePage() {
             </div>
 
             <div className="mt-6 pt-4 border-t border-border-default text-caption text-text-tertiary">
-              ※ 선배 연구는 진로 탐색·연구 주제 참고용으로 제공됩니다. 무단 복제·표절은 금지됩니다.
+              ※ 과거 연구는 진로 탐색·연구 주제 참고용으로 제공됩니다. 무단 복제·표절은 금지됩니다.
             </div>
           </div>
         ) : (
