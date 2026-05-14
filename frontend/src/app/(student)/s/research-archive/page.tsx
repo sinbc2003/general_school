@@ -54,7 +54,7 @@ export default function ResearchArchivePage() {
       <aside className="lg:w-96 flex-shrink-0 flex flex-col">
         <h1 className="text-title text-text-primary mb-1">과거 연구 자료</h1>
         <p className="text-caption text-text-tertiary mb-3">
-          졸업 선배·재학생의 완료된 연구를 열람하여 진로 탐색과 연구 주제 결정에 활용하세요.
+          졸업생·재학생의 완료된 연구를 열람하여 진로 탐색과 연구 주제 결정에 활용하세요.
         </p>
 
         {/* 검색 */}

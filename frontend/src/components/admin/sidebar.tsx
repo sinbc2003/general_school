@@ -41,8 +41,10 @@ export function AdminSidebar() {
       .catch(() => setCurrentSem(null));
   }, [user, pathname]);
 
+  // 모든 admin 카테고리 default = 펼침. (admin) → (student) layout 전환으로
+  // 사이드바가 재마운트되더라도 토글이 닫히지 않게 categories 기반으로 초기화.
   const [openCategories, setOpenCategories] = useState<Set<string>>(
-    new Set(["work", "teaching", "competition", "guidance", "activity", "search", "ai", "student-view", "management"])
+    () => new Set(categories.admin.map((c) => c.id))
   );
   const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set());
 
