@@ -2,6 +2,12 @@
 # Windows users still see CRLF on checkout via core.autocrlf if they want.
 * text=auto eol=lf
 
+# Windows shell scripts MUST be CRLF — cmd.exe silently fails on LF-only .bat
+# (commands like pause / pushd are not recognized, window closes immediately).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
 # Binary files — never normalize
 *.png binary
 *.jpg binary
