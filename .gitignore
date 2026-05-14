@@ -70,3 +70,6 @@ dist/
 build/
 *.tar.gz
 *.zip
+.claude/
+backend/*.db.empty-backup*
+backend/*.db.backup*
