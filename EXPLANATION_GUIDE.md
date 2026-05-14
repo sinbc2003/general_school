@@ -44,18 +44,229 @@
 
 ---
 
-## 3. 기술 스택 한 줄씩 (2분)
+## 3. 기술 스택 (5분 — 정보교사용 상세)
 
-| 영역 | 기술 | 왜 이걸 골랐나 |
+### 3-1. 한눈에 보기
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend (브라우저)                                       │
+│    Next.js 14 + TypeScript + Tailwind CSS               │
+│    파일 위치: frontend/src/                              │
+└────────────────────────┬────────────────────────────────┘
+                         │ HTTPS / HTTP (JSON)
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│  Backend (Python 서버, port 8002)                        │
+│    FastAPI + SQLAlchemy 2.0 (async) + Pydantic          │
+│    파일 위치: backend/app/                               │
+└─────┬─────────────┬─────────────────────┬──────────────┘
+      │             │                     │
+      ↓             ↓                     ↓
+   SQLite        파일 저장             AI API
+   (단일 .db)  (backend/storage/)   (OpenAI/Claude/Gemini)
+```
+
+### 3-2. Frontend — Next.js 14 (App Router) + TypeScript + Tailwind
+
+| 구성 | 역할 |
+|---|---|
+| **Next.js 14** | React 기반 풀스택 프레임워크. 파일 기반 라우팅(`app/page.tsx` = 페이지) |
+| **App Router** | 폴더 = URL. 예: `app/(admin)/students/page.tsx` → `/students` |
+| **TypeScript** | 모든 코드 타입 명시. 데이터 구조 오타 컴파일 시점에 잡힘 |
+| **Tailwind CSS** | `class="bg-cream-100 text-text-primary"` 식 utility CSS. 디자인 통일 쉬움 |
+| **lucide-react** | 가벼운 아이콘 라이브러리 (`<Megaphone />`, `<Calendar />` 등) |
+
+**왜 Next.js?**
+- 한 사람이 유지보수 → 풀스택 한 곳에서 끝. 별도 라우팅 라이브러리·번들러 설정 X
+- Hot-reload — 코드 저장하면 1~2초 안에 화면 반영
+- TypeScript 통합 — 타입 안전
+
+**왜 Tailwind?**
+- 별도 CSS 파일 안 만들어도 됨. 클래스명만 박음
+- `tailwind.config.ts`에 `cream`, `accent` 등 색 한 번 정의 → 전체 통일
+- 사용 안 한 클래스는 빌드 시 제거 (PurgeCSS 내장)
+
+**자체 제작 공용 컴포넌트** (`frontend/src/components/ui/`):
+- `DataTable` — 정렬·검색·페이지네이션·CSV export 통합
+- `Modal`, `ChipInput`, `CsvUploader`, `InlineCell`
+- 학생 관리·과제·동아리 6개 페이지가 공유 → 디자인 일관성
+
+---
+
+### 3-3. Backend — FastAPI + SQLAlchemy 2.0 + Pydantic
+
+| 구성 | 역할 |
+|---|---|
+| **FastAPI** | Python 비동기 웹 프레임워크. 라우터 정의가 데코레이터로 한 줄 |
+| **SQLAlchemy 2.0** | Python ORM. 모델 = 클래스, 쿼리 = `select(User).where(...)` |
+| **Pydantic** | 요청/응답 자동 검증. 잘못된 JSON 오면 422 응답 자동 |
+| **uvicorn** | ASGI 서버 (개발용). production은 gunicorn + uvicorn workers |
+| **Alembic** | DB 마이그레이션 도구. 모델 변경 → 자동으로 ALTER TABLE 스크립트 생성 |
+
+**왜 FastAPI?**
+- Type hints 그대로 → 자동 검증 + 자동 OpenAPI 문서 (`/docs` 들어가면 스웨거 UI)
+- 비동기 (`async def`) → DB·외부 API 호출 동안 다른 요청 처리
+- 의존성 주입(`Depends`) — 권한 체크·DB 세션·인증 한 줄로
+
+**예시 코드 (공지사항 라우터)**:
+```python
+@router.post("/api/announcements")
+async def create_announcement(
+    body: AnnouncementCreate,                          # Pydantic 자동 검증
+    user: User = Depends(require_permission("announcement.post.create")),  # 권한
+    db: AsyncSession = Depends(get_db),                # DB 세션
+):
+    a = Announcement(title=body.title, ...)
+    db.add(a)
+    await db.flush()
+    return {"id": a.id}
+```
+한 줄 한 줄이 명확. 권한 / DB / 검증이 함수 시그니처에 다 들어있음.
+
+**왜 SQLAlchemy 2.0?**
+- Python 진영의 ORM 표준
+- 비동기 지원 (`async def list_users()`)
+- 모델 = Python 클래스. 관계(외래키)도 코드로 표현
+  ```python
+  class Assignment(Base):
+      id: Mapped[int] = mapped_column(primary_key=True)
+      semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id"))
+      title: Mapped[str] = mapped_column(String(255), nullable=False)
+  ```
+
+---
+
+### 3-4. DB — SQLite (운영) / PostgreSQL (확장)
+
+| 항목 | SQLite | PostgreSQL |
 |---|---|---|
-| Frontend | Next.js 14 (TypeScript) | 한 사람이 유지하기 좋고 hot-reload 빠름 |
-| Backend | FastAPI (Python) | 비동기·타입 안전·자동 OpenAPI 문서 |
-| DB | SQLite (단일 파일) | 80동접까지 OK. 80명 넘으면 한 줄로 PostgreSQL 전환 |
-| 인증 | JWT + TOTP 2단계 | 민감 데이터(성적·상담) 2FA 필수 |
-| AI | Claude·GPT·Gemini 모두 지원 | 학교 예산에 맞춰 골라 쓰게 |
-| 배포 | 학교 노트북 + Tailscale(옵션) | 외부 인터넷 노출 없이 LAN |
+| 형태 | 단일 `.db` 파일 | 별도 서버 |
+| 동시 접속 | ~80명 | 무제한 |
+| 백업 | 파일 복사 | pg_dump 명령 |
+| 설치 | Python 내장 | 별도 설치 필요 |
+| 현재 상태 | ✅ 사용 중 | 한 줄로 전환 가능 |
 
-**개발 도구**: Claude Code (AI가 코드 짜고 사람이 검수). 약 95% 정도 AI 작성, 검수·수정은 사람.
+**전환 방법**:
+```bash
+# .env 파일 한 줄만 변경
+DATABASE_URL=postgresql+asyncpg://user:pw@localhost/general_school
+```
+모델 코드 변경 0줄. SQLAlchemy가 추상화하니까.
+
+**왜 SQLite로 시작?**
+- 학교 노트북에 PostgreSQL 설치 부담
+- 80명 동접까지 충분
+- 백업이 `.db` 파일 1개 복사로 끝남 — 외장 SSD 보관 쉬움
+
+---
+
+### 3-5. 인증·보안
+
+| 구성 | 역할 |
+|---|---|
+| **JWT (PyJWT)** | 로그인 후 토큰 발급. stateless |
+| **Refresh token** | Access token 만료 시 자동 재발급 |
+| **bcrypt (passlib)** | 비밀번호 해시 저장 (DB 유출돼도 평문 비밀번호 안 나옴) |
+| **TOTP (pyotp)** | Google Authenticator 같은 6자리 OTP. 성적·상담 접근 시 강제 |
+| **Fernet (cryptography)** | API 키 대칭 암호화. `ENCRYPTION_MASTER_KEY` 환경변수 기반 |
+| **CORS allowlist** | 학교 도메인만 API 호출 허용 |
+| **Rate limit** | 로그인 무차별 대입 방어 (메모리 기반, 분당 N회) |
+
+---
+
+### 3-6. AI 챗봇 — 멀티 프로바이더
+
+```
+사용자 채팅 입력
+    ↓
+[chatbot/router.py SSE 스트림]
+    ↓
+[services/llm/base.py: LLMAdapter 공통 인터페이스]
+    ├─ openai_adapter.py    (GPT-4o, gpt-4o-mini)
+    ├─ anthropic_adapter.py (Claude Opus / Sonnet / Haiku)
+    └─ google_adapter.py    (Gemini Pro / Flash)
+    ↓
+매 메시지마다 input/output 토큰 + USD 비용 자동 기록
+    ↓
+[chat_usage_daily 테이블]에 일별/사용자별 집계
+```
+
+- 학교가 OpenAI 키든 Anthropic 키든 자기 거 가져와서 등록
+- `/system/llm/models`에서 모델별 단가(USD/1M tokens) 수정 가능
+- 학생용은 저렴한 모델 강제 (Haiku, gpt-4o-mini, Gemini Flash)
+
+---
+
+### 3-7. 파일 처리 (Python 라이브러리)
+
+| 라이브러리 | 용도 |
+|---|---|
+| **openpyxl** | Excel(.xlsx) 일괄 import/export (학생 명단·성적 등) |
+| **reportlab** | PDF 생기부 자동 생성. 한글 폰트(Windows malgun / mac AppleSDGothic / Linux NanumGothic) 자동 등록 |
+| **csv (내장)** | CSV 동아리 배정·성적·수상 일괄 처리 |
+| **aiofiles** | 비동기 파일 I/O (학생 산출물 업로드) |
+
+---
+
+### 3-8. 개발 도구 & 워크플로우
+
+| 도구 | 역할 |
+|---|---|
+| **Claude Code** | AI 페어 프로그래밍. 자연어 → 코드 자동 생성 |
+| **Git + GitHub (SSH)** | 매 변경 commit + push. main 브랜치 단일 |
+| **TypeScript compiler** | `tsc --noEmit` 매 변경 후 타입 체크 |
+| **VS Code / Cursor** | 코드 에디터 (선택) |
+
+**개발 방식**:
+1. 신병철이 자연어로 요청 ("공지사항 게시판 추가해줘, 노출 대상 선택 가능하게")
+2. Claude Code가 모델 + 라우터 + 페이지 + 메뉴 한 번에 작성
+3. 사람이 화면에서 동작 확인 + 색깔·문구 미세 조정
+4. `git push origin main` → GitHub 반영 → 학교 노트북에서 `git pull`
+
+**AI 비율**: 약 95% AI 작성, 5% 사람 검수·수정.
+
+---
+
+### 3-9. 배포 & 운영
+
+| 환경 | 도구 |
+|---|---|
+| **개발 (Windows)** | WSL2 Ubuntu 위 Python venv + Node.js |
+| **dev 서버** | uvicorn `--reload` (코드 변경 자동 재시작) |
+| **production 권장** | gunicorn + uvicorn workers 4개 + Caddy reverse proxy + HTTPS |
+| **외부 시연** | cloudflared (Quick Tunnel) — 가입 없이 임시 URL |
+| **원격 접근** | Tailscale (옵션) — 본인 휴대폰에서만 학교 서버 접근 |
+| **자동 재시작** | NSSM (Windows 서비스) 또는 systemd (Linux) |
+
+---
+
+### 3-10. 코드 안전망
+
+신병철이 코드 깊이 못 봐도 시스템이 무너지지 않게:
+
+| 안전망 | 동작 |
+|---|---|
+| **권한 일관성 검증** | 부팅 시 라우터에 박힌 권한 키 vs 모듈 permissions.py 대조. 어긋나면 부팅 RuntimeError |
+| **모델 import 강제** | `app/models/__init__.py`에 import 안 된 모델은 백업에서 빠짐. 백업 시점에 모든 테이블 자동 수집 |
+| **Alembic 마이그레이션** | DB 스키마 변경 이력 보존. 롤백 가능 |
+| **TypeScript 컴파일** | 매 commit 전 `tsc --noEmit` — 타입 오류 차단 |
+| **감사 로그(audit_log)** | 모든 권한·민감 데이터 변경 기록. 누가 언제 무엇을 했는지 |
+
+---
+
+### 3-11. 한 줄 요약 표
+
+| 영역 | 기술 | 한 줄 |
+|---|---|---|
+| Frontend | **Next.js 14 + TypeScript + Tailwind** | 한 사람이 유지 가능한 풀스택 |
+| Backend | **FastAPI + SQLAlchemy + Pydantic** | Python 비동기 + 자동 검증 |
+| DB | **SQLite → PostgreSQL** | 단일 파일에서 학교 확장 시 한 줄 변경 |
+| 인증 | **JWT + bcrypt + TOTP + Fernet** | 4중 안전망 |
+| AI | **OpenAI + Anthropic + Google 멀티** | 학교가 키 가져와 등록 |
+| 파일 | **openpyxl + reportlab + csv** | Excel·PDF·CSV 자동 처리 |
+| 개발 | **Claude Code + Git/GitHub** | 자연어 → 코드 → push |
+| 배포 | **WSL2 + uvicorn + Tailscale(옵션)** | 학교 노트북 1대 LAN |
 
 ---
 
