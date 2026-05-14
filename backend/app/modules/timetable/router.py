@@ -758,7 +758,48 @@ async def list_entries(
         "id": e.id, "semester_id": e.semester_id, "teacher_id": e.teacher_id,
         "day_of_week": e.day_of_week, "period": e.period,
         "subject": e.subject, "class_name": e.class_name, "room": e.room,
+        "entry_type": getattr(e, "entry_type", "class"),
+        "note": getattr(e, "note", None),
     } for e in rows]
+
+
+@router.put("/entries/{eid}")
+async def update_entry(
+    eid: int, body: dict, request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """단일 시간표 항목 수정.
+
+    - super_admin / designated_admin: 모든 entry 수정 가능
+    - teacher: 본인 entry(teacher_id==user.id) 만 수정 가능
+    - 시간표가 가끔 바뀌는 경우 본인 entry를 직접 고칠 수 있게.
+    """
+    e = (await db.execute(select(TimetableEntry).where(TimetableEntry.id == eid))).scalar_one_or_none()
+    if not e:
+        raise HTTPException(404, "시간표 항목을 찾을 수 없습니다")
+
+    is_admin = user.role in ("super_admin", "designated_admin")
+    is_owner = e.teacher_id == user.id
+    if not (is_admin or is_owner):
+        raise HTTPException(403, "본인 시간표만 수정 가능합니다")
+
+    for f in ("subject", "class_name", "room", "note"):
+        if f in body:
+            setattr(e, f, body[f])
+    # 시간 슬롯(day_of_week/period) 변경은 admin만
+    if is_admin:
+        if "day_of_week" in body:
+            e.day_of_week = int(body["day_of_week"])
+        if "period" in body:
+            e.period = int(body["period"])
+        if "teacher_id" in body:
+            e.teacher_id = int(body["teacher_id"])
+        if "entry_type" in body:
+            e.entry_type = body["entry_type"]
+    await db.flush()
+    await log_action(db, user, "timetable.update", f"id:{eid}", request=request)
+    return {"id": e.id}
 
 
 @router.post("/entries")

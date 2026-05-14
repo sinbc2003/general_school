@@ -13,6 +13,15 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
 import { Plus, Save, Calendar, CalendarClock } from "lucide-react";
 import { MyEventsModal } from "@/components/timetable/MyEventsModal";
+import { useAuth } from "@/lib/auth-context";
+
+const ENTRY_TYPE_BG: Record<string, string> = {
+  class: "",
+  meeting: "bg-purple-50",
+  consultation: "bg-orange-50",
+  event: "bg-pink-50",
+  other: "bg-gray-50",
+};
 
 interface Semester {
   id: number;
@@ -29,12 +38,18 @@ interface TimetableEntry {
   subject: string;
   class_name: string;
   teacher_id: number | null;
+  entry_type?: "class" | "meeting" | "consultation" | "event" | "other";
+  note?: string | null;
+  _dirty?: boolean;  // 클라이언트에서만 사용: 변경 표시
 }
 
 const DAYS = ["월", "화", "수", "목", "금"];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 
 export default function TimetablePage() {
+  const { user, isSuperAdmin } = useAuth();
+  const isAdmin = isSuperAdmin || user?.role === "designated_admin";
+
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<number | null>(null);
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
@@ -65,8 +80,10 @@ export default function TimetablePage() {
     if (!selectedSemester) return;
     setLoading(true);
     try {
+      // 교사는 본인 시간표만, 관리자는 전체
+      const teacherQ = !isAdmin && user ? `&teacher_id=${user.id}` : "";
       const data = await api.get(
-        `/api/timetable/entries?semester_id=${selectedSemester}`
+        `/api/timetable/entries?semester_id=${selectedSemester}${teacherQ}`
       );
       setEntries(data);
     } catch (err) {
@@ -74,7 +91,7 @@ export default function TimetablePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSemester]);
+  }, [selectedSemester, isAdmin, user]);
 
   useEffect(() => {
     fetchSemesters();
@@ -89,6 +106,13 @@ export default function TimetablePage() {
 
   const cellKey = (day: number, period: number) => `${day}-${period}`;
 
+  // 본인 entry 또는 admin만 편집 가능
+  const canEditEntry = (e: TimetableEntry | undefined): boolean => {
+    if (isAdmin) return true;
+    if (!e || !user) return false;
+    return e.teacher_id === user.id;
+  };
+
   const handleCellChange = (
     day: number,
     period: number,
@@ -100,12 +124,16 @@ export default function TimetablePage() {
         (e) => e.day_of_week === day && e.period === period
       );
       if (existing) {
+        // 본인 entry 또는 admin만 변경 허용
+        if (!canEditEntry(existing)) return prev;
         return prev.map((e) =>
           e.day_of_week === day && e.period === period
-            ? { ...e, [field]: value }
+            ? { ...e, [field]: value, _dirty: true }
             : e
         );
       }
+      // 빈 셀에 새로 입력 — admin만 가능 (교사는 본인 entry 수정만)
+      if (!isAdmin) return prev;
       return [
         ...prev,
         {
@@ -115,6 +143,8 @@ export default function TimetablePage() {
           subject: field === "subject" ? value : "",
           class_name: field === "class_name" ? value : "",
           teacher_id: null,
+          entry_type: "class",
+          _dirty: true,
         },
       ];
     });
@@ -124,19 +154,38 @@ export default function TimetablePage() {
     if (!selectedSemester) return;
     setSaving(true);
     try {
-      const validEntries = entries
-        .filter((e) => e.subject.trim())
-        .map(({ id, ...rest }) => ({
-          day_of_week: rest.day_of_week,
-          period: rest.period,
-          subject: rest.subject,
-          class_name: rest.class_name,
-          teacher_id: rest.teacher_id,
-        }));
-      await api.post("/api/timetable/entries/bulk", {
-        semester_id: selectedSemester,
-        entries: validEntries,
-      });
+      if (isAdmin) {
+        // 관리자: bulk 일괄 저장 (기존 흐름)
+        const validEntries = entries
+          .filter((e) => e.subject.trim())
+          .map(({ id, _dirty, entry_type, note, ...rest }) => ({
+            day_of_week: rest.day_of_week,
+            period: rest.period,
+            subject: rest.subject,
+            class_name: rest.class_name,
+            teacher_id: rest.teacher_id,
+          }));
+        await api.post("/api/timetable/entries/bulk", {
+          semester_id: selectedSemester,
+          entries: validEntries,
+        });
+      } else {
+        // 교사: 변경된 본인 entries만 단일 PUT (id 있는 것만)
+        const dirty = entries.filter((e) => e._dirty && e.id);
+        if (dirty.length === 0) {
+          alert("변경된 항목이 없습니다.");
+          setSaving(false);
+          return;
+        }
+        for (const e of dirty) {
+          await api.put(`/api/timetable/entries/${e.id}`, {
+            subject: e.subject,
+            class_name: e.class_name,
+            room: (e as any).room,
+            note: e.note,
+          });
+        }
+      }
       alert("시간표가 저장되었습니다.");
       fetchEntries();
     } catch (err: any) {
@@ -293,11 +342,14 @@ export default function TimetablePage() {
                       const entry = getEntry(dayIdx, period);
                       const key = cellKey(dayIdx, period);
                       const isEditing = editingCell === key;
+                      const editable = entry ? canEditEntry(entry) : isAdmin;
+                      const typeBg = entry?.entry_type ? ENTRY_TYPE_BG[entry.entry_type] || "" : "";
                       return (
                         <td
                           key={dayIdx}
-                          className="px-1 py-1 text-center border-l border-border-default"
-                          onClick={() => setEditingCell(key)}
+                          className={`px-1 py-1 text-center border-l border-border-default ${typeBg}`}
+                          onClick={() => { if (editable) setEditingCell(key); }}
+                          title={!editable && entry ? "다른 교사의 시간표는 수정할 수 없습니다" : undefined}
                         >
                           {isEditing ? (
                             <div className="space-y-1">
