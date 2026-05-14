@@ -107,12 +107,6 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["contest", "assignment"],
     },
     {
-      id: "community",
-      name: "커뮤니티",
-      icon: "Flame",
-      items: ["community", "ranking"],
-    },
-    {
       id: "career",
       name: "나의 진로",
       icon: "GraduationCap",

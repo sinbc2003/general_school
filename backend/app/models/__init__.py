@@ -60,9 +60,6 @@ from app.models.feedback import Feedback, DevRequest
 # ── Challenge ──
 from app.models.challenge import ChallengeLevel, ChallengeProblem, ChallengeProgress
 
-# ── Community ──
-from app.models.community import CommunityProblem, CommunitySolution, CommunityVote
-
 # ── Student Learning ──
 from app.models.student import UserProgress, Bookmark, StudyStreak
 
@@ -112,8 +109,6 @@ __all__ = [
     "Feedback", "DevRequest",
     # Challenge
     "ChallengeLevel", "ChallengeProblem", "ChallengeProgress",
-    # Community
-    "CommunityProblem", "CommunitySolution", "CommunityVote",
     # Student Learning
     "UserProgress", "Bookmark", "StudyStreak",
     # Student Self

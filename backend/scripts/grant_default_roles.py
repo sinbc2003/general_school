@@ -62,7 +62,6 @@ STUDENT_KEYS = {
     "contest.participate.view", "contest.participate.submit",
     "assignment.submit.view", "assignment.submit.upload",
     "club.submission.upload", "club.activity.write",
-    "community.read", "community.write",
     "challenge.solve",
     "portfolio.career.write_own",
     "admissions.record.view_own",

@@ -64,7 +64,6 @@ def get_registered_keys() -> set[str]:
 #   - 일부 권한은 백엔드 라우터가 아직 미구현이지만 UI에서 미리 노출 (planned)
 FRONTEND_ONLY_PERMISSIONS: list[dict] = [
     # 글로벌 — 다른 모듈에 묶기 애매
-    {"key": "ranking.view", "display_name": "랭킹 조회", "category": "랭킹"},
     {"key": "student.dashboard.view", "display_name": "학생 대시보드", "category": "학생 대시보드"},
 ]
 

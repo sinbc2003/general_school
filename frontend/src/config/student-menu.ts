@@ -31,7 +31,6 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "dashboard", label: "홈", icon: Home, path: "/s/dashboard", permission: null },
   { key: "announcements", label: "공지사항", icon: Megaphone, path: "/s/announcements", permission: null },
   { key: "chat", label: "AI 도우미", icon: Sparkles, path: "/s/chat", permission: "chatbot.use", newTab: true },
-  { key: "community", label: "커뮤니티", icon: Users, path: "/s/community", permission: null },
   { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: null },
   { key: "assignment", label: "과제", icon: ClipboardList, path: "/s/assignment", permission: null },
   { key: "my-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
@@ -39,6 +38,5 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "research-archive", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
   { key: "research", label: "내 연구 일지", icon: FlaskConical, path: "/s/research", permission: null },
   { key: "club", label: "동아리", icon: Users2, path: "/s/club", permission: null },
-  { key: "ranking", label: "랭킹", icon: BarChart3, path: "/s/ranking", permission: null },
   { key: "profile", label: "설정", icon: User, path: "/s/profile", permission: null },
 ];

@@ -85,7 +85,6 @@ from app.modules.club.router import router as club_router
 from app.modules.admissions.router import router as admissions_router
 from app.modules.portfolio.router import router as portfolio_router
 from app.modules.challenge.router import router as challenge_router
-from app.modules.community.router import router as community_router
 from app.modules.feedback.router import router as feedback_router
 from app.modules.ai_developer.router import router as ai_developer_router
 from app.modules.chatbot.router import router as chatbot_router
@@ -111,7 +110,6 @@ app.include_router(club_router)
 app.include_router(admissions_router)
 app.include_router(portfolio_router)
 app.include_router(challenge_router)
-app.include_router(community_router)
 app.include_router(feedback_router)
 app.include_router(ai_developer_router)
 app.include_router(chatbot_router)
