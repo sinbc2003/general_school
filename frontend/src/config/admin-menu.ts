@@ -107,7 +107,7 @@ export const adminMenu: MenuItem[] = [
   // (이전엔 'students' children 토글이었지만 한 단계 줄임)
   { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view", excludeRoles: ["student"] },
   { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"] },
-  { key: "student-artifacts", label: "공개 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
+  { key: "student-artifacts", label: "학생 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   { key: "alumni-research", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   {
     key: "archive",

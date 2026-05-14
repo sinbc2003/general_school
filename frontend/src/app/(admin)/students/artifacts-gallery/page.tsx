@@ -55,7 +55,7 @@ export default function ArtifactsGalleryPage() {
       <Link href="/students" className="flex items-center gap-1 text-caption text-text-secondary hover:text-accent mb-3">
         <ArrowLeft size={14} /> 학생 현황으로
       </Link>
-      <h1 className="text-title text-text-primary mb-1">공개 산출물 갤러리</h1>
+      <h1 className="text-title text-text-primary mb-1">학생 산출물 갤러리</h1>
       <p className="text-caption text-text-tertiary mb-6">
         학생들이 직접 업로드하고 공개로 설정한 산출물(보고서·발표자료·프로젝트·미디어 등)을 한 곳에서 봅니다.
         비공개 산출물은 해당 학생의 상세 페이지 "산출물" 탭에서 별도 조회.

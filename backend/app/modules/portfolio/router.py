@@ -657,7 +657,7 @@ async def list_student_career_plans(
     ]}
 
 
-# ── 교사용: 모든 학생의 공개 산출물 갤러리 (전체 학생 둘러보기) ──
+# ── 교사용: 모든 학생의 공개 산출물 모음 = 학생 산출물 갤러리 (전체 둘러보기) ──
 
 @router.get("/_io/artifacts/public")
 async def list_all_public_artifacts(
