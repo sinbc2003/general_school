@@ -44,9 +44,11 @@ class StudentArtifact(Base):
 
 
 class StudentCareerPlan(Base):
-    """학생 진로/진학 설계 — 학생이 직접 작성하는 종합 진학 계획서
+    """학생 진로/진학 설계 — 학생이 학기 단위로 작성하는 진학 계획서.
 
-    한 학생당 학년별로 여러 버전 가능 (학년 올라가면서 보완).
+    (student_id, semester_id) 조합으로 1개. 같은 학기 안에서 언제든 수정 가능.
+    다음 학기로 넘어가면 빈 계획에서 시작 또는 이전 학기 계획 복사 가능.
+    legacy: year 컬럼은 호환 보존 (오래된 데이터는 semester_id=null).
     """
     __tablename__ = "student_career_plans"
 
@@ -54,7 +56,10 @@ class StudentCareerPlan(Base):
     student_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    year: Mapped[int] = mapped_column(Integer, nullable=False)  # 작성 연도
+    semester_id: Mapped[int | None] = mapped_column(
+        ForeignKey("semesters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)  # 작성 연도 (호환용)
     # 진로 방향
     desired_field: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 희망 진로 분야
     career_goal: Mapped[str | None] = mapped_column(Text, nullable=True)  # 장래 희망/직업

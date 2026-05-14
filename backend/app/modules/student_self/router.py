@@ -186,7 +186,7 @@ async def list_public_artifacts(
 
 def _plan_to_dict(p: StudentCareerPlan) -> dict:
     return {
-        "id": p.id, "year": p.year,
+        "id": p.id, "year": p.year, "semester_id": p.semester_id,
         "desired_field": p.desired_field, "career_goal": p.career_goal,
         "target_universities": p.target_universities or [],
         "target_majors": p.target_majors or [],
@@ -210,6 +210,70 @@ async def list_my_career_plans(
         .order_by(desc(StudentCareerPlan.year), desc(StudentCareerPlan.updated_at))
     )).scalars().all()
     return {"items": [_plan_to_dict(p) for p in rows]}
+
+
+@router.get("/career-plans/active")
+async def get_my_active_career_plan(
+    user: User = Depends(require_permission("student.career.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 학기의 진로 계획. 없으면 null (UI는 그때 빈 폼)."""
+    from app.core.semester import get_current_semester
+    _require_student(user)
+    sem = await get_current_semester(db)
+    if not sem:
+        return {"plan": None, "semester": None}
+    p = (await db.execute(
+        select(StudentCareerPlan).where(
+            StudentCareerPlan.student_id == user.id,
+            StudentCareerPlan.semester_id == sem.id,
+        )
+    )).scalar_one_or_none()
+    return {
+        "plan": _plan_to_dict(p) if p else None,
+        "semester": {"id": sem.id, "year": sem.year, "semester": sem.semester, "name": sem.name},
+    }
+
+
+@router.put("/career-plans/active")
+async def upsert_my_active_career_plan(
+    body: dict, request: Request,
+    user: User = Depends(require_permission("student.career.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 학기의 진로 계획 upsert. 학기당 1개 = 학기 안에서 항상 수정."""
+    from app.core.semester import get_current_semester
+    _require_student(user)
+    sem = await get_current_semester(db)
+    if not sem:
+        raise HTTPException(400, "현재 학기가 설정되지 않았습니다 (관리자가 학기를 활성화해야 함)")
+
+    p = (await db.execute(
+        select(StudentCareerPlan).where(
+            StudentCareerPlan.student_id == user.id,
+            StudentCareerPlan.semester_id == sem.id,
+        )
+    )).scalar_one_or_none()
+
+    if not p:
+        p = StudentCareerPlan(
+            student_id=user.id,
+            semester_id=sem.id,
+            year=sem.year,
+        )
+        db.add(p)
+
+    for f in ("desired_field", "career_goal", "target_universities", "target_majors",
+              "academic_plan", "activity_plan", "semester_goals", "motivation", "notes"):
+        if f in body:
+            setattr(p, f, body[f])
+
+    await db.flush()
+    await log_action(
+        db, user, "student_career.upsert_active",
+        target=f"semester:{sem.id}", request=request,
+    )
+    return _plan_to_dict(p)
 
 
 @router.post("/career-plans")
