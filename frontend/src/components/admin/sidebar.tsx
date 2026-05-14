@@ -54,10 +54,13 @@ export function AdminSidebar() {
       .catch(() => setCurrentSem(null));
   }, [user, pathname]);
 
-  // 학생이면 학생 전용 메뉴/카테고리, 그 외(교사·관리자)는 admin 메뉴/카테고리.
+  // 학생이면 학생 전용 메뉴/카테고리. 또한 super_admin이 /s/* 경로에 있으면
+  // 학생 사이드바를 그대로 보여줌 (학생 화면 미리보기 모드).
   const isStudent = user?.role === "student";
-  const baseMenu = isStudent ? studentMenuAsItems() : adminMenu;
-  const baseCategories = isStudent ? categories.student : categories.admin;
+  const previewingStudent = isSuperAdmin && !!pathname?.startsWith("/s/");
+  const showAsStudent = isStudent || previewingStudent;
+  const baseMenu = showAsStudent ? studentMenuAsItems() : adminMenu;
+  const baseCategories = showAsStudent ? categories.student : categories.admin;
 
   // 모든 카테고리 default = 펼침. (admin) → (student) layout 전환으로
   // 사이드바가 재마운트되더라도 토글이 닫히지 않게 categories 기반으로 초기화.
@@ -268,6 +271,21 @@ export function AdminSidebar() {
       {collapsed && currentSem && (
         <div className="flex justify-center py-2 border-b border-border-default" title={`현재 학기: ${currentSem.name}`}>
           <CalendarRange size={16} className="text-accent" />
+        </div>
+      )}
+
+      {/* super_admin 학생 미리보기 모드 안내 — 관리자 화면으로 돌아가는 버튼 */}
+      {previewingStudent && !collapsed && (
+        <div className="px-3 py-2 border-b border-amber-200 bg-amber-50">
+          <div className="text-[11px] font-semibold text-amber-800 mb-1">
+            학생 화면 미리보기 모드
+          </div>
+          <Link
+            href="/dashboard"
+            className="inline-block text-[11.5px] text-amber-900 underline hover:text-accent"
+          >
+            ← 관리자 화면으로 돌아가기
+          </Link>
         </div>
       )}
 
