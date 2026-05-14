@@ -72,6 +72,11 @@ class TimetableEntry(Base):
     subject: Mapped[str] = mapped_column(String(100), nullable=False)
     class_name: Mapped[str] = mapped_column(String(50), nullable=False)
     room: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # 항목 유형 — 'class'(수업, default, 관리자만 편집) | 'meeting'(회의) |
+    # 'consultation'(면담) | 'event'(행사) | 'other'. 'class' 외 유형은 교사
+    # 본인이 자기 시간표에 추가/수정/삭제 가능.
+    entry_type: Mapped[str] = mapped_column(String(20), default="class", nullable=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
