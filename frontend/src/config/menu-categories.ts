@@ -74,12 +74,6 @@ export const defaultCategories: MenuCategoriesConfig = {
       items: ["student-list", "admissions", "student-artifacts", "alumni-research"],
     },
     {
-      id: "search",
-      name: "데이터 검색",
-      icon: "Search",
-      items: ["papers"],
-    },
-    {
       id: "ai",
       name: "AI",
       icon: "Sparkles",

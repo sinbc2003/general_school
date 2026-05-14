@@ -98,7 +98,10 @@ export function AdminSidebar() {
     const indentPx = depth === 0 ? "pl-3" : depth === 1 ? "pl-8" : "pl-12";
 
     if (item.children) {
-      const parentActive = item.children.some((c) => c.path && isActive(c.path));
+      // 'student-area'는 super_admin용 학생 화면 미리보기 — children path가 다른 메뉴와
+      // 겹쳐서 자동 펼치면 사용자가 의도하지 않은 토글이 열림. 명시적 클릭으로만 펼침.
+      const isPreviewMenu = item.key === "student-area";
+      const parentActive = !isPreviewMenu && item.children.some((c) => c.path && isActive(c.path));
       // parentActive면 자동 펼침 유지 (자식 페이지로 이동해도 토글 닫히지 않게)
       const isOpen = openSubmenus.has(item.key) || parentActive;
       // 자식 있는 토글 — 카테고리와 구별되는 작은 색 블록 (앰버 톤).
@@ -237,10 +240,13 @@ export function AdminSidebar() {
           const CatIcon = iconMap[cat.icon] || MoreHorizontal;
           const isOpen = openCategories.has(cat.id);
 
-          // 이 카테고리에 현재 페이지 메뉴가 속하는지 확인 (위치 강조)
+          // 이 카테고리에 현재 페이지 메뉴가 속하는지 확인 (위치 강조).
+          // 'student-area'(미리보기 토글)는 다른 메뉴와 path가 겹치므로 매칭에서 제외 —
+          // 학생관리 카테고리 클릭 시 미리보기 카테고리까지 강조되는 혼선 방지.
           const isActiveCategory =
             !!pathname &&
             cat.items.some((key) => {
+              if (key === "student-area") return false;
               const item = menuByKey.get(key);
               const matches = (mi: MenuItem): boolean => {
                 if (mi.path && pathname.startsWith(mi.path)) return true;
