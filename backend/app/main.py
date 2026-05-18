@@ -34,10 +34,12 @@ async def lifespan(app: FastAPI):
     async with async_session_factory() as db:
         from scripts.seed import seed_super_admin, seed_permissions, seed_default_semester
         from scripts.seed_chatbot import seed_chatbot_defaults
+        from scripts.seed_positions import seed_default_position_templates
         await seed_super_admin(db)
         await seed_permissions(db, defined)
         await seed_chatbot_defaults(db)
         await seed_default_semester(db)
+        await seed_default_position_templates(db)  # 권한 시드 후 (perm 키 검증 필요)
         # role-permission 기본값 자동 부여 (멱등 — 이미 부여된 권한은 skip).
         # 새 모듈/권한 추가 시 backend 재시작만으로 teacher/staff/student에 자동 반영.
         try:

@@ -22,6 +22,7 @@ import {
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { CsvUploader, type CsvUploadResult } from "@/components/ui/CsvUploader";
 import { InlineCell as SharedInlineCell, type InlineCellOption } from "@/components/ui/InlineCell";
+import { EnrollmentPositionsModal } from "@/components/admin/EnrollmentPositionsModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -54,6 +55,7 @@ interface Enrollment {
   teaching_classes: string[];
   teaching_subjects: string[];
   note: string | null;
+  position_count?: number;  // 학기 직책 할당 수 (학생은 항상 0)
   user: {
     id: number;
     username: string | null;
@@ -194,6 +196,9 @@ export default function EnrollmentsPage() {
   // CSV 업로드 상태 — 모달 표시 여부 + 대상 role만 관리. 업로드 로직은 CsvUploader가 담당.
   const [showUpload, setShowUpload] = useState(false);
   const [uploadRole, setUploadRole] = useState<"teacher" | "student">("teacher");
+
+  // 직책 할당 모달 — 어느 enrollment에 할당하는지
+  const [positionsModal, setPositionsModal] = useState<{ eid: number; name: string } | null>(null);
 
   const downloadTemplate = async (role: "teacher" | "student") => {
     try {
@@ -355,11 +360,7 @@ export default function EnrollmentsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              setShowUpload(true);
-              setUploadResult(null);
-              setUploadFile(null);
-            }}
+            onClick={() => setShowUpload(true)}
             disabled={!selectedSid}
             className="flex items-center gap-1 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
           >
@@ -469,6 +470,18 @@ export default function EnrollmentsPage() {
           )}
         />
       </Modal>
+
+      {/* 직책 할당 모달 */}
+      {positionsModal && selectedSid && (
+        <EnrollmentPositionsModal
+          open={true}
+          semesterId={selectedSid}
+          enrollmentId={positionsModal.eid}
+          userName={positionsModal.name}
+          onClose={() => setPositionsModal(null)}
+          onSaved={() => fetchEnrollments()}
+        />
+      )}
 
       {/* 명단 추가/수정 모달 */}
       <Modal
@@ -666,6 +679,7 @@ export default function EnrollmentsPage() {
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">학년/반/번호 또는 부서/직위</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">담임/부담임</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">수업 학년/과목</th>
+              <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium w-28">직책/권한</th>
               <th className="px-4 py-2 text-center text-caption text-text-tertiary font-medium w-32">작업</th>
             </tr>
           </thead>
@@ -778,6 +792,31 @@ export default function EnrollmentsPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
+                  {e.role !== "student" ? (
+                    <button
+                      onClick={() =>
+                        setPositionsModal({
+                          eid: e.id,
+                          name: e.user?.name || `user_id:${e.user_id}`,
+                        })
+                      }
+                      className={`flex items-center gap-1 px-2 py-1 text-caption rounded border ${
+                        (e.position_count ?? 0) > 0
+                          ? "bg-cream-100 border-cream-300 text-text-primary hover:bg-cream-200"
+                          : "border-border-default text-text-tertiary hover:bg-bg-secondary"
+                      }`}
+                      title="이 학기에 부여된 직책 + 권한 편집"
+                    >
+                      <Briefcase size={12} />
+                      {(e.position_count ?? 0) > 0
+                        ? `${e.position_count}개`
+                        : "할당"}
+                    </button>
+                  ) : (
+                    <span className="text-text-tertiary text-caption">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-2">
                   <div className="flex items-center justify-center gap-1">
                     <button
                       onClick={() => openEdit(e)}
@@ -799,7 +838,7 @@ export default function EnrollmentsPage() {
             ))}
             {enrollments.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-body text-text-tertiary">
+                <td colSpan={8} className="px-4 py-8 text-center text-body text-text-tertiary">
                   {loading ? "로딩 중..." : "이 학기에 등록된 명단이 없습니다. '명단 추가'로 등록하세요."}
                 </td>
               </tr>

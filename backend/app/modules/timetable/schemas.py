@@ -25,9 +25,11 @@ class SemesterCreate(BaseModel):
     copy_enrollments: bool = True   # 학생/교사 명단
     copy_clubs: bool = True          # 동아리 + members
     copy_structure: bool = True      # classes_per_grade, subjects, departments
-    # 학기별 직책 매핑(EnrollmentPosition) 복사 여부. 기본 False — 학기마다
-    # 업무분장이 재배정되는 운영 시나리오에서 사고 방지. 같은 직책 유지하려면 True.
-    copy_positions: bool = False
+    # 학기별 직책 매핑(EnrollmentPosition) 복사 여부.
+    # 운영 시나리오: 업무분장은 학년도 단위 → 1학기→2학기는 그대로 가져오는 게 일반적
+    #            (간혹 중간 변경은 명시적 수정으로 처리).
+    # 디폴트 True. 새 학년도(1→다음 1학기)에서는 운영자가 명시적으로 False 선택 권장.
+    copy_positions: bool = True
 
     @field_validator("end_date")
     @classmethod

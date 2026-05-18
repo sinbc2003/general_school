@@ -300,7 +300,10 @@ def _parse_csv_list(v: str | None) -> list:
     return [x.strip() for x in s.replace("|", ",").replace(";", ",").split(",") if x.strip()]
 
 
-def _enrollment_to_dict(e: SemesterEnrollment, u: User | None = None) -> dict:
+def _enrollment_to_dict(
+    e: SemesterEnrollment, u: User | None = None,
+    position_count: int = 0,
+) -> dict:
     return {
         "id": e.id,
         "semester_id": e.semester_id,
@@ -320,6 +323,8 @@ def _enrollment_to_dict(e: SemesterEnrollment, u: User | None = None) -> dict:
         "phone": e.phone,
         "note": e.note,
         "onboarded": bool(e.onboarded),
+        # 직책 권한 할당 개수 (UI 행에 칩 표시용). 학생은 항상 0.
+        "position_count": position_count,
         "user": {
             "id": u.id,
             "username": u.username,
@@ -500,7 +505,24 @@ async def list_enrollments(
         User.name,
     )
     rows = (await db.execute(q)).all()
-    return [_enrollment_to_dict(e, u) for (e, u) in rows]
+
+    # 직책 할당 개수 일괄 조회 (행마다 1쿼리하지 않도록)
+    from app.models.position import EnrollmentPosition as _EP
+    from sqlalchemy import func as _sa_func
+    eids = [e.id for (e, _u) in rows]
+    pos_counts: dict[int, int] = {}
+    if eids:
+        cnt_rows = (await db.execute(
+            select(_EP.enrollment_id, _sa_func.count(_EP.id))
+            .where(_EP.enrollment_id.in_(eids))
+            .group_by(_EP.enrollment_id)
+        )).all()
+        pos_counts = {eid: int(cnt) for eid, cnt in cnt_rows}
+
+    return [
+        _enrollment_to_dict(e, u, position_count=pos_counts.get(e.id, 0))
+        for (e, u) in rows
+    ]
 
 
 @router.post("/semesters/{sid}/enrollments")
@@ -700,6 +722,86 @@ async def set_enrollment_positions(
         target=f"enroll:{eid} templates:{template_ids}", request=request,
     )
     return {"ok": True, "count": len(template_ids)}
+
+
+@router.post("/semesters/{sid}/enrollments/{eid}/positions/sync-year")
+async def sync_enrollment_positions_to_year(
+    sid: int, eid: int, body: dict, request: Request,
+    user: User = Depends(require_permission("system.enrollment.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """이 enrollment의 직책을 **같은 학년도의 다른 학기**에 동기화.
+
+    운영 시나리오: 업무분장은 학년도 단위 → 1학기에 직책 바꾸면 2학기에도 적용.
+    같은 user_id가 다른 학기에 active enrollment를 가지면 동일 template_ids로 PUT.
+
+    body: {"template_ids": [int, ...]}
+    반환: {"ok": True, "synced_enrollments": [eid, ...], "skipped_semesters": [sid, ...]}
+    """
+    from app.models.position import PositionTemplate, EnrollmentPosition
+    from sqlalchemy import delete as sql_delete
+
+    src = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.id == eid,
+            SemesterEnrollment.semester_id == sid,
+        )
+    )).scalar_one_or_none()
+    if not src:
+        raise HTTPException(404, "enrollment 없음")
+
+    src_semester = await get_semester_by_id_or_404(db, sid)
+
+    raw = body.get("template_ids", [])
+    if not isinstance(raw, list):
+        raise HTTPException(400, "template_ids는 list여야 합니다")
+    template_ids = sorted({int(x) for x in raw if str(x).strip()})
+
+    if template_ids:
+        valid_ids = set((await db.execute(
+            select(PositionTemplate.id).where(PositionTemplate.id.in_(template_ids))
+        )).scalars().all())
+        invalid = [t for t in template_ids if t not in valid_ids]
+        if invalid:
+            raise HTTPException(400, f"존재하지 않는 template_id: {invalid}")
+
+    # 같은 학년도(year) 다른 학기의 같은 user enrollment (자기 자신 포함)
+    targets = (await db.execute(
+        select(SemesterEnrollment, Semester)
+        .join(Semester, Semester.id == SemesterEnrollment.semester_id)
+        .where(
+            SemesterEnrollment.user_id == src.user_id,
+            SemesterEnrollment.status == "active",
+            Semester.year == src_semester.year,
+        )
+    )).all()
+
+    synced: list[int] = []
+    skipped: list[int] = []
+    for target_enroll, target_sem in targets:
+        if target_enroll.status != "active":
+            skipped.append(target_sem.id)
+            continue
+        await db.execute(
+            sql_delete(EnrollmentPosition).where(
+                EnrollmentPosition.enrollment_id == target_enroll.id,
+            )
+        )
+        for tid in template_ids:
+            db.add(EnrollmentPosition(
+                enrollment_id=target_enroll.id,
+                position_template_id=tid,
+                granted_by=user.id,
+            ))
+        synced.append(target_enroll.id)
+
+    await db.flush()
+    await log_action(
+        db, user, "enrollment_position.sync_year",
+        target=f"year:{src_semester.year} user:{src.user_id} count:{len(synced)}",
+        request=request,
+    )
+    return {"ok": True, "synced_enrollments": synced, "skipped_semesters": skipped}
 
 
 # ── CSV 일괄 등록 (학기별 명단) ──
