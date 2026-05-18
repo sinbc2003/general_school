@@ -23,12 +23,7 @@ const ENTRY_TYPE_BG: Record<string, string> = {
   other: "bg-gray-50",
 };
 
-interface Semester {
-  id: number;
-  year: number;
-  semester: number;
-  is_current: boolean;
-}
+import type { Semester } from "@/types";
 
 interface TimetableEntry {
   id?: number;

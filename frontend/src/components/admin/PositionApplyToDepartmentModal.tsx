@@ -15,16 +15,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { Building2, Check, X, AlertTriangle } from "lucide-react";
-
-interface Semester {
-  id: number;
-  name: string;
-  year: number;
-  semester: number;
-  is_current: boolean;
-  is_archived?: boolean;
-  departments?: string[];
-}
+import type { Semester } from "@/types";
 
 interface ApplyResult {
   applied: number;

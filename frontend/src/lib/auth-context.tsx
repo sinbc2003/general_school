@@ -10,24 +10,7 @@ import {
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api/client";
-
-interface UserInfo {
-  id: number;
-  username: string | null;
-  email: string;
-  name: string;
-  role: string;
-  status: string;
-  grade: number | null;
-  class_number: number | null;
-  student_number: number | null;
-  department: string | null;
-  totp_enabled: boolean;
-  must_change_password: boolean;
-  // admin 2FA 강제 정책 ON + admin role + 2FA 미등록이면 True
-  must_enable_2fa?: boolean;
-  permissions: string[];
-}
+import type { UserInfo } from "@/types";
 
 export type LoginResult =
   | { type: "token" }

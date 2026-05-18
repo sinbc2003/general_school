@@ -16,20 +16,7 @@ import {
 } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { InlineCell } from "@/components/ui/InlineCell";
-
-interface UserItem {
-  id: number;
-  email: string;
-  name: string;
-  username: string | null;
-  role: string;
-  status: string;
-  grade: number | null;
-  class_number: number | null;
-  student_number: number | null;
-  department: string | null;
-  created_at: string | null;
-}
+import type { UserItem } from "@/types";
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "최고관리자",

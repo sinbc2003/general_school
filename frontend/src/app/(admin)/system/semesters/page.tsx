@@ -27,22 +27,9 @@ import {
 } from "lucide-react";
 import { ChipInput } from "@/components/ui/ChipInput";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
+import type { Semester } from "@/types";
 
-interface Semester {
-  id: number;
-  year: number;
-  semester: number;
-  name: string;
-  start_date: string;
-  end_date: string;
-  is_current: boolean;
-  is_archived?: boolean;
-  archived_at?: string | null;
-  classes_per_grade?: Record<string, number>;
-  subjects?: string[];
-  departments?: string[];
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface FormData {
   year: number;

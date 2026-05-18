@@ -14,13 +14,7 @@ import {
   CalendarRange,
 } from "lucide-react";
 
-interface SemesterItem {
-  id: number;
-  year: number;
-  semester: number;
-  name: string;
-  is_current: boolean;
-}
+import type { Semester } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -78,12 +72,12 @@ export default function DocumentsPage() {
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [semesterFilter, setSemesterFilter] = useState(""); // "2026-1" 또는 ""(전체)
-  const [semesters, setSemesters] = useState<SemesterItem[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
   useEffect(() => {
-    api.get<SemesterItem[]>("/api/timetable/semesters")
+    api.get<Semester[]>("/api/timetable/semesters")
       .then(setSemesters).catch(() => {});
   }, []);
 

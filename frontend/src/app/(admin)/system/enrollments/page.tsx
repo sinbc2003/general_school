@@ -25,45 +25,9 @@ import { InlineCell as SharedInlineCell, type InlineCellOption } from "@/compone
 import { EnrollmentPositionsModal } from "@/components/admin/EnrollmentPositionsModal";
 import { UserSearchInput } from "@/components/admin/UserSearchInput";
 
+import type { Enrollment, Semester } from "@/types";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
-
-interface Semester {
-  id: number;
-  year: number;
-  semester: number;
-  name: string;
-  is_current: boolean;
-  // 학교 구조 — 인라인 드롭다운 옵션 생성용
-  classes_per_grade?: Record<string, number>;
-  subjects?: string[];
-  departments?: string[];
-}
-
-interface Enrollment {
-  id: number;
-  semester_id: number;
-  user_id: number;
-  role: string;
-  status: string;
-  grade: number | null;
-  class_number: number | null;
-  student_number: number | null;
-  department: string | null;
-  position: string | null;
-  homeroom_class: string | null;
-  subhomeroom_class: string | null;
-  teaching_grades: (number | string)[];
-  teaching_classes: string[];
-  teaching_subjects: string[];
-  note: string | null;
-  position_count?: number;  // 학기 직책 할당 수 (학생은 항상 0)
-  user: {
-    id: number;
-    username: string | null;
-    email: string;
-    name: string;
-  } | null;
-}
 
 const STATUS_LABELS: Record<string, string> = {
   active: "재학/재직",
