@@ -32,6 +32,7 @@ from app.models.permission import (
 from app.models.position import PositionTemplate, EnrollmentPosition
 from app.models.timetable import SemesterEnrollment
 from app.models.audit import AuditLog
+from app.modules.permissions.schemas import RolePermissionsUpdate
 
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
@@ -119,16 +120,12 @@ async def get_role_permissions(
 @router.put("/roles/{role}")
 async def update_role_permissions(
     role: str,
-    body: dict,
+    body: RolePermissionsUpdate,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """역할의 기본 권한을 업데이트
-
-    body: {"permissions": ["key1", "key2", ...]}
-    2FA 필수 (permission.manage.edit requires_2fa).
-    """
+    """역할의 기본 권한을 업데이트. 2FA 필수."""
     await verify_2fa_session(user, request, db)
     if user.role == "designated_admin" and role not in MANAGEABLE_ROLES_BY_DESIGNATED:
         raise HTTPException(403, "해당 역할의 권한을 수정할 수 없습니다")
@@ -140,7 +137,7 @@ async def update_role_permissions(
     if role == "designated_admin" and user.role != "super_admin":
         raise HTTPException(403, "지정관리자 역할의 권한은 최고관리자만 변경할 수 있습니다")
 
-    permission_keys = body.get("permissions", [])
+    permission_keys = list(body.permissions)
 
     # designated_admin은 SUPER_ADMIN_ONLY 권한을 부여할 수 없음
     if user.role == "designated_admin":

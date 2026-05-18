@@ -32,6 +32,7 @@ from app.models.timetable import SemesterEnrollment
 from app.modules.permissions.router import (
     router, MANAGEABLE_ROLES_BY_DESIGNATED, _invalidate_user_sessions,
 )
+from app.modules.permissions.schemas import UserPermissionsUpdate
 
 
 # (designated_admin_mode / admin_2fa_required / password policy)
@@ -183,7 +184,7 @@ async def get_user_permissions(
 @router.put("/users/{user_id}")
 async def update_user_permissions(
     user_id: int,
-    body: dict,
+    body: UserPermissionsUpdate,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
@@ -202,7 +203,7 @@ async def update_user_permissions(
     if user.role == "designated_admin" and target.role not in MANAGEABLE_ROLES_BY_DESIGNATED:
         raise HTTPException(403, "해당 사용자의 권한을 수정할 수 없습니다")
 
-    permission_keys = body.get("permissions", [])
+    permission_keys = body.permissions
 
     # designated_admin은 SUPER_ADMIN_ONLY 권한 부여 불가
     if user.role == "designated_admin":

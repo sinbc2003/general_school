@@ -17,6 +17,11 @@ from app.core.permissions import require_super_admin
 from app.models.user import User
 
 from app.modules.permissions.router import router, _invalidate_role_sessions
+from app.modules.permissions.schemas import (
+    AdminTwoFaRequiredUpdate,
+    DesignatedAdminModeUpdate,
+    PasswordPolicyUpdate,
+)
 
 
 # ── 지정관리자 모드 ──
@@ -51,7 +56,7 @@ async def get_designated_admin_mode_endpoint(
 
 @router.put("/policy/designated-admin-mode")
 async def set_designated_admin_mode_endpoint(
-    body: dict, request: Request,
+    body: DesignatedAdminModeUpdate, request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
@@ -60,16 +65,10 @@ async def set_designated_admin_mode_endpoint(
     모드 변경 시 모든 designated_admin 사용자의 세션 무효화 (권한 셋이 달라짐).
     2FA 필수 (정책 변경은 영향력 큼).
     """
-    from app.core.permissions import (
-        set_designated_admin_mode,
-        VALID_DESIGNATED_ADMIN_MODES,
-    )
+    from app.core.permissions import set_designated_admin_mode
     await verify_2fa_session(user, request, db)
 
-    mode = (body.get("mode") or "").strip()
-    if mode not in VALID_DESIGNATED_ADMIN_MODES:
-        raise HTTPException(400, f"mode must be one of {sorted(VALID_DESIGNATED_ADMIN_MODES)}")
-
+    mode = body.mode  # Literal 검증 완료
     await set_designated_admin_mode(db, mode)
     invalidated = await _invalidate_role_sessions(db, "designated_admin")
     await db.flush()
@@ -101,19 +100,17 @@ async def get_admin_2fa_required_endpoint(
 
 @router.put("/policy/admin-2fa-required")
 async def set_admin_2fa_required_endpoint(
-    body: dict, request: Request,
+    body: AdminTwoFaRequiredUpdate, request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """admin 2FA 강제 여부 변경. 2FA 필수 (정책 변경).
-
-    body: {"required": true|false}
+    """admin 2FA 강제 여부 변경. 2FA 필수.
     True로 변경 시 본인(super_admin)이 2FA 미등록이면 거부 — 자기 잠금 방지.
     """
     from app.core.permissions import set_admin_2fa_required
     await verify_2fa_session(user, request, db)
 
-    required = bool(body.get("required"))
+    required = body.required
 
     # 자기 잠금 방지: True 전환 시 본인이 2FA 미등록이면 거부
     if required and not user.totp_enabled:
@@ -146,24 +143,21 @@ async def get_password_policy_admin(
 
 @router.put("/policy/password")
 async def update_password_policy(
-    body: dict, request: Request,
+    body: PasswordPolicyUpdate, request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """비밀번호 정책 변경. 2FA 필수.
-
-    body: {min_length?, require_letter?, require_digit?, require_symbol?}
-    부분 업데이트 (None인 키는 보존).
-    """
+    """비밀번호 정책 변경 (부분 업데이트). 2FA 필수."""
     from app.core.password_policy import set_policy, describe_policy
     await verify_2fa_session(user, request, db)
+    patch = body.model_dump(exclude_unset=True)
     try:
-        await set_policy(db, body)
+        await set_policy(db, patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
     await db.flush()
     await log_action(
         db, user, "policy.password",
-        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+        target=f"updated:{sorted(patch.keys())}", request=request, is_sensitive=True,
     )
     return {"ok": True, **(await describe_policy(db))}

@@ -19,6 +19,9 @@ from app.models.permission import (
 from app.modules.permissions.router import (
     router, MANAGEABLE_ROLES_BY_DESIGNATED, _invalidate_user_sessions,
 )
+from app.modules.permissions.schemas import (
+    GroupAssignMember, GroupCreate, GroupUpdate,
+)
 
 
 # ── 권한 그룹 ──
@@ -51,34 +54,34 @@ async def list_groups(
 
 @router.post("/groups")
 async def create_group(
-    body: dict,
+    body: GroupCreate,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
     group = PermissionGroup(
-        name=body["name"],
-        description=body.get("description"),
+        name=body.name,
+        description=body.description,
         created_by=user.id,
     )
     db.add(group)
     await db.flush()
 
-    for key in body.get("permissions", []):
+    for key in body.permissions:
         perm_result = await db.execute(select(Permission).where(Permission.key == key))
         perm = perm_result.scalar_one_or_none()
         if perm:
             db.add(PermissionGroupItem(group_id=group.id, permission_id=perm.id))
 
     await db.flush()
-    await log_action(db, user, "permission_group_created", target=body["name"], request=request)
+    await log_action(db, user, "permission_group_created", target=body.name, request=request)
     return {"id": group.id, "name": group.name}
 
 
 @router.put("/groups/{group_id}")
 async def update_group(
     group_id: int,
-    body: dict,
+    body: GroupUpdate,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
@@ -88,17 +91,18 @@ async def update_group(
     if not group:
         raise HTTPException(404)
 
-    if "name" in body:
-        group.name = body["name"]
-    if "description" in body:
-        group.description = body["description"]
+    patch = body.model_dump(exclude_unset=True)
+    if "name" in patch:
+        group.name = patch["name"]
+    if "description" in patch:
+        group.description = patch["description"]
 
-    perms_changed = "permissions" in body
+    perms_changed = "permissions" in patch
     if perms_changed:
         await db.execute(
             delete(PermissionGroupItem).where(PermissionGroupItem.group_id == group_id)
         )
-        for key in body["permissions"]:
+        for key in patch["permissions"] or []:
             perm_result = await db.execute(select(Permission).where(Permission.key == key))
             perm = perm_result.scalar_one_or_none()
             if perm:
@@ -181,18 +185,13 @@ async def get_group_detail(
 @router.post("/groups/{group_id}/assign")
 async def assign_group_to_user(
     group_id: int,
-    body: dict,
+    body: GroupAssignMember,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """권한 그룹을 사용자에게 할당
-
-    body: {"user_id": 123}
-    """
-    target_user_id = body.get("user_id")
-    if not target_user_id:
-        raise HTTPException(400, "user_id 필요")
+    """권한 그룹을 사용자에게 할당."""
+    target_user_id = body.user_id
 
     # 그룹 존재 확인
     result = await db.execute(select(PermissionGroup).where(PermissionGroup.id == group_id))

@@ -32,6 +32,11 @@ from app.modules.permissions.router import (
     _parse_permission_keys,
     _validate_permission_keys,
 )
+from app.modules.permissions.schemas import (
+    PositionApplyToDepartment,
+    PositionTemplateCreate,
+    PositionTemplateUpdate,
+)
 
 
 @router.get("/position-templates")
@@ -75,22 +80,15 @@ async def list_position_templates(
 
 @router.post("/position-templates")
 async def create_position_template(
-    body: dict,
+    body: PositionTemplateCreate,
     request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """직책 템플릿 생성.
-    body: {key, display_name, description?, category?, permission_keys: [str]}
-    2FA 필수 (권한 정의는 영향력 큼).
-    """
+    """직책 템플릿 생성. 2FA 필수 (권한 정의는 영향력 큼)."""
     await verify_2fa_session(user, request, db)
-    key = (body.get("key") or "").strip()
-    display_name = (body.get("display_name") or "").strip()
-    if not key or not display_name:
-        raise HTTPException(400, "key, display_name 필수")
-    if not key.replace("_", "").replace("-", "").replace(".", "").isalnum():
-        raise HTTPException(400, "key는 영문/숫자/_/-/. 만 허용됩니다")
+    key = body.key.strip()
+    display_name = body.display_name.strip()
 
     exists = (await db.execute(
         select(PositionTemplate).where(PositionTemplate.key == key)
@@ -98,17 +96,15 @@ async def create_position_template(
     if exists:
         raise HTTPException(400, f"이미 존재하는 key: {key}")
 
-    perm_keys = await _validate_permission_keys(
-        db, body.get("permission_keys", []), user
-    )
+    perm_keys = await _validate_permission_keys(db, body.permission_keys, user)
 
     p = PositionTemplate(
         key=key,
         display_name=display_name,
-        description=(body.get("description") or None),
-        category=(body.get("category") or "기타").strip()[:50],
+        description=body.description or None,
+        category=(body.category or "기타").strip()[:50],
         permission_keys=json.dumps(perm_keys, ensure_ascii=False),
-        is_system=False,  # 시스템 템플릿은 시드/마이그레이션에서만 True
+        is_system=False,
         created_by=user.id,
     )
     db.add(p)
@@ -122,7 +118,7 @@ async def create_position_template(
 
 @router.put("/position-templates/{tid}")
 async def update_position_template(
-    tid: int, body: dict, request: Request,
+    tid: int, body: PositionTemplateUpdate, request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
@@ -134,15 +130,16 @@ async def update_position_template(
     if not p:
         raise HTTPException(404)
 
-    if "display_name" in body:
-        p.display_name = (body["display_name"] or "").strip()[:200]
-    if "description" in body:
-        p.description = body["description"] or None
-    if "category" in body:
-        p.category = (body["category"] or "기타").strip()[:50]
-    keys_changed = "permission_keys" in body
+    patch = body.model_dump(exclude_unset=True)
+    if "display_name" in patch:
+        p.display_name = (patch["display_name"] or "").strip()[:200]
+    if "description" in patch:
+        p.description = patch["description"] or None
+    if "category" in patch:
+        p.category = (patch["category"] or "기타").strip()[:50]
+    keys_changed = "permission_keys" in patch
     if keys_changed:
-        perm_keys = await _validate_permission_keys(db, body["permission_keys"], user)
+        perm_keys = await _validate_permission_keys(db, patch["permission_keys"] or [], user)
         p.permission_keys = json.dumps(perm_keys, ensure_ascii=False)
 
     await db.flush()
@@ -207,22 +204,14 @@ async def delete_position_template(
 
 @router.post("/position-templates/{tid}/apply-to-department")
 async def apply_position_template_to_department(
-    tid: int, body: dict, request: Request,
+    tid: int, body: PositionApplyToDepartment, request: Request,
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
     """직책 템플릿을 특정 학기·부서의 모든 교직원 enrollment에 일괄 할당.
 
-    body: {
-      "semester_id": int,
-      "department": str,                # SemesterEnrollment.department 매칭값
-      "include_roles": ["teacher"|"staff"]?,  # 기본 ["teacher","staff"]
-      "replace": bool = false           # True면 대상 enrollment의 기존 직책 통째로 교체
-    }
-
     학년도 단위 운영 시나리오에서 "수학과 전체에 동일 권한" 같은 패턴을 빠르게.
-    archived 학기는 차단.
-    2FA 필수 (영향 범위 큼).
+    archived 학기는 차단. 2FA 필수.
     """
     from sqlalchemy import delete as sql_delete
     await verify_2fa_session(user, request, db)
@@ -233,28 +222,26 @@ async def apply_position_template_to_department(
     if not template:
         raise HTTPException(404, "직책 템플릿 없음")
 
-    semester_id = body.get("semester_id")
-    department = (body.get("department") or "").strip()
-    if not semester_id or not department:
-        raise HTTPException(400, "semester_id, department 필수")
+    semester_id = body.semester_id
+    department = body.department.strip()
 
     # archived 학기 차단
     from app.models.timetable import Semester
     sem = (await db.execute(
-        select(Semester).where(Semester.id == int(semester_id))
+        select(Semester).where(Semester.id == semester_id)
     )).scalar_one_or_none()
     if not sem:
         raise HTTPException(404, "학기 없음")
     if sem.is_archived:
         raise HTTPException(423, f"학기 '{sem.name}'은(는) 보관 상태입니다")
 
-    include_roles = body.get("include_roles") or ["teacher", "staff"]
-    replace = bool(body.get("replace", False))
+    include_roles = body.include_roles or ["teacher", "staff"]
+    replace = body.replace
 
     # 대상 enrollment 조회
     target_enrolls = (await db.execute(
         select(SemesterEnrollment).where(
-            SemesterEnrollment.semester_id == int(semester_id),
+            SemesterEnrollment.semester_id == semester_id,
             SemesterEnrollment.department == department,
             SemesterEnrollment.role.in_(include_roles),
             SemesterEnrollment.status == "active",
