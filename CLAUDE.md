@@ -72,11 +72,14 @@ SQLAlchemy `Base.metadata.sorted_tables`를 기반으로 모든 테이블을 동
 
 ## 실행 방법
 
-### Backend (포트 8002, SQLite 개발용)
+### Backend (포트 8002)
 ```bash
 cd backend
 pip install -r requirements.txt
-DATABASE_URL="sqlite+aiosqlite:///general_school.db" python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+# DATABASE_URL은 ../.env에서 자동 로드 (pydantic-settings).
+# 본 노트북 dev DB는 PostgreSQL 사용 중 (sqlite 아님). PostgreSQL 미설치 시:
+#   cd .. && ./scripts/setup_postgres.sh
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
 ```
 
 ### Frontend (포트 3000)
@@ -85,6 +88,18 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### 가장 빠른 부팅 (Windows)
+```
+start-backend.bat   # WSL bash 호출 → uvicorn (.env 자동 로드)
+start-frontend.bat  # WSL bash 호출 → next dev
+```
+
+### PostgreSQL 부팅 (WSL에서 항상 먼저)
+```bash
+sudo service postgresql start
+```
+~/.bashrc에 박아두면 WSL 들어갈 때마다 자동 시작.
 
 ## 초기 계정
 - **최고관리자**: 첫 가입자가 자동으로 super_admin 부여 (`/auth/setup` 온보딩)
@@ -276,3 +291,105 @@ cd frontend && npm run build && npm start
 4. (자동 처리 안 되는 외부 의존성은 없는지 확인)
 
 `app/services/backup.py`는 모델 정보를 모르고 메타데이터로만 동작하므로 새 모델/컬럼이 자동 반영됨.
+
+---
+
+## 최근 세션 변경사항 요약 (새 Claude 세션용)
+
+> 새 세션이 빠르게 catch-up할 수 있게 정리. 코드 보지 말고 여기 먼저 읽을 것.
+
+### DB
+- **PostgreSQL 전환 완료** (2026-05-14). dev/운영 모두 PostgreSQL.
+- 자동화: `scripts/setup_postgres.sh` (설치+DB생성), `backend/scripts/migrate_sqlite_to_postgres.py` (데이터 이전)
+- `.env`의 `DATABASE_URL=postgresql+asyncpg://app:xxx@localhost:5432/general_school`
+- `start-backend.bat`은 DATABASE_URL 명시 안 함 (.env 자동 로드 — 비밀번호 git 노출 방지)
+- 가이드: `POSTGRES_SWITCH.md`
+
+### 모듈 — 제거된 것 (코드도 삭제)
+- **community** (커뮤니티 + 랭킹) — 모델·라우터·페이지 모두 제거. DB 테이블은 보존.
+- **meeting** (협의록) — 모델·라우터·페이지 모두 제거. DB 테이블은 보존.
+- **papers** 메뉴만 사이드바에서 제거. backend 라우터/모델은 keep (재활성화 가능).
+- **데이터 검색** 카테고리 제거.
+
+### 모듈 — 추가된 것
+- **announcement** (공지사항)
+  - `app/models/announcement.py`: Announcement (audience: all|staff, is_pinned, author_id)
+  - `app/modules/announcement/`: router + permissions (announcement.post.create/edit/delete/view)
+  - Frontend: `(admin)/announcements/`, `(student)/s/announcements/`
+  - 메뉴: admin "업무" 카테고리 + student "홈" 카테고리
+
+### 학기 단위 데이터 격리 강화
+- POST `/api/timetable/semesters` 신규 옵션: `copy_from_semester_id` + `copy_enrollments/clubs/structure`
+  → 1학기 끝나고 2학기 생성 시 명단·동아리·학교 구조 한 번에 복사
+- 학생 진로 설계는 **학기 단위 단일 계획** (StudentCareerPlan.semester_id 추가).
+  GET/PUT `/api/me/career-plans/active` (학기 1개, 언제든 수정)
+  → 기존 다중 연도 모드에서 변경됨
+
+### 시간표 (Timetable)
+- `TimetableEntry.entry_type` 추가: `class | meeting | consultation | event | other`
+- `TimetableEntry.note` 추가
+- 본인 개인 일정 CRUD: `GET/POST/PUT/DELETE /api/timetable/my-events` (회의/면담/행사)
+- 단일 PUT: `PUT /api/timetable/entries/{eid}` — 본인 entry는 교사도 수정. admin은 모든 entry.
+- Frontend: 시간표 페이지 우상단 "내 개인 일정" 버튼 → 모달.
+  - 그리드 셀에 entry_type 별 색 (회의=purple, 면담=orange, 행사=pink)
+  - 교사는 본인 셀만 클릭 편집. 다른 교사 셀은 disabled.
+
+### 동아리 학생 일괄 배정
+- CSV import: `POST /api/club/_assignments/import` (학번/이름/동아리명)
+- 템플릿: `GET /api/club/_assignments/csv-template`
+- Frontend: `(admin)/club/page.tsx` 우상단 "학생 일괄 배정" 버튼 → 모달 (`components/admin/ClubAssignmentModal.tsx`)
+
+### 학생 본인 데이터 CRUD 추가
+- `DELETE /api/me/assignment-submissions/{id}` — 본인만, 교사 검토 전만
+- `PUT /api/me/club-submissions/{id}` — 본인만, 제목·유형 수정
+- `DELETE /api/me/club-submissions/{id}` — 본인만
+- Frontend `/s/my-portfolio`에 수정·삭제 버튼 추가
+
+### 학생 포트폴리오 통합
+- `/s/my-portfolio` 4탭: 전체 timeline / 자유 산출물 / 과제 제출물 / 동아리 산출물
+- `AssignmentSubmission.show_in_portfolio` 컬럼 추가 → 학생이 토글하면 PDF 생기부·공개 갤러리 자동 포함
+- 새 endpoint: `GET /api/me/all-activities` (통합 timeline), `/assignment-submissions`, `/club-submissions`
+- PDF 생기부 (`report_pdf.py`)에 6-3/6-4/6-5 섹션 추가 (자유 산출물·과제 제출·동아리 산출)
+
+### 사이드바 / UI
+- `AdminSidebar`가 학생일 때 `studentMenu` + `categories.student` 사용 (role 분기)
+- super_admin이 `/s/*` 경로 가면 자동 학생 사이드바 (미리보기 모드 + "관리자로 돌아가기" 링크)
+- `student-area` (학생 화면 미리보기 토글) children은 studentMenu에서 자동 매핑
+- 사이드바 scrollTop 보존 (sessionStorage, role별 key)
+- 모든 admin 카테고리 default 펼침 (layout 전환 시 재마운트돼도 토글 유지)
+- `student-area` parentActive 자동 펼침 비활성화 (다른 메뉴와 path 겹쳐 혼선 방지)
+
+### 색상 / 디자인
+- 옅은 파란색 → 따뜻한 크림 톤 일괄 치환 (43곳)
+  - bg-blue-50 → bg-cream-100 (#f5f1e7), border-blue-100/200 → border-cream-200/300
+- `tailwind.config.ts`에 cream-50~900 팔레트 추가
+- 사이드바 우측 경계 box-shadow (claude.ai 스타일 layered shadow)
+
+### 자동 권한 부여 (Lifecycle)
+- backend 부팅 시 `scripts/grant_default_roles.py` 자동 실행 (멱등)
+- 새 권한 키 추가 → backend 재시작만으로 teacher/staff/student에 자동 부여
+- 수동 `python -m scripts.grant_default_roles` 실행 불필요
+
+### Batch Script (Windows)
+- `cd /d` → `pushd` (UNC 경로 자동 매핑)
+- 한글 REM 주석 → 영문 (CP949/UTF-8 mismatch 회피)
+- 줄바꿈 LF → CRLF (cmd 파서)
+- `.gitattributes`에 `*.bat/*.cmd/*.ps1 text eol=crlf` 강제
+- backend/frontend bat 모두 `wsl -d Ubuntu bash -c "..."` 패턴 (UNC 이슈 회피)
+
+### 데모용 (학교 방문 시연)
+- `demo-tunnel.bat` — cloudflared Quick Tunnel로 임시 trycloudflare URL 발급
+- `DEMO.md` — 시연 절차 + 보안 주의 + 동작 원리
+- `frontend/next.config.js`에 `/api/*` → backend rewrites (BACKEND_PROXY_URL env 옵션)
+
+### 메뉴 이름 변경
+- "선배 연구 자료" → "**과거 연구 자료**" (UI + permission display_name)
+- "공개 산출물 갤러리" → "**학생 산출물 갤러리**"
+
+### 문서
+- `EXPLANATION_GUIDE.md` — 학교 정보교사 30분 설명 스크립트 + Q&A 10개 + 기술 스택 상세
+
+### 통계 (2026-05-13 ~ 05-14)
+- Commit 약 30개
+- 새 파일: announcement (모델·라우터·페이지), 학기 복사, 동아리 CSV, 진로 학기별, 시간표 개인일정 등
+- 삭제 파일: community/meeting/papers 일부 (1500줄+ 정리)
