@@ -16,6 +16,10 @@ from app.core.permissions import require_permission
 from app.models.research import ResearchProject
 from app.models.student_self import StudentArtifact, StudentCareerPlan
 from app.models.user import User
+from app.modules.student_self.schemas import (
+    ArtifactUpdate, CareerPlanCreate, CareerPlanUpdate, CareerPlanUpsert,
+    ClubSubmissionUpdate, SubmissionPortfolioVisibility,
+)
 
 router = APIRouter(prefix="/api/me", tags=["student_self"])
 
@@ -118,7 +122,7 @@ async def create_artifact(
 
 @router.put("/artifacts/{aid}")
 async def update_artifact(
-    aid: int, body: dict, request: Request,
+    aid: int, body: ArtifactUpdate, request: Request,
     user: User = Depends(require_permission("student.artifact.manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -128,9 +132,9 @@ async def update_artifact(
     )).scalar_one_or_none()
     if not a:
         raise HTTPException(404)
-    for f in ("title", "description", "category", "external_link", "is_public", "tags"):
-        if f in body:
-            setattr(a, f, body[f])
+    patch = body.model_dump(exclude_unset=True)
+    for f, v in patch.items():
+        setattr(a, f, v)
     await log_action(db, user, "student_artifact.update", target=f"id:{aid}", request=request)
     return _artifact_to_dict(a)
 
@@ -237,7 +241,7 @@ async def get_my_active_career_plan(
 
 @router.put("/career-plans/active")
 async def upsert_my_active_career_plan(
-    body: dict, request: Request,
+    body: CareerPlanUpsert, request: Request,
     user: User = Depends(require_permission("student.career.manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -263,10 +267,9 @@ async def upsert_my_active_career_plan(
         )
         db.add(p)
 
-    for f in ("desired_field", "career_goal", "target_universities", "target_majors",
-              "academic_plan", "activity_plan", "semester_goals", "motivation", "notes"):
-        if f in body:
-            setattr(p, f, body[f])
+    patch = body.model_dump(exclude_unset=True)
+    for f, v in patch.items():
+        setattr(p, f, v)
 
     await db.flush()
     await log_action(
@@ -278,23 +281,23 @@ async def upsert_my_active_career_plan(
 
 @router.post("/career-plans")
 async def create_career_plan(
-    body: dict, request: Request,
+    body: CareerPlanCreate, request: Request,
     user: User = Depends(require_permission("student.career.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     _require_student(user)
-    year = body.get("year") or datetime.now().year
+    year = body.year or datetime.now().year
     p = StudentCareerPlan(
         student_id=user.id, year=year,
-        desired_field=body.get("desired_field"),
-        career_goal=body.get("career_goal"),
-        target_universities=body.get("target_universities") or [],
-        target_majors=body.get("target_majors") or [],
-        academic_plan=body.get("academic_plan"),
-        activity_plan=body.get("activity_plan"),
-        semester_goals=body.get("semester_goals") or [],
-        motivation=body.get("motivation"),
-        notes=body.get("notes"),
+        desired_field=body.desired_field,
+        career_goal=body.career_goal,
+        target_universities=body.target_universities or [],
+        target_majors=body.target_majors or [],
+        academic_plan=body.academic_plan,
+        activity_plan=body.activity_plan,
+        semester_goals=body.semester_goals or [],
+        motivation=body.motivation,
+        notes=body.notes,
     )
     db.add(p)
     await db.flush()
@@ -304,7 +307,7 @@ async def create_career_plan(
 
 @router.put("/career-plans/{pid}")
 async def update_career_plan(
-    pid: int, body: dict, request: Request,
+    pid: int, body: CareerPlanUpdate, request: Request,
     user: User = Depends(require_permission("student.career.manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -316,11 +319,9 @@ async def update_career_plan(
     )).scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    for f in ("desired_field", "career_goal", "target_universities", "target_majors",
-              "academic_plan", "activity_plan", "semester_goals", "motivation", "notes",
-              "is_active", "year"):
-        if f in body:
-            setattr(p, f, body[f])
+    patch = body.model_dump(exclude_unset=True)
+    for f, v in patch.items():
+        setattr(p, f, v)
     await log_action(db, user, "student_career.update", target=f"id:{pid}", request=request)
     return _plan_to_dict(p)
 
@@ -471,7 +472,7 @@ async def my_assignment_submissions(
 @router.put("/assignment-submissions/{sub_id}/portfolio-visibility")
 async def toggle_submission_portfolio_visibility(
     sub_id: int,
-    body: dict,
+    body: SubmissionPortfolioVisibility,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -489,7 +490,7 @@ async def toggle_submission_portfolio_visibility(
     )).scalar_one_or_none()
     if not s:
         raise HTTPException(404, "본인의 제출물만 토글 가능합니다")
-    s.show_in_portfolio = bool(body.get("show_in_portfolio", False))
+    s.show_in_portfolio = bool(body.show_in_portfolio)
     await db.flush()
     return {"id": s.id, "show_in_portfolio": s.show_in_portfolio}
 
@@ -523,7 +524,7 @@ async def delete_my_assignment_submission(
 @router.put("/club-submissions/{sub_id}")
 async def update_my_club_submission(
     sub_id: int,
-    body: dict,
+    body: ClubSubmissionUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -537,15 +538,11 @@ async def update_my_club_submission(
     )).scalar_one_or_none()
     if not s:
         raise HTTPException(404, "본인의 산출물만 수정 가능합니다")
-    if "title" in body:
-        t = (body["title"] or "").strip()
-        if not t:
-            raise HTTPException(400, "제목은 비울 수 없습니다")
-        s.title = t[:200]
-    if "submission_type" in body:
-        st = (body["submission_type"] or "").strip()
-        if st:
-            s.submission_type = st[:30]
+    patch = body.model_dump(exclude_unset=True)
+    if "title" in patch and patch["title"] is not None:
+        s.title = patch["title"].strip()
+    if "submission_type" in patch and patch["submission_type"] is not None:
+        s.submission_type = patch["submission_type"].strip()
     await db.flush()
     return {"id": s.id, "title": s.title, "submission_type": s.submission_type}
 

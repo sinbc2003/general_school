@@ -22,6 +22,10 @@ from app.models.portfolio import (
 )
 from app.models.student_self import StudentArtifact, StudentCareerPlan
 from app.models.user import User
+from app.modules.portfolio.schemas import (
+    AwardCreate, CounselingCreate, GradeCreate, MockExamCreate,
+    RecordCreate, ThesisCreate,
+)
 from app.services.portfolio_io import (
     CSV_TEMPLATES, export_csv, import_csv, template_csv,
 )
@@ -58,19 +62,19 @@ async def list_grades(
 
 @router.post("/{sid}/grades")
 async def create_grade(
-    sid: int, body: dict,
+    sid: int, body: GradeCreate,
     user: User = Depends(require_permission("portfolio.grade.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     await assert_can_view_student(db, user, sid)
     g = StudentGrade(
-        student_id=sid, year=body["year"], semester=body["semester"],
-        exam_type=body["exam_type"], subject=body["subject"],
-        score=body["score"], max_score=body.get("max_score", 100),
-        grade_rank=body.get("grade_rank"), class_rank=body.get("class_rank"),
-        total_students=body.get("total_students"), average=body.get("average"),
-        standard_deviation=body.get("standard_deviation"), comment=body.get("comment"),
+        student_id=sid, year=body.year, semester=body.semester,
+        exam_type=body.exam_type, subject=body.subject,
+        score=body.score, max_score=body.max_score,
+        grade_rank=body.grade_rank, class_rank=body.class_rank,
+        total_students=body.total_students, average=body.average,
+        standard_deviation=body.standard_deviation, comment=body.comment,
     )
     db.add(g)
     await db.flush()
@@ -101,19 +105,19 @@ async def list_mock_exams(
 
 @router.post("/{sid}/mock-exams")
 async def create_mock_exam(
-    sid: int, body: dict,
+    sid: int, body: MockExamCreate,
     user: User = Depends(require_permission("portfolio.mockexam.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     await assert_can_view_student(db, user, sid)
     m = StudentMockExam(
-        student_id=sid, exam_name=body["exam_name"],
-        exam_date=body["exam_date"], subject=body["subject"],
-        raw_score=body["raw_score"],
-        standard_score=body.get("standard_score"),
-        percentile=body.get("percentile"),
-        grade_level=body.get("grade_level"),
+        student_id=sid, exam_name=body.exam_name,
+        exam_date=body.exam_date, subject=body.subject,
+        raw_score=body.raw_score,
+        standard_score=body.standard_score,
+        percentile=body.percentile,
+        grade_level=body.grade_level,
     )
     db.add(m)
     await db.flush()
@@ -144,17 +148,17 @@ async def list_awards(
 
 @router.post("/{sid}/awards")
 async def create_award(
-    sid: int, body: dict,
+    sid: int, body: AwardCreate,
     user: User = Depends(require_permission("portfolio.award.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     await assert_can_view_student(db, user, sid)
     a = StudentAward(
-        student_id=sid, title=body["title"],
-        award_type=body["award_type"], category=body["category"],
-        award_level=body["award_level"], award_date=body["award_date"],
-        organizer=body.get("organizer"), description=body.get("description"),
+        student_id=sid, title=body.title,
+        award_type=body.award_type, category=body.category,
+        award_level=body.award_level, award_date=body.award_date,
+        organizer=body.organizer, description=body.description,
     )
     db.add(a)
     await db.flush()
@@ -184,16 +188,16 @@ async def list_theses(
 
 @router.post("/{sid}/theses")
 async def create_thesis(
-    sid: int, body: dict,
+    sid: int, body: ThesisCreate,
     user: User = Depends(require_permission("portfolio.thesis.edit")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
     t = StudentThesis(
-        student_id=sid, title=body["title"],
-        thesis_type=body["thesis_type"], abstract=body.get("abstract"),
-        advisor_id=body.get("advisor_id"), coauthors=body.get("coauthors"),
-        journal=body.get("journal"), status=body.get("status", "in_progress"),
+        student_id=sid, title=body.title,
+        thesis_type=body.thesis_type, abstract=body.abstract,
+        advisor_id=body.advisor_id, coauthors=body.coauthors,
+        journal=body.journal, status=body.status,
     )
     db.add(t)
     await db.flush()
@@ -222,7 +226,7 @@ async def list_counselings(
 
 @router.post("/{sid}/counselings")
 async def create_counseling(
-    sid: int, body: dict,
+    sid: int, body: CounselingCreate,
     user: User = Depends(require_permission("portfolio.counseling.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -230,10 +234,10 @@ async def create_counseling(
     await assert_can_view_student(db, user, sid)
     c = StudentCounseling(
         student_id=sid, counselor_id=user.id,
-        counseling_date=body["counseling_date"],
-        counseling_type=body["counseling_type"],
-        title=body["title"], content=body["content"],
-        follow_up=body.get("follow_up"),
+        counseling_date=body.counseling_date,
+        counseling_type=body.counseling_type,
+        title=body.title, content=body.content,
+        follow_up=body.follow_up,
     )
     db.add(c)
     await db.flush()
@@ -262,15 +266,15 @@ async def list_records(
 
 @router.post("/{sid}/records")
 async def create_record(
-    sid: int, body: dict,
+    sid: int, body: RecordCreate,
     user: User = Depends(require_permission("portfolio.record.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     await assert_can_view_student(db, user, sid)
     r = StudentRecord(
-        student_id=sid, year=body["year"], semester=body["semester"],
-        record_type=body["record_type"], content=body["content"],
+        student_id=sid, year=body.year, semester=body.semester,
+        record_type=body.record_type, content=body.content,
     )
     db.add(r)
     await db.flush()
