@@ -34,12 +34,12 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    from app.core.upload import validate_upload, POLICY_DOCUMENT
+    content = await validate_upload(file, POLICY_DOCUMENT)
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1]
+    ext = os.path.splitext(file.filename or "")[1].lower()
     stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = os.path.join(UPLOAD_DIR, stored_name)
-
-    content = await file.read()
     with open(stored_path, "wb") as f:
         f.write(content)
 

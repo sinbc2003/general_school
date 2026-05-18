@@ -21,6 +21,10 @@ from app.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio as _asyncio
+    # 보안 키 검증 (ENV=production이면 디폴트값 사용 시 부팅 차단)
+    from app.core.security_checks import check_production_secrets
+    check_production_secrets()
+
     # 권한 일관성 검증 — 라우터 require_permission 키 vs 모듈 permissions.py 정의
     # 이 시점에는 모든 라우터가 import 완료라 _REGISTERED_KEYS가 채워진 상태.
     from app.core.permission_registry import (

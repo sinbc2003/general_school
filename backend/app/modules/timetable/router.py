@@ -928,7 +928,8 @@ async def import_enrollments_endpoint(
     if role not in ("teacher", "student"):
         raise HTTPException(400, "role must be teacher|student")
 
-    file_bytes = await file.read()
+    from app.core.upload import validate_upload, POLICY_CSV
+    file_bytes = await validate_upload(file, POLICY_CSV)
     result = await import_enrollments_csv(db, sid, role, file_bytes, dry_run=dry_run)
 
     if not dry_run:

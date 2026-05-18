@@ -495,7 +495,8 @@ async def import_portfolio_csv(
     """CSV 일괄 업로드 (dry_run=true로 검증만 가능)"""
     if csv_type not in CSV_TEMPLATES:
         raise HTTPException(400, f"unknown type. valid: {list(CSV_TEMPLATES.keys())}")
-    raw = await file.read()
+    from app.core.upload import validate_upload, POLICY_CSV
+    raw = await validate_upload(file, POLICY_CSV)
     result = await import_csv(db, csv_type, raw, dry_run=dry_run)
     if not dry_run:
         await log_action(db, user, f"portfolio.import.{csv_type}",

@@ -308,7 +308,8 @@ async def restore_preview(
     db: AsyncSession = Depends(get_db),
 ):
     """복원 미리보기 — 데이터 건드리지 않고 manifest/호환성만 검증."""
-    zip_bytes = await file.read()
+    from app.core.upload import validate_upload, POLICY_BACKUP
+    zip_bytes = await validate_upload(file, POLICY_BACKUP)
     try:
         return await restore_all(db, zip_bytes, confirm=False)
     except RestoreError as e:
@@ -329,7 +330,8 @@ async def restore_apply(
     2FA 필수 (destructive 작업).
     """
     await verify_2fa_session(user, request, db)
-    zip_bytes = await file.read()
+    from app.core.upload import validate_upload, POLICY_BACKUP
+    zip_bytes = await validate_upload(file, POLICY_BACKUP)
     try:
         result = await restore_all(db, zip_bytes, confirm=True)
     except RestoreError as e:
@@ -482,15 +484,9 @@ async def upload_favicon(
     """파비콘 업로드 (최고관리자 전용). 기존 파일 덮어씀.
     허용 확장자: .ico, .png, .svg, .jpg, .jpeg / 최대 1MB.
     """
+    from app.core.upload import validate_upload, POLICY_FAVICON
+    data = await validate_upload(file, POLICY_FAVICON)
     ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_FAVICON_EXTS:
-        raise HTTPException(400, f"허용 확장자: {sorted(ALLOWED_FAVICON_EXTS)}")
-
-    data = await file.read()
-    if len(data) > 1_000_000:
-        raise HTTPException(400, "파일이 너무 큽니다 (최대 1MB)")
-    if not data:
-        raise HTTPException(400, "빈 파일")
 
     BRANDING_DIR.mkdir(parents=True, exist_ok=True)
     # 동일 prefix의 기존 파일 정리 (확장자 다른 경우)

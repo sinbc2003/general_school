@@ -10,7 +10,7 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.permissions import require_admin
+from app.core.permissions import require_super_admin
 from app.models.feedback import DevRequest, Feedback
 from app.models.user import User
 from app.modules.ai_developer.schemas import (
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/ai-developer", tags=["ai-developer"])
 
 @router.get("/models")
 async def list_models(
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
 ):
     import httpx
     from app.core.config import settings
@@ -63,7 +63,7 @@ async def list_requests(
     status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(DevRequest)
@@ -82,7 +82,7 @@ async def list_requests(
 @router.get("/{request_id}", response_model=DevRequestResponse)
 async def get_request(
     request_id: int,
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)
@@ -94,7 +94,7 @@ async def get_request(
 @router.post("", response_model=DevRequestResponse)
 async def create_request(
     body: DevRequestCreate,
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     if body.feedback_id:
@@ -119,7 +119,7 @@ async def create_request(
 async def generate_code(
     request_id: int,
     body: DevRequestExecute | None = None,
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)
@@ -165,7 +165,7 @@ async def generate_code(
 async def review_request(
     request_id: int,
     body: DevRequestApply,
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)
@@ -220,7 +220,7 @@ def _schedule_restart():
 @router.delete("/{request_id}")
 async def delete_request(
     request_id: int,
-    user: User = Depends(require_admin()),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)

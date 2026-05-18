@@ -414,10 +414,8 @@ async def validate_bulk_import(
     user: User = Depends(require_permission("user.manage.bulk_import")),
     db: AsyncSession = Depends(get_db),
 ):
-    if not file.filename or not file.filename.endswith(".xlsx"):
-        raise HTTPException(400, ".xlsx 파일만 지원합니다")
-
-    content = await file.read()
+    from app.core.upload import validate_upload, POLICY_CSV
+    content = await validate_upload(file, POLICY_CSV)
     rows, errors = await parse_user_excel(content, db)
 
     preview = rows[:10] if rows else []
@@ -436,10 +434,8 @@ async def confirm_bulk_import(
     user: User = Depends(require_permission("user.manage.bulk_import")),
     db: AsyncSession = Depends(get_db),
 ):
-    if not file.filename or not file.filename.endswith(".xlsx"):
-        raise HTTPException(400, ".xlsx 파일만 지원합니다")
-
-    content = await file.read()
+    from app.core.upload import validate_upload, POLICY_CSV
+    content = await validate_upload(file, POLICY_CSV)
     rows, errors = await parse_user_excel(content, db)
 
     created = 0

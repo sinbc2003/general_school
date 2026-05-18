@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     MEILISEARCH_MASTER_KEY: str = "masterkey"
 
     # ── 보안 ──
+    # JWT_SECRET / ENCRYPTION_MASTER_KEY 디폴트값 그대로 운영하면 보안 0.
+    # ENV=production일 때 부팅 시 검증 (main.py lifespan) — 디폴트면 RuntimeError.
+    # ENV=dev/test 환경은 경고만 (단일 worker, 외부 접근 차단 가정).
+    ENV: str = "dev"  # 'dev' | 'production'
     JWT_SECRET: str = "change-this-in-production"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15

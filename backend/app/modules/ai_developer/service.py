@@ -21,24 +21,75 @@ ALLOWED_DIRS = [
     "frontend/src/lib/",
     "backend/app/modules/",
     "backend/app/models/",
-    "backend/app/core/permissions.py",
-    "backend/app/main.py",
 ]
 
+# 보안 critical 파일 — AI가 절대 수정할 수 없는 파일들.
+# 이 목록을 함부로 줄이지 말 것. 권한 우회·인증 우회·데이터 손실 위험.
 BLOCKED_FILES = [
+    # 인증·보안 핵심
     "backend/app/core/auth.py",
     "backend/app/core/config.py",
     "backend/app/core/database.py",
     "backend/app/core/encryption.py",
+    "backend/app/core/permissions.py",         # 권한 시스템 자체
+    "backend/app/core/permission_registry.py",
+    "backend/app/core/password_policy.py",
+    "backend/app/core/email.py",
+    "backend/app/core/backup_scheduler.py",
+    "backend/app/core/visibility.py",
+    "backend/app/core/totp.py",
+    "backend/app/core/ratelimit.py",
+    # 부팅 시드 / 자동 부여 (권한 우회 차단)
+    "backend/app/main.py",
+    "backend/scripts/seed.py",
+    "backend/scripts/grant_default_roles.py",
+    "backend/scripts/seed_positions.py",
+    "backend/scripts/cleanup_stale_permissions.py",
+    # 인증·세션·권한 모델 (스키마 변경은 마이그레이션이 별도 필요)
+    "backend/app/models/__init__.py",
+    "backend/app/models/user.py",
+    "backend/app/models/permission.py",
+    "backend/app/models/device.py",
+    "backend/app/models/setting.py",
+    "backend/app/models/audit.py",
+    "backend/app/models/position.py",
+    # 백업·데이터 복원
+    "backend/app/services/backup.py",
+    # auth · permissions 라우터 (인증/권한 흐름)
+    "backend/app/modules/auth/router.py",
+    "backend/app/modules/auth/schemas.py",
+    "backend/app/modules/permissions/router.py",
+    "backend/app/modules/permissions/permissions.py",
+    # AI 개발자 자기 자신 (재귀 권한 상승 차단)
+    "backend/app/modules/ai_developer/router.py",
+    "backend/app/modules/ai_developer/service.py",
+    "backend/app/modules/ai_developer/schemas.py",
+    # env / secrets
     ".env",
+    ".env.example",
+    ".env.production",
+]
+
+# 보안 디렉터리 prefix — 이 prefix 시작하면 차단 (해당 디렉터리 통째 보호)
+BLOCKED_PREFIXES = [
+    "backend/alembic/",     # 마이그레이션 — 함부로 손대면 schema 망가짐
+    ".github/",             # CI/CD secrets
+    ".claude/",             # Claude Code 설정
+    "node_modules/",
+    ".next/",
+    "venv/",
+    "__pycache__/",
 ]
 
 
 def read_file_safe(relative_path: str) -> str | None:
+    """안전한 파일 읽기 — 경로 traversal + 차단 목록 + 크기 제한."""
     full_path = PROJECT_ROOT / relative_path
     try:
         full_path.resolve().relative_to(PROJECT_ROOT.resolve())
     except ValueError:
+        return None
+    if not is_path_allowed(relative_path):
         return None
     if not full_path.exists() or full_path.stat().st_size > 100_000:
         return None
@@ -46,11 +97,27 @@ def read_file_safe(relative_path: str) -> str | None:
 
 
 def is_path_allowed(relative_path: str) -> bool:
-    for blocked in BLOCKED_FILES:
-        if relative_path == blocked:
+    """파일 수정/읽기 허용 여부.
+    경로 traversal 방어 + BLOCKED 우선 + ALLOWED prefix 매칭.
+    """
+    # 정규화 — Windows 백슬래시 대응
+    rel = relative_path.replace("\\", "/").strip()
+    if not rel or rel.startswith("/"):
+        return False
+    # 경로 traversal 차단
+    if ".." in rel.split("/"):
+        return False
+    # BLOCKED prefix 우선
+    for prefix in BLOCKED_PREFIXES:
+        if rel.startswith(prefix):
             return False
+    # 정확한 차단 파일
+    for blocked in BLOCKED_FILES:
+        if rel == blocked:
+            return False
+    # ALLOWED 디렉터리 시작 여부
     for allowed in ALLOWED_DIRS:
-        if relative_path.startswith(allowed):
+        if rel.startswith(allowed):
             return True
     return False
 

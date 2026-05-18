@@ -184,10 +184,11 @@ async def upload_submission(
     user: User = Depends(require_permission("research.project.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.upload import validate_upload, POLICY_ARTIFACT
+    content = await validate_upload(file, POLICY_ARTIFACT)
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1]
+    ext = os.path.splitext(file.filename or "")[1].lower()
     stored_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
-    content = await file.read()
     with open(stored_path, "wb") as f:
         f.write(content)
     sub = ResearchSubmission(
