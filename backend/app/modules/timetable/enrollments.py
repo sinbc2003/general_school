@@ -23,6 +23,7 @@ from app.models.timetable import Semester, SemesterEnrollment
 from app.models.user import User
 from app.modules.timetable.schemas import (
     EnrollmentCreate,
+    EnrollmentPositionsSet,
     EnrollmentUpdate,
     OnboardingSubmit,
     PromoteRequest,
@@ -489,13 +490,12 @@ async def list_enrollment_positions(
 
 @router.put("/semesters/{sid}/enrollments/{eid}/positions")
 async def set_enrollment_positions(
-    sid: int, eid: int, body: dict, request: Request,
+    sid: int, eid: int, body: EnrollmentPositionsSet, request: Request,
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """이 enrollment의 직책 목록을 통째로 교체 (PUT 의미).
-
-    body: {"template_ids": [int, ...]}  — 비우면 모든 직책 해제
+    비우면 모든 직책 해제.
     """
     from app.models.position import PositionTemplate, EnrollmentPosition
     from sqlalchemy import delete as sql_delete
@@ -510,10 +510,7 @@ async def set_enrollment_positions(
     if not e:
         raise HTTPException(404, "enrollment 없음")
 
-    raw = body.get("template_ids", [])
-    if not isinstance(raw, list):
-        raise HTTPException(400, "template_ids는 list여야 합니다")
-    template_ids = sorted({int(x) for x in raw if str(x).strip()})
+    template_ids = sorted(set(body.template_ids))
 
     if template_ids:
         valid_ids = set((await db.execute(
@@ -549,7 +546,7 @@ async def set_enrollment_positions(
 
 @router.post("/semesters/{sid}/enrollments/{eid}/positions/sync-year")
 async def sync_enrollment_positions_to_year(
-    sid: int, eid: int, body: dict, request: Request,
+    sid: int, eid: int, body: EnrollmentPositionsSet, request: Request,
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -557,9 +554,6 @@ async def sync_enrollment_positions_to_year(
 
     운영 시나리오: 업무분장은 학년도 단위 → 1학기에 직책 바꾸면 2학기에도 적용.
     같은 user_id가 다른 학기에 active enrollment를 가지면 동일 template_ids로 PUT.
-
-    body: {"template_ids": [int, ...]}
-    반환: {"ok": True, "synced_enrollments": [eid, ...], "skipped_semesters": [sid, ...]}
     """
     from app.models.position import PositionTemplate, EnrollmentPosition
     from sqlalchemy import delete as sql_delete
@@ -575,11 +569,7 @@ async def sync_enrollment_positions_to_year(
         raise HTTPException(404, "enrollment 없음")
 
     src_semester = await get_semester_by_id_or_404(db, sid)
-
-    raw = body.get("template_ids", [])
-    if not isinstance(raw, list):
-        raise HTTPException(400, "template_ids는 list여야 합니다")
-    template_ids = sorted({int(x) for x in raw if str(x).strip()})
+    template_ids = sorted(set(body.template_ids))
 
     if template_ids:
         valid_ids = set((await db.execute(

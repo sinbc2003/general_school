@@ -116,3 +116,70 @@ class PromoteRequest(BaseModel):
     graduate_grade: int | None = 3
     copy_teachers: bool = True
     dry_run: bool = False
+
+
+# ── 시간표 항목 (Entry) ──
+
+EntryType = Literal["class", "meeting", "consultation", "event", "other"]
+
+
+class TimetableEntryCreate(BaseModel):
+    """POST /api/timetable/entries"""
+    semester_id: int = Field(..., gt=0)
+    teacher_id: int = Field(..., gt=0)
+    day_of_week: int = Field(..., ge=0, le=6)
+    period: int = Field(..., ge=1, le=20)
+    subject: str = Field(..., min_length=1, max_length=100)
+    class_name: str = Field(..., min_length=1, max_length=50)
+    room: str | None = Field(None, max_length=50)
+
+
+class TimetableEntryUpdate(BaseModel):
+    """PUT /api/timetable/entries/{eid} — 부분 업데이트.
+
+    super_admin/designated_admin은 모든 필드 수정.
+    teacher (본인 entry)는 subject/class_name/room/note만.
+    """
+    subject: str | None = Field(None, max_length=100)
+    class_name: str | None = Field(None, max_length=50)
+    room: str | None = Field(None, max_length=50)
+    note: str | None = Field(None, max_length=255)
+    # admin only
+    day_of_week: int | None = Field(None, ge=0, le=6)
+    period: int | None = Field(None, ge=1, le=20)
+    teacher_id: int | None = Field(None, gt=0)
+    entry_type: EntryType | None = None
+
+
+class TimetableEntryBulkCreate(BaseModel):
+    """POST /api/timetable/entries/bulk — 일괄 생성."""
+    entries: list[TimetableEntryCreate] = Field(default_factory=list)
+
+
+class MyEventCreate(BaseModel):
+    """POST /api/timetable/my-events — 본인 개인 일정.
+
+    entry_type은 'class' 제외 (수업은 관리자만). default=meeting.
+    """
+    semester_id: int | None = None  # 미지정 시 현재 학기
+    entry_type: Literal["meeting", "consultation", "event", "other"] = "meeting"
+    day_of_week: int = Field(0, ge=0, le=6)
+    period: int = Field(1, ge=1, le=20)
+    subject: str | None = Field(None, max_length=100)
+    room: str | None = Field(None, max_length=50)
+    note: str | None = Field(None, max_length=255)
+
+
+class MyEventUpdate(BaseModel):
+    """PUT /api/timetable/my-events/{eid} — 부분 업데이트."""
+    subject: str | None = Field(None, max_length=100)
+    room: str | None = Field(None, max_length=50)
+    note: str | None = Field(None, max_length=255)
+    entry_type: Literal["meeting", "consultation", "event", "other"] | None = None
+
+
+# ── 학기 enrollment positions ──
+
+class EnrollmentPositionsSet(BaseModel):
+    """PUT/POST .../positions[/sync-year]"""
+    template_ids: list[int] = Field(default_factory=list)

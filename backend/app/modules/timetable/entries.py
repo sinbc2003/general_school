@@ -19,6 +19,13 @@ from app.models.timetable import TimetableEntry
 from app.models.user import User
 
 from app.modules.timetable.router import router, _assert_semester_writable
+from app.modules.timetable.schemas import (
+    MyEventCreate,
+    MyEventUpdate,
+    TimetableEntryBulkCreate,
+    TimetableEntryCreate,
+    TimetableEntryUpdate,
+)
 
 
 # ── Entries (시간표 항목 — 관리자/교사 CRUD) ──
@@ -49,14 +56,14 @@ async def list_entries(
 
 @router.put("/entries/{eid}")
 async def update_entry(
-    eid: int, body: dict, request: Request,
+    eid: int, body: TimetableEntryUpdate, request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """단일 시간표 항목 수정.
 
-    - super_admin / designated_admin: 모든 entry 수정 가능
-    - teacher: 본인 entry(teacher_id==user.id) 만 수정 가능
+    - super_admin / designated_admin: 모든 필드 수정 가능
+    - teacher: 본인 entry만, subject/class_name/room/note만
     - 보관된 학기는 수정 차단.
     """
     e = (await db.execute(select(TimetableEntry).where(TimetableEntry.id == eid))).scalar_one_or_none()
@@ -69,19 +76,15 @@ async def update_entry(
     if not (is_admin or is_owner):
         raise HTTPException(403, "본인 시간표만 수정 가능합니다")
 
+    patch = body.model_dump(exclude_unset=True)
     for f in ("subject", "class_name", "room", "note"):
-        if f in body:
-            setattr(e, f, body[f])
-    # 시간 슬롯(day_of_week/period) 변경은 admin만
+        if f in patch and patch[f] is not None:
+            setattr(e, f, patch[f])
+    # admin-only fields
     if is_admin:
-        if "day_of_week" in body:
-            e.day_of_week = int(body["day_of_week"])
-        if "period" in body:
-            e.period = int(body["period"])
-        if "teacher_id" in body:
-            e.teacher_id = int(body["teacher_id"])
-        if "entry_type" in body:
-            e.entry_type = body["entry_type"]
+        for f in ("day_of_week", "period", "teacher_id", "entry_type"):
+            if f in patch and patch[f] is not None:
+                setattr(e, f, patch[f])
     await db.flush()
     await log_action(db, user, "timetable.update", f"id:{eid}", request=request)
     return {"id": e.id}
@@ -89,16 +92,16 @@ async def update_entry(
 
 @router.post("/entries")
 async def create_entry(
-    body: dict,
+    body: TimetableEntryCreate,
     user: User = Depends(require_permission("timetable.edit")),
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_semester_writable(db, body["semester_id"])
+    await _assert_semester_writable(db, body.semester_id)
     e = TimetableEntry(
-        semester_id=body["semester_id"], teacher_id=body["teacher_id"],
-        day_of_week=body["day_of_week"], period=body["period"],
-        subject=body["subject"], class_name=body["class_name"],
-        room=body.get("room"),
+        semester_id=body.semester_id, teacher_id=body.teacher_id,
+        day_of_week=body.day_of_week, period=body.period,
+        subject=body.subject, class_name=body.class_name,
+        room=body.room,
     )
     db.add(e)
     await db.flush()
@@ -107,19 +110,18 @@ async def create_entry(
 
 @router.post("/entries/bulk")
 async def bulk_create_entries(
-    body: dict,
+    body: TimetableEntryBulkCreate,
     user: User = Depends(require_permission("timetable.edit")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    entries = body.get("entries", [])
     created = 0
-    for item in entries:
+    for item in body.entries:
         e = TimetableEntry(
-            semester_id=item["semester_id"], teacher_id=item["teacher_id"],
-            day_of_week=item["day_of_week"], period=item["period"],
-            subject=item["subject"], class_name=item["class_name"],
-            room=item.get("room"),
+            semester_id=item.semester_id, teacher_id=item.teacher_id,
+            day_of_week=item.day_of_week, period=item.period,
+            subject=item.subject, class_name=item.class_name,
+            room=item.room,
         )
         db.add(e)
         created += 1
@@ -179,15 +181,12 @@ async def list_my_events(
 
 @router.post("/my-events")
 async def create_my_event(
-    body: dict, request: Request,
+    body: MyEventCreate, request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """본인 개인 일정 추가 (회의/면담/행사). entry_type=class는 차단."""
-    entry_type = (body.get("entry_type") or "meeting").strip().lower()
-    if entry_type not in _PERSONAL_TYPES:
-        raise HTTPException(400, f"entry_type은 {_PERSONAL_TYPES} 중 하나여야 합니다")
-    sid = body.get("semester_id")
+    """본인 개인 일정 추가 (회의/면담/행사). entry_type=class는 schema가 차단."""
+    sid = body.semester_id
     if not sid:
         from app.core.semester import get_current_semester
         sem = await get_current_semester(db)
@@ -195,9 +194,10 @@ async def create_my_event(
             raise HTTPException(400, "현재 학기가 설정되지 않았습니다")
         sid = sem.id
 
-    day = int(body.get("day_of_week", 0))
-    period = int(body.get("period", 1))
-    subject = (body.get("subject") or "").strip() or "(개인 일정)"
+    entry_type = body.entry_type
+    day = body.day_of_week
+    period = body.period
+    subject = (body.subject or "").strip() or "(개인 일정)"
     # unique constraint 회피용 — 본인 + 슬롯이 다르면 안전
     class_name = f"@personal-{user.id}-{day}-{period}-{entry_type}"
 
@@ -206,9 +206,9 @@ async def create_my_event(
         day_of_week=day, period=period,
         subject=subject[:100],
         class_name=class_name[:50],
-        room=(body.get("room") or None),
+        room=body.room,
         entry_type=entry_type,
-        note=(body.get("note") or None),
+        note=body.note,
     )
     db.add(e)
     await db.flush()
@@ -218,7 +218,7 @@ async def create_my_event(
 
 @router.put("/my-events/{eid}")
 async def update_my_event(
-    eid: int, body: dict, request: Request,
+    eid: int, body: MyEventUpdate, request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -232,13 +232,12 @@ async def update_my_event(
         raise HTTPException(404, "본인의 일정만 수정 가능합니다")
     if e.entry_type == "class":
         raise HTTPException(403, "수업 항목은 관리자만 수정 가능합니다")
+    patch = body.model_dump(exclude_unset=True)
     for f in ("subject", "room", "note"):
-        if f in body:
-            setattr(e, f, body[f])
-    if "entry_type" in body:
-        new_type = (body["entry_type"] or "").strip().lower()
-        if new_type in _PERSONAL_TYPES:
-            e.entry_type = new_type
+        if f in patch and patch[f] is not None:
+            setattr(e, f, patch[f])
+    if "entry_type" in patch and patch["entry_type"]:
+        e.entry_type = patch["entry_type"]
     await db.flush()
     await log_action(db, user, "timetable.my_event.update", f"id:{eid}", request=request)
     return {"id": e.id}
