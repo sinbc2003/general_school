@@ -8,6 +8,22 @@
 **이 프로젝트는 Claude Code(또는 동일 계열 AI)로 계속 개발됩니다.**
 새 기능 추가 시 아래 보장을 반드시 지킬 것:
 
+### 0. Git 흐름 — main 직접 push (필독)
+
+**사용자(신병철)는 혼자 개발 + 즉시 반영을 선호한다. 다음 원칙:**
+
+- **worktree 만들지 말 것.** Claude Code 기본 격리 모드(worktree)는 본 프로젝트에서 안 씀.
+  매 변경은 **main 브랜치 작업 디렉터리에서 직접** 작성.
+- **모든 코드 변경 후 자동으로 `git add -A && git commit && git push origin main` 진행.**
+  사용자에게 "커밋할까요?" 물어보지 말 것 — 작업 완료 후 바로 push.
+- commit 메시지는 한국어/영어 혼합 OK. 작업 의도가 명확하게.
+- `.env`, `*.db`, `node_modules/`, `venv/`, `.next/`, `.claude/` 등은 `.gitignore`에 박혀있음 (실수로 커밋 안 됨).
+- **비밀번호·API 키는 `.env`에만** — `start-backend.bat` 같은 추적되는 파일에 박지 말 것.
+- 큰 작업(여러 단계)은 단계별 commit + push로 추적 가능하게.
+- 사용자가 PR 흐름 안 씀 — `gh pr create` 안 함. 그냥 main에 push.
+
+**예외**: 사용자가 명시적으로 "브랜치에서 작업해" 또는 "PR 만들어"라고 할 때만 분기.
+
 ### 1. 전체 백업 자동 포함 보장
 
 데이터 백업/복원은 `app/services/backup.py`의 `export_all()` / `restore_all()`가 담당.
