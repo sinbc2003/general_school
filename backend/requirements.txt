@@ -28,3 +28,8 @@ google-genai>=1.0.0
 # PDF 생성 (생기부 보조자료)
 reportlab>=4.0.0
 pillow>=10.0.0
+
+# 테스트 (개발 의존성 — production은 설치 안 함)
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=5.0.0
