@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +27,19 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(identifier, password);
+      const result = await login(identifier, password);
+      if (result.type === "challenge") {
+        // 이메일 코드 발송됨 — 코드 입력 페이지로
+        sessionStorage.setItem("login_challenge", JSON.stringify({
+          challenge_token: result.challenge_token,
+          email_masked: result.email_masked,
+          expires_in_minutes: result.expires_in_minutes,
+          issued_at: Date.now(),
+        }));
+        router.push("/auth/verify-email");
+        return;
+      }
+      // type === 'token' — AuthProvider가 redirect 처리
     } catch (err: any) {
       setError(err?.detail || "로그인에 실패했습니다");
     } finally {

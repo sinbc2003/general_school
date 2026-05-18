@@ -29,10 +29,22 @@ interface UserInfo {
   permissions: string[];
 }
 
+export type LoginResult =
+  | { type: "token" }
+  | {
+      type: "challenge";
+      challenge_token: string;
+      email_masked: string;
+      expires_in_minutes: number;
+    };
+
 interface AuthContextValue {
   user: UserInfo | null;
   loading: boolean;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<LoginResult>;
+  completeChallenge: (
+    challenge_token: string, code: string, remember_device: boolean,
+  ) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   isSuperAdmin: boolean;
@@ -130,8 +142,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, loading, pathname, router, needsTeacherOnboarding]);
 
   const login = useCallback(
-    async (identifier: string, password: string) => {
+    async (identifier: string, password: string): Promise<LoginResult> => {
       const data = await api.post("/api/auth/login", { identifier, password });
+      if (data.type === "challenge") {
+        return {
+          type: "challenge",
+          challenge_token: data.challenge_token,
+          email_masked: data.email_masked,
+          expires_in_minutes: data.expires_in_minutes,
+        };
+      }
+      // type === 'token' (학생 / 신뢰 장치 매칭)
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("refresh_token", data.refresh_token);
+      setUser(data.user);
+      return { type: "token" };
+    },
+    []
+  );
+
+  const completeChallenge = useCallback(
+    async (challenge_token: string, code: string, remember_device: boolean) => {
+      const data = await api.post("/api/auth/login/verify-email", {
+        challenge_token,
+        code,
+        remember_device,
+      });
+      // verify-email은 항상 type='token' (실패는 throw)
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("refresh_token", data.refresh_token);
       setUser(data.user);
@@ -172,6 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       loading,
       login,
+      completeChallenge,
       logout,
       hasPermission,
       isSuperAdmin: user?.role === "super_admin",
@@ -179,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin: user?.role === "super_admin" || user?.role === "designated_admin",
       refreshUser: fetchUser as () => Promise<void>,
     }),
-    [user, loading, login, logout, hasPermission, fetchUser]
+    [user, loading, login, completeChallenge, logout, hasPermission, fetchUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

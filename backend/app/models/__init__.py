@@ -76,6 +76,9 @@ from app.models.announcement import Announcement, AnnouncementAudience
 # ── Position (학기·직책 기반 권한) ──
 from app.models.position import PositionTemplate, EnrollmentPosition
 
+# ── Device (신뢰 장치 + 로그인 챌린지) ──
+from app.models.device import TrustedDevice, LoginChallenge
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -119,4 +122,6 @@ __all__ = [
     "Announcement", "AnnouncementAudience",
     # Position
     "PositionTemplate", "EnrollmentPosition",
+    # Device
+    "TrustedDevice", "LoginChallenge",
 ]

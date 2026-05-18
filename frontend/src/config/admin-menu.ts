@@ -28,6 +28,7 @@ import {
   UserPlus,
   FileArchive,
   Megaphone,
+  Smartphone,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -228,6 +229,14 @@ export const adminMenu: MenuItem[] = [
     path: "/system/feedback",
     permission: "system.settings.edit",
     excludeRoles: ["student"],
+  },
+  {
+    key: "my-devices",
+    label: "내 신뢰 장치",
+    icon: Smartphone,
+    path: "/me/devices",
+    permission: null,  // 모든 사용자 본인 장치 관리 가능
+    excludeRoles: ["student"],  // 학생은 이메일 2FA 비대상이라 신뢰장치 개념 없음
   },
   {
     key: "ai-developer",

@@ -54,6 +54,24 @@ class Settings(BaseSettings):
     TOTP_ISSUER: str = "General School Platform"
     TOTP_SESSION_MINUTES: int = 30
 
+    # ── Email (SMTP) ──
+    # 비어있으면 이메일 발송 대신 stdout에 코드 표시 (dev fallback).
+    # 학교 운영: Gmail App Password 또는 학교 메일 서버.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""           # 발신자 표시. 비우면 SMTP_USER 사용
+    SMTP_USE_TLS: bool = True
+
+    # ── 이메일 2FA 정책 ──
+    # 신뢰 장치 만료 (일). 디폴트 30일.
+    TRUSTED_DEVICE_DAYS: int = 30
+    # 로그인 챌린지 만료 (분). 디폴트 10분.
+    LOGIN_CHALLENGE_MINUTES: int = 10
+    # 코드 입력 최대 시도 횟수.
+    LOGIN_CHALLENGE_MAX_ATTEMPTS: int = 5
+
     # ── AI ──
     ANTHROPIC_API_KEY: str = ""
 
