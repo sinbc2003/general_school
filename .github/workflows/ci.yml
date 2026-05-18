@@ -44,6 +44,25 @@ jobs:
           validate_permission_coverage(defined)
           print(f'Permission registry OK: {len(defined)} keys')
           "
+      - name: Run pytest (보안·권한·인증 회귀 테스트)
+        working-directory: backend
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          JWT_SECRET: ci-test-jwt-secret-not-for-production
+          ENCRYPTION_MASTER_KEY: ci-test-encryption-key-not-for-production
+          ENV: dev
+        run: |
+          pytest -v --tb=short
+      - name: Security regressions only (필수 통과)
+        working-directory: backend
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          JWT_SECRET: ci-test-jwt-secret-not-for-production
+          ENCRYPTION_MASTER_KEY: ci-test-encryption-key-not-for-production
+          ENV: dev
+        run: |
+          # 보안 회귀 테스트만 별도 강조 (실패 시 즉시 시각화)
+          pytest -m security -v --tb=long
 
   frontend:
     name: Frontend (typecheck + build)
