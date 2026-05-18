@@ -12,62 +12,24 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 import {
-  ArrowUp, Plus, Trash2, Pencil, Check, X, ChevronDown, Sparkles,
-  AlertCircle, MoreHorizontal, MessageSquare, PanelLeftClose, PanelLeft,
-  LogOut, Square,
+  Plus, ChevronDown, Sparkles, X,
+  AlertCircle, MoreHorizontal, PanelLeftClose, PanelLeft,
+  LogOut,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
 import { api } from "@/lib/api/client";
+import { C, type Session, type Message, type ModelInfo } from "./_chat-styles";
+import { SessionGroup } from "./SessionGroup";
+import { MessageBubble } from "./MessageBubble";
+import { ChatInputBox } from "./ChatInputBox";
 
 interface ChatInterfaceProps {
   audience: "teacher" | "student";
 }
 
-interface Session {
-  id: number; title: string; audience: string;
-  provider: string; model_id: string;
-  pinned: boolean; archived: boolean;
-  total_cost_usd: number; created_at: string;
-  last_message_at: string | null;
-}
-
-interface Message {
-  id: number; role: "user" | "assistant" | "system"; content: string;
-  provider?: string; model_id?: string;
-  input_tokens: number; output_tokens: number; cost_usd: number;
-  error?: string | null; created_at: string;
-}
-
-interface ModelInfo {
-  id: number; provider: string; model_id: string; display_name: string;
-  input_per_1m_usd: number; output_per_1m_usd: number;
-  context_window: number | null; active: boolean;
-}
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
-
-// ─── 색상 팔레트 (Tailwind 인라인) ───
-const C = {
-  bg: "bg-[#faf9f5]",
-  bgSidebar: "bg-[#f0eee6]",
-  bgInput: "bg-white",
-  bgUserMsg: "bg-[#f4e9d8]",
-  bgItem: "hover:bg-[#e8e4d6]",
-  bgItemActive: "bg-[#e1dcc8]",
-  text: "text-[#2c1810]",
-  textMuted: "text-[#5a4a3a]",
-  textSubtle: "text-[#8a7a6a]",
-  accent: "bg-[#c15f3c]",
-  accentText: "text-[#c15f3c]",
-  accentHover: "hover:bg-[#a04e30]",
-  border: "border-[#e1dcc8]",
-};
 
 export default function ChatInterface({ audience }: ChatInterfaceProps) {
   const { user, logout } = useAuth();
@@ -531,170 +493,3 @@ export default function ChatInterface({ audience }: ChatInterfaceProps) {
   );
 }
 
-// ─── 세션 그룹 ───
-function SessionGroup({ label, sessions, activeId, setActiveId, hoveredSession, setHoveredSession,
-                       editTitleId, setEditTitleId, editTitleVal, setEditTitleVal,
-                       renameSession, deleteSession, C }: any) {
-  if (sessions.length === 0) return null;
-  return (
-    <div className="mb-3">
-      <div className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${C.textSubtle}`}>
-        {label}
-      </div>
-      {sessions.map((s: Session) => (
-        <div
-          key={s.id}
-          onMouseEnter={() => setHoveredSession(s.id)}
-          onMouseLeave={() => setHoveredSession(null)}
-          onClick={() => editTitleId !== s.id && setActiveId(s.id)}
-          className={`group mx-1 px-2 py-1.5 rounded cursor-pointer flex items-center gap-1 ${
-            activeId === s.id ? C.bgItemActive : C.bgItem
-          }`}
-        >
-          {editTitleId === s.id ? (
-            <div className="flex-1 flex gap-1" onClick={(e) => e.stopPropagation()}>
-              <input
-                autoFocus
-                value={editTitleVal}
-                onChange={(e: any) => setEditTitleVal(e.target.value)}
-                onKeyDown={(e: any) => {
-                  if (e.key === "Enter") renameSession(s.id);
-                  if (e.key === "Escape") setEditTitleId(null);
-                }}
-                className={`flex-1 px-1 py-0.5 text-[12px] bg-white border ${C.border} rounded`}
-              />
-              <button onClick={() => renameSession(s.id)}><Check size={12} /></button>
-              <button onClick={() => setEditTitleId(null)}><X size={12} /></button>
-            </div>
-          ) : (
-            <>
-              <MessageSquare size={12} className={`flex-shrink-0 ${C.textSubtle}`} />
-              <span className={`flex-1 text-[13px] truncate ${C.text}`}>{s.title}</span>
-              {hoveredSession === s.id && (
-                <div className="flex gap-0.5">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditTitleId(s.id); setEditTitleVal(s.title); }}
-                    className={`p-0.5 rounded hover:bg-white/50 ${C.textMuted}`}
-                    title="이름 변경"
-                  >
-                    <Pencil size={11} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                    className={`p-0.5 rounded hover:bg-white/50 ${C.textMuted} hover:text-red-600`}
-                    title="삭제"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── 메시지 버블 ───
-function MessageBubble({ message, streaming = false, C }: { message: Message; streaming?: boolean; C: any }) {
-  const isUser = message.role === "user";
-
-  if (isUser) {
-    return (
-      <div className="flex justify-end">
-        <div className={`max-w-[80%] ${C.bgUserMsg} rounded-2xl px-4 py-2.5`}>
-          <div className={`text-[15px] leading-relaxed ${C.text} whitespace-pre-wrap break-words`}>
-            {message.content}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex gap-3">
-      <div className={`w-8 h-8 rounded-full ${C.accent} text-white flex items-center justify-center flex-shrink-0`}>
-        <Sparkles size={14} />
-      </div>
-      <div className="flex-1 min-w-0 pt-0.5">
-        {message.error ? (
-          <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700">
-            <div className="font-medium mb-1">⚠ 오류</div>
-            <div>{message.error}</div>
-          </div>
-        ) : (
-          <div className={`prose prose-sm max-w-none ${C.text} prose-headings:font-semibold prose-p:leading-relaxed prose-pre:bg-[#2c1810]/5 prose-code:text-[#a04e30]`}>
-            <ReactMarkdown
-              remarkPlugins={[remarkMath]}
-              rehypePlugins={[rehypeKatex]}
-              components={{
-                code: ({ inline, children, ...props }: any) =>
-                  inline ? (
-                    <code className="px-1 py-0.5 rounded bg-[#2c1810]/10 text-[0.85em]" {...props}>
-                      {children}
-                    </code>
-                  ) : (
-                    <pre className="bg-[#2c1810]/5 p-3 rounded-lg overflow-x-auto text-[0.85em]">
-                      <code {...props}>{children}</code>
-                    </pre>
-                  ),
-              }}
-            >
-              {message.content || (streaming ? "▋" : "")}
-            </ReactMarkdown>
-          </div>
-        )}
-        {!streaming && (message.cost_usd > 0 || message.input_tokens > 0) && (
-          <div className={`text-[10px] mt-2 ${C.textSubtle}`}>
-            {message.model_id} · {message.input_tokens}+{message.output_tokens} tok · ${message.cost_usd.toFixed(5)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── 입력창 ───
-function ChatInputBox({ input, setInput, sendMessage, streaming, stopStream, inputRef, placeholder, C }: any) {
-  return (
-    <div className={`relative ${C.bgInput} border ${C.border} rounded-3xl shadow-sm overflow-hidden`}>
-      <textarea
-        ref={inputRef}
-        value={input}
-        onChange={(e: any) => setInput(e.target.value)}
-        onKeyDown={(e: any) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-          }
-        }}
-        placeholder={placeholder}
-        rows={1}
-        disabled={streaming}
-        className={`w-full px-5 pt-4 pb-12 text-[15px] resize-none bg-transparent focus:outline-none ${C.text} placeholder:${C.textSubtle}`}
-        style={{ minHeight: "60px" }}
-      />
-      <div className="absolute bottom-2 right-2">
-        {streaming ? (
-          <button
-            onClick={stopStream}
-            className={`w-9 h-9 ${C.accent} text-white rounded-full flex items-center justify-center hover:bg-[#a04e30] shadow-sm`}
-            title="중단"
-          >
-            <Square size={14} fill="currentColor" />
-          </button>
-        ) : (
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim()}
-            className={`w-9 h-9 ${C.accent} text-white rounded-full flex items-center justify-center disabled:opacity-30 hover:bg-[#a04e30] shadow-sm transition-opacity`}
-            title="전송"
-          >
-            <ArrowUp size={16} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
