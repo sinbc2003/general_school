@@ -36,6 +36,36 @@ from app.core.permissions import require_super_admin
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 VALID_ROLES = {"super_admin", "designated_admin", "teacher", "staff", "student"}
+ADMIN_ROLES = {"super_admin", "designated_admin"}
+
+
+def _is_admin(u: User) -> bool:
+    return u.role in ADMIN_ROLES
+
+
+async def _count_active_super_admins(db: AsyncSession, exclude_user_id: int | None = None) -> int:
+    """현재 활성(super_admin + approved) 계정 수. 마지막 super_admin 보호용."""
+    q = select(func.count(User.id)).where(
+        User.role == "super_admin",
+        User.status != "disabled",
+    )
+    if exclude_user_id is not None:
+        q = q.where(User.id != exclude_user_id)
+    return (await db.execute(q)).scalar() or 0
+
+
+async def _ensure_not_last_super_admin(db: AsyncSession, target: User) -> None:
+    """target의 role/status를 super_admin·active에서 떨어뜨릴 때 호출.
+    마지막 활성 super_admin이면 차단 → 시스템 잠김 방지.
+    """
+    if target.role != "super_admin" or target.status == "disabled":
+        return
+    others = await _count_active_super_admins(db, exclude_user_id=target.id)
+    if others == 0:
+        raise HTTPException(
+            400,
+            "마지막 최고관리자입니다. 다른 super_admin을 먼저 지정한 후 변경하세요.",
+        )
 
 
 def _user_response(u: User) -> dict:
@@ -131,6 +161,10 @@ async def create_user(
     if body.role not in VALID_ROLES:
         raise HTTPException(400, f"유효하지 않은 역할: {body.role}")
 
+    # 비-관리자는 역할 지정 자체 차단 (이중 방어 — 권한 매트릭스 오설정 대비)
+    if not _is_admin(user) and body.role != "student":
+        raise HTTPException(403, "역할 지정은 관리자만 가능합니다")
+
     # 지정관리자는 super_admin/designated_admin 생성 불가
     if user.role == "designated_admin" and body.role in ("super_admin", "designated_admin"):
         raise HTTPException(403, "상위 역할의 사용자를 생성할 수 없습니다")
@@ -175,9 +209,20 @@ async def update_user(
     if not target:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
 
+    # 본인이 본인 role/status를 직접 변경 차단 (잠김 방지 + 권한 상승 차단)
+    if target.id == user.id:
+        if body.role is not None and body.role != user.role:
+            raise HTTPException(400, "본인의 역할은 직접 변경할 수 없습니다")
+        if body.status is not None and body.status != user.status:
+            raise HTTPException(400, "본인의 상태는 직접 변경할 수 없습니다")
+
     # 지정관리자는 상위 역할 수정 불가
     if user.role == "designated_admin" and target.role in ("super_admin", "designated_admin"):
         raise HTTPException(403, "상위 역할의 사용자를 수정할 수 없습니다")
+
+    # role 변경은 관리자만 (이중 방어 — 권한 매트릭스 오설정 대비)
+    if body.role is not None and body.role != target.role and not _is_admin(user):
+        raise HTTPException(403, "역할 변경은 관리자만 가능합니다")
 
     if body.name is not None:
         target.name = body.name
@@ -186,8 +231,13 @@ async def update_user(
             raise HTTPException(400, f"유효하지 않은 역할: {body.role}")
         if user.role == "designated_admin" and body.role in ("super_admin", "designated_admin"):
             raise HTTPException(403, "상위 역할로 변경할 수 없습니다")
+        if body.role != target.role:
+            # super_admin → 다른 role로 강등 시 마지막 super_admin 보호
+            await _ensure_not_last_super_admin(db, target)
         target.role = body.role
     if body.status is not None:
+        if body.status == "disabled" and target.status != "disabled":
+            await _ensure_not_last_super_admin(db, target)
         target.status = body.status
     if body.grade is not None:
         target.grade = body.grade
@@ -214,8 +264,13 @@ async def delete_user(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
+    if target.id == user.id:
+        raise HTTPException(400, "본인을 직접 삭제할 수 없습니다")
     if target.role == "super_admin":
         raise HTTPException(403, "최고관리자는 삭제할 수 없습니다")
+    # 지정관리자가 다른 관리자(designated_admin) 삭제 차단
+    if user.role == "designated_admin" and target.role == "designated_admin":
+        raise HTTPException(403, "다른 지정관리자는 최고관리자만 삭제할 수 있습니다")
 
     target.status = "disabled"
     await db.flush()
@@ -234,6 +289,13 @@ async def reset_password(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(404)
+
+    # 타인 비번 리셋은 관리자만 (이중 방어). 본인 변경은 /auth/change-password 사용.
+    if target.id != user.id and not _is_admin(user):
+        raise HTTPException(403, "타인의 비밀번호 리셋은 관리자만 가능합니다")
+    # 지정관리자가 상위 관리자 비번 리셋 차단
+    if user.role == "designated_admin" and target.role in ("super_admin", "designated_admin"):
+        raise HTTPException(403, "상위 관리자의 비밀번호를 리셋할 수 없습니다")
 
     target.password_hash = hash_password(settings.DEFAULT_USER_PASSWORD)
     target.must_change_password = True
@@ -354,6 +416,8 @@ async def promote_students(
     body: {from_grade: 1, to_grade: 2, dry_run: false}
     학년 = 1, 2, 3 외 → 무시. dry_run=true는 영향받는 학생 수만 반환.
     """
+    if not _is_admin(user):
+        raise HTTPException(403, "학년 진급은 관리자만 가능합니다")
     from_grade = body.get("from_grade")
     to_grade = body.get("to_grade")
     dry_run = bool(body.get("dry_run", False))
@@ -385,6 +449,8 @@ async def graduate_students(
     ids 우선, 없으면 from_grade(기본 3)의 모든 재학생.
     User.status = "graduated"로 변경. 데이터는 모두 보존.
     """
+    if not _is_admin(user):
+        raise HTTPException(403, "졸업 처리는 관리자만 가능합니다")
     grad_year = body.get("graduation_year")
     if not grad_year:
         raise HTTPException(400, "graduation_year 필수")

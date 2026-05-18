@@ -41,14 +41,18 @@ async def lifespan(app: FastAPI):
         # role-permission 기본값 자동 부여 (멱등 — 이미 부여된 권한은 skip).
         # 새 모듈/권한 추가 시 backend 재시작만으로 teacher/staff/student에 자동 반영.
         try:
-            from scripts.grant_default_roles import grant_for_role, STAFF_KEYS, STUDENT_KEYS, TEACHER_EXCLUDE_PREFIXES, TEACHER_EXCLUDE_KEYS
+            from scripts.grant_default_roles import (
+                grant_for_role,
+                STAFF_KEYS, STUDENT_KEYS,
+                TEACHER_EXCLUDE_PREFIXES, TEACHER_EXCLUDE_KEYS, TEACHER_INCLUDE_KEYS,
+            )
             from sqlalchemy import select as _select
             from app.models.permission import Permission as _Perm
             all_keys = set((await db.execute(_select(_Perm.key))).scalars().all())
             teacher_keys = {
                 k for k in all_keys
                 if not k.startswith(TEACHER_EXCLUDE_PREFIXES) and k not in TEACHER_EXCLUDE_KEYS
-            }
+            } | (TEACHER_INCLUDE_KEYS & all_keys)
             await grant_for_role(db, "teacher", teacher_keys)
             await grant_for_role(db, "staff", STAFF_KEYS)
             await grant_for_role(db, "student", STUDENT_KEYS)

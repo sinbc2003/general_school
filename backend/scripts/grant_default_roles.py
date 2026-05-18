@@ -28,22 +28,28 @@ from app.core.database import async_session_factory, init_db
 from app.models.permission import Permission, RolePermission
 
 
-# 교사에게 부여할 권한 — 모든 권한에서 super_admin 전용·관리자 전용 제외
+# 교사에게 부여할 권한 — 모든 권한에서 super_admin 전용·관리자 전용 제외.
+#
+# 보수적 디폴트: 새 권한이 추가돼도 자동 부여되지 않도록 prefix 기반 제외를 우선시.
+# 향후 모듈이 늘어나도 admin 전용 prefix만 잘 분리하면 자동 보호.
 TEACHER_EXCLUDE_PREFIXES = (
-    "system.",
-    "permission.manage.",
-    "chatbot.provider.",
-    "chatbot.model.",
-    "chatbot.prompt.",
-    "chatbot.config.",
-    "chatbot.usage.view_all",
+    "system.",              # 시스템 관리 (백업/감사로그/설정/헬스)
+    "permission.manage.",   # 권한 매트릭스/그룹 관리
+    "user.manage.",         # 사용자 CRUD (단, view는 아래에서 명시 부여)
+    "chatbot.provider.",    # LLM API 키
+    "chatbot.model.",       # LLM 모델/단가
+    "chatbot.prompt.",      # 시스템 프롬프트
+    "chatbot.config.",      # 챗봇 기본 설정
 )
 TEACHER_EXCLUDE_KEYS = {
-    "user.manage.create",
-    "user.manage.update",
-    "user.manage.delete",
-    "user.manage.bulk_import",
-    "papers.keyword.manage",
+    "chatbot.usage.view_all",   # 다른 사람 사용량 조회
+    "papers.keyword.manage",    # 크롤링 키워드 관리
+}
+
+# prefix로 제외됐지만 교사에게 명시적으로 부여할 권한 (예외 화이트리스트).
+# user.manage.view는 학생/교직원 명단 조회용으로 교사·직원 모두 필요.
+TEACHER_INCLUDE_KEYS = {
+    "user.manage.view",
 }
 
 STAFF_KEYS = {
@@ -115,11 +121,11 @@ async def main():
         )
         print(f"전체 권한: {len(all_keys)}개")
 
-        # 2) 교사: 거의 모든 권한 (super_admin 전용 제외)
+        # 2) 교사: 거의 모든 권한 (super_admin 전용 제외) + 명시 화이트리스트
         teacher_keys = {
             k for k in all_keys
             if not k.startswith(TEACHER_EXCLUDE_PREFIXES) and k not in TEACHER_EXCLUDE_KEYS
-        }
+        } | (TEACHER_INCLUDE_KEYS & all_keys)
 
         teacher_added = await grant_for_role(db, "teacher", teacher_keys)
         staff_added = await grant_for_role(db, "staff", STAFF_KEYS)

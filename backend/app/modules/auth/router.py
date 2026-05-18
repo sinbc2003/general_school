@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -81,10 +81,21 @@ async def bootstrap_status(db: AsyncSession = Depends(get_db)):
 async def register(body: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """첫 회원가입 — User count==0이고 BOOTSTRAP_MODE=first_signup일 때만 동작.
     가입자가 자동으로 super_admin으로 등록되고 즉시 로그인 토큰 발급.
+
+    동시 가입 race condition 방어:
+    - PostgreSQL: pg_advisory_xact_lock으로 트랜잭션 직렬화
+    - SQLite/그 외: count 체크만 (단일 worker dev 환경 가정)
+    트랜잭션 종료 시 lock 자동 해제.
     """
     mode = (settings.BOOTSTRAP_MODE or "first_signup").lower()
     if mode != "first_signup":
         raise HTTPException(403, "회원가입이 비활성화되어 있습니다 (BOOTSTRAP_MODE)")
+
+    # PostgreSQL advisory lock — register 동시 호출 직렬화.
+    # lock key는 register용 고정값 (다른 lock과 충돌 회피 위해 register-specific).
+    dialect = db.bind.dialect.name if db.bind else ""
+    if dialect == "postgresql":
+        await db.execute(text("SELECT pg_advisory_xact_lock(:k)").bindparams(k=0x5343_5245_4749_5354))  # "SCREGIST"
 
     count = (await db.execute(select(func.count(User.id)))).scalar() or 0
     if count > 0:
