@@ -64,7 +64,7 @@ function TabButton({ active, onClick, icon: Icon, label }: any) {
 
 // ── 탭1: 역할별 권한 매트릭스 ──
 function PermissionMatrix() {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
   const [matrix, setMatrix] = useState<MatrixRow[]>([]);
   const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +73,9 @@ function PermissionMatrix() {
   // 지정관리자 모드 (full/scoped) — full이면 designated_admin 컬럼 토글 비활성
   const [designatedMode, setDesignatedMode] = useState<"full" | "scoped">("full");
   const [modeChanging, setModeChanging] = useState(false);
+  // admin 2FA 강제 정책
+  const [admin2faRequired, setAdmin2faRequired] = useState(false);
+  const [admin2faChanging, setAdmin2faChanging] = useState(false);
 
   const fetchMatrix = useCallback(async () => {
     setLoading(true);
@@ -83,12 +86,45 @@ function PermissionMatrix() {
       if (data.designated_admin_mode) {
         setDesignatedMode(data.designated_admin_mode);
       }
+      // admin 2FA 정책 (super_admin만 endpoint 접근 가능)
+      if (isSuperAdmin) {
+        try {
+          const policy = await api.get<{ required: boolean }>("/api/permissions/policy/admin-2fa-required");
+          setAdmin2faRequired(policy.required);
+        } catch {
+          // ignore
+        }
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSuperAdmin]);
+
+  const toggleAdmin2fa = async () => {
+    const newVal = !admin2faRequired;
+    if (newVal && !user?.totp_enabled) {
+      alert(
+        "본인의 2FA를 먼저 등록해야 합니다. (로그아웃 후 본인 잠금 방지)\n\n" +
+        "/auth/2fa-setup 에서 등록 후 다시 시도하세요.",
+      );
+      return;
+    }
+    const msg = newVal
+      ? "admin 2FA 강제 정책을 켭니다.\n앞으로 super_admin/designated_admin은 2FA 미등록 시 자동으로 2FA 등록 페이지로 redirect됩니다.\n계속하시겠습니까?"
+      : "admin 2FA 강제 정책을 끕니다.\n관리자가 2FA 없이도 로그인 가능합니다.\n계속하시겠습니까?";
+    if (!confirm(msg)) return;
+    setAdmin2faChanging(true);
+    try {
+      await api.put("/api/permissions/policy/admin-2fa-required", { required: newVal });
+      setAdmin2faRequired(newVal);
+    } catch (err: any) {
+      alert(err?.detail || "정책 변경 실패");
+    } finally {
+      setAdmin2faChanging(false);
+    }
+  };
 
   const changeMode = async (newMode: "full" | "scoped") => {
     if (newMode === designatedMode) return;
@@ -173,19 +209,20 @@ function PermissionMatrix() {
 
   return (
     <div>
-      {/* 지정관리자 모드 선택 (super_admin 전용) */}
+      {/* 정책 카드들 (super_admin 전용) */}
       {isSuperAdmin && (
-        <div className="mb-4 p-3 bg-cream-100 border border-cream-300 rounded-lg">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-caption text-text-secondary flex-1 min-w-[280px]">
-              <b>지정관리자 권한 모드</b> · 변경 시 모든 지정관리자 세션 자동 종료
-              <div className="text-text-tertiary mt-0.5">
-                {designatedMode === "full"
-                  ? "현재: 모든 권한 자동 (최고관리자 전용 제외)"
-                  : "현재: 매트릭스에서 명시 부여한 권한만"}
-              </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          {/* 지정관리자 모드 */}
+          <div className="p-3 bg-cream-100 border border-cream-300 rounded-lg">
+            <div className="text-caption text-text-secondary mb-1">
+              <b>지정관리자 권한 모드</b>
             </div>
-            <div className="flex gap-1 bg-bg-primary rounded p-0.5">
+            <div className="text-text-tertiary text-caption mb-2">
+              {designatedMode === "full"
+                ? "현재: 모든 권한 자동 (최고관리자 전용 제외)"
+                : "현재: 매트릭스에서 명시 부여한 권한만"}
+            </div>
+            <div className="flex gap-1 bg-bg-primary rounded p-0.5 w-fit">
               <button
                 onClick={() => changeMode("full")}
                 disabled={modeChanging || designatedMode === "full"}
@@ -207,6 +244,41 @@ function PermissionMatrix() {
                 }`}
               >
                 세분화
+              </button>
+            </div>
+          </div>
+
+          {/* admin 2FA 강제 */}
+          <div className="p-3 bg-cream-100 border border-cream-300 rounded-lg">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <div className="text-caption text-text-secondary mb-1">
+                  <b>관리자 2FA 강제</b>
+                </div>
+                <div className="text-text-tertiary text-caption">
+                  {admin2faRequired
+                    ? "ON — 미등록 admin은 자동으로 등록 페이지로 redirect"
+                    : "OFF — admin도 2FA 옵션 (보안상 ON 권장)"}
+                </div>
+                {!user?.totp_enabled && !admin2faRequired && (
+                  <div className="text-status-warning text-caption mt-1">
+                    ⚠ 본인 2FA 미등록 — 정책 켜기 전 등록 필요
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={toggleAdmin2fa}
+                disabled={admin2faChanging}
+                className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                  admin2faRequired ? "bg-accent" : "bg-gray-300"
+                } disabled:opacity-50`}
+                title={admin2faRequired ? "끄기" : "켜기"}
+              >
+                <span
+                  className={`block w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
+                    admin2faRequired ? "left-5" : "left-1"
+                  }`}
+                />
               </button>
             </div>
           </div>

@@ -53,6 +53,34 @@ DESIGNATED_ADMIN_MODE_KEY = "permissions.designated_admin_mode"
 VALID_DESIGNATED_ADMIN_MODES = {"full", "scoped"}
 DEFAULT_DESIGNATED_ADMIN_MODE = "full"
 
+# admin 2FA 강제 정책 — Setting 키 'security.admin_2fa_required'
+# True면 super_admin/designated_admin은 2FA 등록 필수.
+# 미등록 상태로 로그인하면 /auth/2fa-setup 강제 redirect.
+ADMIN_2FA_REQUIRED_KEY = "security.admin_2fa_required"
+DEFAULT_ADMIN_2FA_REQUIRED = False
+
+
+async def get_admin_2fa_required(db: AsyncSession) -> bool:
+    from app.models.setting import Setting
+    row = (await db.execute(
+        select(Setting).where(Setting.key == ADMIN_2FA_REQUIRED_KEY)
+    )).scalar_one_or_none()
+    if not row or not row.value:
+        return DEFAULT_ADMIN_2FA_REQUIRED
+    return row.value.lower() in ("true", "1", "yes")
+
+
+async def set_admin_2fa_required(db: AsyncSession, required: bool) -> None:
+    from app.models.setting import Setting
+    val = "true" if required else "false"
+    row = (await db.execute(
+        select(Setting).where(Setting.key == ADMIN_2FA_REQUIRED_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = val
+    else:
+        db.add(Setting(key=ADMIN_2FA_REQUIRED_KEY, value=val))
+
 
 async def get_designated_admin_mode(db: AsyncSession) -> str:
     """지정관리자 모드 조회. 디폴트 'full'.

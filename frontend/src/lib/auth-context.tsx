@@ -24,6 +24,8 @@ interface UserInfo {
   department: string | null;
   totp_enabled: boolean;
   must_change_password: boolean;
+  // admin 2FA 강제 정책 ON + admin role + 2FA 미등록이면 True
+  must_enable_2fa?: boolean;
   permissions: string[];
 }
 
@@ -44,6 +46,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
 const PASSWORD_CHANGE_PATH = "/auth/change-password";
 const ONBOARDING_PATH = "/auth/teacher-onboarding";
+const TWOFA_SETUP_PATH = "/auth/2fa-setup";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -94,9 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isPublic = PUBLIC_PATHS.some((p) => pathname?.startsWith(p));
     const isPasswordChange = pathname?.startsWith(PASSWORD_CHANGE_PATH);
     const isOnboarding = pathname?.startsWith(ONBOARDING_PATH);
+    const is2faSetup = pathname?.startsWith(TWOFA_SETUP_PATH);
 
     // 비로그인 + 비공개 페이지 → 로그인으로
-    if (!user && !isPublic && !isPasswordChange && !isOnboarding) {
+    if (!user && !isPublic && !isPasswordChange && !isOnboarding && !is2faSetup) {
       router.push("/auth/login");
       return;
     }
@@ -104,6 +108,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 로그인 상태인데 must_change_password=True → 비밀번호 변경 강제
     if (user?.must_change_password && !isPasswordChange) {
       router.push(PASSWORD_CHANGE_PATH);
+      return;
+    }
+
+    // admin 2FA 강제 정책 ON + 미등록 → 2FA 등록 페이지로
+    if (user?.must_enable_2fa && !is2faSetup && !isPasswordChange) {
+      router.push(TWOFA_SETUP_PATH);
       return;
     }
 

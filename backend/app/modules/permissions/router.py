@@ -294,6 +294,57 @@ async def set_designated_admin_mode_endpoint(
     return {"ok": True, "mode": mode, "sessions_invalidated": invalidated}
 
 
+# ── admin 2FA 강제 정책 (super_admin only) ──
+
+@router.get("/policy/admin-2fa-required")
+async def get_admin_2fa_required_endpoint(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 2FA 강제 여부 조회."""
+    from app.core.permissions import get_admin_2fa_required
+    return {
+        "required": await get_admin_2fa_required(db),
+        "description": (
+            "True면 super_admin/designated_admin은 2FA 등록 필수. "
+            "미등록 admin은 로그인 후 /auth/2fa-setup으로 강제 redirect."
+        ),
+    }
+
+
+@router.put("/policy/admin-2fa-required")
+async def set_admin_2fa_required_endpoint(
+    body: dict, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """admin 2FA 강제 여부 변경. 2FA 필수 (정책 변경).
+
+    body: {"required": true|false}
+    True로 변경 시 본인(super_admin)이 2FA 미등록이면 거부 — 자기 잠금 방지.
+    """
+    from app.core.permissions import set_admin_2fa_required
+    await verify_2fa_session(user, request, db)
+
+    required = bool(body.get("required"))
+
+    # 자기 잠금 방지: True 전환 시 본인이 2FA 미등록이면 거부
+    if required and not user.totp_enabled:
+        raise HTTPException(
+            400,
+            "정책을 켜기 전에 먼저 본인의 2FA를 등록하세요. (/auth/2fa-setup)",
+        )
+
+    await set_admin_2fa_required(db, required)
+    await db.flush()
+    await log_action(
+        db, user, "policy.admin_2fa_required",
+        target=f"required:{required}",
+        request=request, is_sensitive=True,
+    )
+    return {"ok": True, "required": required}
+
+
 # ── 개별 사용자 권한 ──
 @router.get("/users/{user_id}")
 async def get_user_permissions(

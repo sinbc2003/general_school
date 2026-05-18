@@ -44,7 +44,11 @@ from sqlalchemy import func
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _user_to_dict(user: User, permissions: set[str] | None = None) -> dict:
+def _user_to_dict(
+    user: User,
+    permissions: set[str] | None = None,
+    must_enable_2fa: bool = False,
+) -> dict:
     return {
         "id": user.id,
         "username": user.username,
@@ -58,8 +62,21 @@ def _user_to_dict(user: User, permissions: set[str] | None = None) -> dict:
         "department": user.department,
         "totp_enabled": user.totp_enabled,
         "must_change_password": user.must_change_password,
+        # admin 2FA 정책 ON + admin role + totp_enabled=False면 True
+        # frontend가 이 플래그로 /auth/2fa-setup 강제 redirect.
+        "must_enable_2fa": must_enable_2fa,
         "permissions": list(permissions) if permissions else [],
     }
+
+
+async def _check_must_enable_2fa(user: User, db: AsyncSession) -> bool:
+    """admin role이고 2FA 미등록인데 정책이 require면 True."""
+    if user.role not in ("super_admin", "designated_admin"):
+        return False
+    if user.totp_enabled:
+        return False
+    from app.core.permissions import get_admin_2fa_required
+    return await get_admin_2fa_required(db)
 
 
 @router.get("/bootstrap-status", response_model=BootstrapStatus)
@@ -181,11 +198,12 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     await log_action(db, user, "login", request=request)
 
     perms = await resolve_permissions(db, user)
+    must_2fa = await _check_must_enable_2fa(user, db)
 
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_value,
-        user=_user_to_dict(user, perms),
+        user=_user_to_dict(user, perms, must_enable_2fa=must_2fa),
     )
 
 
@@ -223,11 +241,12 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     perms = await resolve_permissions(db, user)
+    must_2fa = await _check_must_enable_2fa(user, db)
 
     return TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh,
-        user=_user_to_dict(user, perms),
+        user=_user_to_dict(user, perms, must_enable_2fa=must_2fa),
     )
 
 
@@ -255,7 +274,8 @@ async def me(
     db: AsyncSession = Depends(get_db),
 ):
     perms = await resolve_permissions(db, user)
-    return _user_to_dict(user, perms)
+    must_2fa = await _check_must_enable_2fa(user, db)
+    return _user_to_dict(user, perms, must_enable_2fa=must_2fa)
 
 
 # ── 2FA ──
