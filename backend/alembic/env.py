@@ -14,6 +14,20 @@ from alembic import context
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
+# .env 자동 로드 — 프로젝트 루트의 .env에 DATABASE_URL이 있으면 자동으로 alembic이 사용.
+# 그래야 학교에서 'alembic upgrade head' 실행 시 PostgreSQL DSN이 적용됨.
+# alembic.ini의 sqlalchemy.url은 sqlite 기본값 (개발 fallback).
+try:
+    from dotenv import load_dotenv
+    # backend/../.env (프로젝트 루트) 우선, 없으면 backend/.env
+    for candidate in (BACKEND_DIR.parent / ".env", BACKEND_DIR / ".env"):
+        if candidate.exists():
+            load_dotenv(candidate, override=False)  # 이미 export된 값은 보존
+            break
+except ImportError:
+    # python-dotenv 미설치 환경에서는 OS env만 사용
+    pass
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
