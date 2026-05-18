@@ -128,8 +128,32 @@ FRONTEND_ONLY_PERMISSIONS: list[dict] = [
 ]
 
 
+# Per-request 메모이제이션 캐시.
+# 한 요청 안에서 같은 user에 대해 resolve_permissions가 여러 번 호출되는 패턴
+# (require_permission decorator + me endpoint + matrix 등) — DB 쿼리 중복 차단.
+# 키: user.id — 같은 세션·같은 사용자면 동일 결과.
+# 한 요청이 끝나면 db session 사라지면서 자동 가비지 — 메모리 누수 없음.
+_RESOLVE_CACHE_KEY = "_perm_resolve_cache"
+
+
+def invalidate_resolve_cache(db: AsyncSession, user_id: int | None = None) -> None:
+    """resolve_permissions 캐시 무효화. user_id=None이면 전체.
+
+    같은 요청 안에서 권한을 변경한 뒤 다시 조회할 때 호출.
+    update_user_permissions / set_enrollment_positions 등 권한 변경 endpoint에서
+    명시적으로 호출하면 안전.
+    """
+    cache = db.info.get(_RESOLVE_CACHE_KEY)
+    if not cache:
+        return
+    if user_id is None:
+        cache.clear()
+    else:
+        cache.pop(user_id, None)
+
+
 async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
-    """사용자의 유효 권한 키 집합을 반환
+    """사용자의 유효 권한 키 집합을 반환 (per-request 캐시).
 
     해석 순서:
     1. super_admin → 전체 권한 (short-circuit)
@@ -142,6 +166,19 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
        + user_permission_groups
        + 현재 학기 enrollment에 부여된 PositionTemplate.permission_keys (학기 격리)
     """
+    # per-request cache — db.info dict에 user별 결과 메모이제이션
+    cache = db.info.setdefault(_RESOLVE_CACHE_KEY, {})
+    cached = cache.get(user.id)
+    if cached is not None:
+        return cached
+
+    result = await _resolve_permissions_impl(db, user)
+    cache[user.id] = result
+    return result
+
+
+async def _resolve_permissions_impl(db: AsyncSession, user: User) -> set[str]:
+    """resolve_permissions 실제 구현 — 캐시 미스 시 호출."""
     if user.role == "super_admin":
         result = await db.execute(select(Permission.key))
         return set(result.scalars().all())

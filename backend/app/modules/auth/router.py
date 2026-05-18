@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy import select, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,20 +180,46 @@ def _mask_email(email: str) -> str:
     return f"{local[:2]}***@{domain}"
 
 
+def _device_token_prefix(token: str) -> str:
+    """token에서 인덱스용 prefix 추출 — 첫 12자."""
+    return (token or "")[:12]
+
+
 async def _find_trusted_device(
     db: AsyncSession, user_id: int, device_token: str | None,
 ) -> TrustedDevice | None:
-    """device cookie를 hash 비교하여 일치하고 만료 안 된 신뢰 장치 반환."""
+    """device cookie를 hash 비교하여 일치하고 만료 안 된 신뢰 장치 반환.
+
+    성능: token_prefix 인덱스로 후보 1~few개로 좁힌 후 bcrypt 검증.
+    이전 O(N) → 사실상 O(1). 사용자가 수십 장치 등록해도 빠름.
+    """
     if not device_token:
         return None
-    rows = (await db.execute(
+    prefix = _device_token_prefix(device_token)
+    # prefix가 있는 경우 인덱스 lookup
+    if prefix:
+        rows = (await db.execute(
+            select(TrustedDevice).where(
+                TrustedDevice.user_id == user_id,
+                TrustedDevice.expires_at > datetime.now(timezone.utc),
+                TrustedDevice.token_prefix == prefix,
+            )
+        )).scalars().all()
+        for d in rows:
+            if verify_password(device_token, d.token_hash):
+                return d
+    # fallback: prefix 없는 legacy 행 (마이그레이션 직후) — 향후 cleanup task로 제거.
+    legacy_rows = (await db.execute(
         select(TrustedDevice).where(
             TrustedDevice.user_id == user_id,
             TrustedDevice.expires_at > datetime.now(timezone.utc),
+            TrustedDevice.token_prefix.is_(None),
         )
     )).scalars().all()
-    for d in rows:
+    for d in legacy_rows:
         if verify_password(device_token, d.token_hash):
+            # 매칭된 legacy 행에 prefix 백필
+            d.token_prefix = prefix
             return d
     return None
 
@@ -225,8 +251,13 @@ async def _issue_tokens(
 
 async def _start_email_challenge(
     db: AsyncSession, user: User, request: Request,
+    background: BackgroundTasks | None = None,
 ) -> dict:
-    """이메일 2FA 챌린지 시작 — 6자리 코드 생성·해시 저장·이메일 발송."""
+    """이메일 2FA 챌린지 시작 — 6자리 코드 생성·해시 저장·이메일 발송.
+
+    이메일 발송은 BackgroundTasks로 비동기 (응답 지연 차단). 발송 실패는
+    재발송 endpoint로 회복 가능.
+    """
     code = generate_verification_code()
     code_hash = hash_password(code)
     challenge_token = generate_challenge_token()
@@ -242,14 +273,22 @@ async def _start_email_challenge(
     await db.flush()
     await log_action(db, user, "login.email_challenge_sent", request=request, is_sensitive=True)
 
-    try:
-        await send_login_code(
-            to=user.email, name=user.name, code=code,
-            ip=request.client.host if request.client else None,
+    # 이메일 발송 비동기 — SMTP 지연이 응답을 막지 않음.
+    # BackgroundTasks 없으면 (resend endpoint 등) 직접 await.
+    if background is not None:
+        background.add_task(
+            send_login_code,
+            user.email, user.name, code,
+            request.client.host if request.client else None,
         )
-    except Exception:
-        # 발송 실패해도 챌린지는 남김 (재발송 가능). 실패 알림 로그만.
-        pass
+    else:
+        try:
+            await send_login_code(
+                to=user.email, name=user.name, code=code,
+                ip=request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
 
     return {
         "type": "challenge",
@@ -260,7 +299,11 @@ async def _start_email_challenge(
 
 
 @router.post("/login")
-async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(
+    body: LoginRequest, request: Request,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     """로그인.
 
     응답 분기:
@@ -268,6 +311,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
     - 교직원 + 신뢰 장치 쿠키 매칭: 즉시 토큰 발급
     - 교직원 + 신뢰 장치 없음: 이메일 코드 발송 + challenge_token 반환
       (응답 type='challenge' — 클라이언트는 /auth/verify-email 호출)
+      → 이메일 발송은 BackgroundTasks로 비동기 (SMTP 지연이 응답 막지 않음)
     """
     await login_rate_limit(request)
 
@@ -301,8 +345,8 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         token_resp = await _issue_tokens(db, user, request)
         return token_resp.model_dump() | {"type": "token"}
 
-    # 신뢰 장치 없음 → 이메일 챌린지
-    return await _start_email_challenge(db, user, request)
+    # 신뢰 장치 없음 → 이메일 챌린지 (BackgroundTasks로 발송)
+    return await _start_email_challenge(db, user, request, background=background)
 
 
 @router.post("/login/verify-email")
@@ -356,6 +400,7 @@ async def verify_email_code(
         db.add(TrustedDevice(
             user_id=user.id,
             token_hash=token_hash,
+            token_prefix=_device_token_prefix(device_token_plain),
             label=label,
             ip_address=request.client.host if request.client else None,
             user_agent=(request.headers.get("User-Agent") or "")[:1000],

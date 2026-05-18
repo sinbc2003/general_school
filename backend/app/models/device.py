@@ -32,6 +32,11 @@ class TrustedDevice(Base):
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     # bcrypt-style hash of the device token (cookie value)
     token_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # token의 앞 12자 (평문) — 인덱스로 빠른 lookup용.
+    # token 자체는 32바이트 base64라 prefix 충돌 가능성 매우 낮음.
+    # 운영 시: cookie 값으로 lookup → 후보 1~few개 → bcrypt 검증.
+    # 추가: prefix만으로는 cookie 위조 불가 (전체 token + bcrypt 매칭 필요).
+    token_prefix: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     # 표시용 라벨 (User-Agent에서 추출 또는 사용자 입력)
     label: Mapped[str | None] = mapped_column(String(200), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)

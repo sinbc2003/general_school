@@ -26,6 +26,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# 동시 백업 실행 lock — 스케줄러와 수동 트리거가 동시에 실행되는 것 방지.
+# 같은 파일명 충돌 + DB lock 경합 + 디스크 IO 폭주 방지.
+_BACKUP_LOCK = asyncio.Lock()
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,7 +182,19 @@ async def list_backups(db: AsyncSession) -> list[dict]:
 
 
 async def run_backup_now(db: AsyncSession) -> dict:
-    """즉시 한 번 export + retention 정리. 결과 dict 반환."""
+    """즉시 한 번 export + retention 정리. 결과 dict 반환.
+
+    _BACKUP_LOCK으로 동시 실행 차단 — 같은 파일명 충돌 + DB 락 경합 방지.
+    다른 백업이 진행 중이면 RuntimeError.
+    """
+    if _BACKUP_LOCK.locked():
+        raise RuntimeError("다른 백업이 이미 진행 중입니다. 잠시 후 다시 시도하세요.")
+    async with _BACKUP_LOCK:
+        return await _run_backup_now_locked(db)
+
+
+async def _run_backup_now_locked(db: AsyncSession) -> dict:
+    """실제 백업 실행 (lock 안에서 호출)."""
     config = await get_config(db)
     out_dir = Path(config["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
