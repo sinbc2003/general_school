@@ -696,6 +696,44 @@ async def delete_group(
     return {"ok": True}
 
 
+@router.get("/groups/{group_id}")
+async def get_group_detail(
+    group_id: int,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """그룹 상세 — 권한 키 + 할당된 사용자 목록."""
+    group = (await db.execute(
+        select(PermissionGroup).where(PermissionGroup.id == group_id)
+    )).scalar_one_or_none()
+    if not group:
+        raise HTTPException(404)
+
+    perm_keys = list((await db.execute(
+        select(Permission.key)
+        .join(PermissionGroupItem, PermissionGroupItem.permission_id == Permission.id)
+        .where(PermissionGroupItem.group_id == group_id)
+    )).scalars().all())
+
+    member_rows = (await db.execute(
+        select(User.id, User.name, User.email, User.role)
+        .join(UserPermissionGroup, UserPermissionGroup.user_id == User.id)
+        .where(UserPermissionGroup.group_id == group_id)
+        .order_by(User.role, User.name)
+    )).all()
+
+    return {
+        "id": group.id,
+        "name": group.name,
+        "description": group.description,
+        "permissions": perm_keys,
+        "members": [
+            {"id": uid, "name": name, "email": email, "role": role}
+            for uid, name, email, role in member_rows
+        ],
+    }
+
+
 @router.post("/groups/{group_id}/assign")
 async def assign_group_to_user(
     group_id: int,
@@ -746,6 +784,39 @@ async def assign_group_to_user(
     await db.flush()
     await log_action(db, user, "permission_group_assigned",
                      target=f"user:{target_user_id} group:{group_id}", request=request)
+    return {"ok": True}
+
+
+@router.delete("/groups/{group_id}/members/{user_id}")
+async def remove_group_member(
+    group_id: int, user_id: int, request: Request,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """그룹에서 사용자 제거 (UserPermissionGroup 행 삭제)."""
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not target:
+        raise HTTPException(404, "사용자 없음")
+    if user.role == "designated_admin" and target.role not in MANAGEABLE_ROLES_BY_DESIGNATED:
+        raise HTTPException(403, "해당 사용자의 그룹을 변경할 수 없습니다")
+
+    row = (await db.execute(
+        select(UserPermissionGroup).where(
+            UserPermissionGroup.user_id == user_id,
+            UserPermissionGroup.group_id == group_id,
+        )
+    )).scalar_one_or_none()
+    if not row:
+        return {"ok": True, "message": "이미 그룹 멤버가 아님"}
+
+    await db.delete(row)
+    await db.flush()
+    await _invalidate_user_sessions(db, user_id)
+    await db.flush()
+    await log_action(
+        db, user, "permission_group_unassigned",
+        target=f"user:{user_id} group:{group_id}", request=request,
+    )
     return {"ok": True}
 
 
