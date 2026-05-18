@@ -115,7 +115,10 @@ async def create_semester(
     await db.flush()
 
     # ── 이전 학기 데이터 복사 (옵션) ──
-    copy_stats = {"enrollments": 0, "clubs": 0, "club_members": 0, "structure": False}
+    copy_stats = {
+        "enrollments": 0, "clubs": 0, "club_members": 0,
+        "structure": False, "positions": 0,
+    }
     if body.copy_from_semester_id:
         src = await get_semester_by_id_or_404(db, body.copy_from_semester_id)
         # 1) 학교 구조 (classes_per_grade / subjects / departments)
@@ -125,6 +128,8 @@ async def create_semester(
             s.departments = src.departments
             copy_stats["structure"] = True
         # 2) Enrollments (학생/교사 명단)
+        # src enrollment.id → new enrollment 객체 매핑 (positions 복사용)
+        enrollment_map: dict[int, SemesterEnrollment] = {}
         if body.copy_enrollments:
             src_enrolls = (await db.execute(
                 select(SemesterEnrollment).where(SemesterEnrollment.semester_id == src.id)
@@ -133,7 +138,7 @@ async def create_semester(
                 # status가 transferred/graduated이면 새 학기에 복사하지 않음
                 if e.status in ("transferred", "graduated"):
                     continue
-                db.add(SemesterEnrollment(
+                new_e = SemesterEnrollment(
                     semester_id=s.id,
                     user_id=e.user_id,
                     role=e.role,
@@ -150,8 +155,30 @@ async def create_semester(
                     teaching_subjects=e.teaching_subjects,
                     phone=e.phone,
                     note=e.note,
-                ))
+                )
+                db.add(new_e)
+                enrollment_map[e.id] = new_e
                 copy_stats["enrollments"] += 1
+        # 2-1) Enrollment Positions (학기 직책 권한)
+        # 디폴트 False — 학기마다 업무분장 재배정 시나리오 보호.
+        # True인 경우 src의 EnrollmentPosition을 새 enrollment에 복제.
+        if body.copy_positions and enrollment_map:
+            from app.models.position import EnrollmentPosition as _EP
+            await db.flush()  # enrollment_map 객체에 id 부여
+            src_positions = (await db.execute(
+                select(_EP).where(_EP.enrollment_id.in_(list(enrollment_map.keys())))
+            )).scalars().all()
+            for ep in src_positions:
+                new_e = enrollment_map.get(ep.enrollment_id)
+                if not new_e:
+                    continue
+                db.add(_EP(
+                    enrollment_id=new_e.id,
+                    position_template_id=ep.position_template_id,
+                    granted_by=user.id,
+                    note=ep.note,
+                ))
+                copy_stats["positions"] += 1
         # 3) Clubs + members
         if body.copy_clubs:
             from app.models.club import Club
@@ -568,6 +595,111 @@ async def delete_enrollment(
     await db.delete(e)
     await log_action(db, user, "enrollment.delete", f"enroll:{eid}", request=request)
     return {"ok": True}
+
+
+# ── Enrollment Positions (학기 권한 위임) ──────────────────────────────
+#
+# enrollment 한 줄에 PositionTemplate 여러 개 할당 가능 ("3학년 담임" + "동아리
+# 담당교사" + "정보 부장"). resolve_permissions가 현재 학기의 enrollment의
+# 직책 → 권한을 자동 합산. 학기 종료 시 새 학기의 enrollment는 빈 상태로 시작
+# → 자동 회수.
+
+
+@router.get("/semesters/{sid}/enrollments/{eid}/positions")
+async def list_enrollment_positions(
+    sid: int, eid: int,
+    user: User = Depends(require_permission("system.enrollment.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """이 enrollment에 할당된 직책 + 그 직책이 부여하는 권한 키 미리보기."""
+    from app.models.position import PositionTemplate, EnrollmentPosition
+    import json as _json
+
+    e = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.id == eid,
+            SemesterEnrollment.semester_id == sid,
+        )
+    )).scalar_one_or_none()
+    if not e:
+        raise HTTPException(404, "enrollment 없음")
+
+    rows = (await db.execute(
+        select(EnrollmentPosition, PositionTemplate)
+        .join(PositionTemplate, PositionTemplate.id == EnrollmentPosition.position_template_id)
+        .where(EnrollmentPosition.enrollment_id == eid)
+        .order_by(PositionTemplate.category, PositionTemplate.display_name)
+    )).all()
+
+    items = []
+    for ep, pt in rows:
+        try:
+            perm_keys = _json.loads(pt.permission_keys or "[]")
+        except (_json.JSONDecodeError, TypeError):
+            perm_keys = []
+        items.append({
+            "id": ep.id,
+            "template_id": pt.id,
+            "template_key": pt.key,
+            "display_name": pt.display_name,
+            "category": pt.category,
+            "permission_count": len(perm_keys),
+            "note": ep.note,
+        })
+    return {"items": items}
+
+
+@router.put("/semesters/{sid}/enrollments/{eid}/positions")
+async def set_enrollment_positions(
+    sid: int, eid: int, body: dict, request: Request,
+    user: User = Depends(require_permission("system.enrollment.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """이 enrollment의 직책 목록을 통째로 교체 (PUT 의미).
+
+    body: {"template_ids": [int, ...]}  — 비우면 모든 직책 해제
+    """
+    from app.models.position import PositionTemplate, EnrollmentPosition
+    from sqlalchemy import delete as sql_delete
+
+    e = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.id == eid,
+            SemesterEnrollment.semester_id == sid,
+        )
+    )).scalar_one_or_none()
+    if not e:
+        raise HTTPException(404, "enrollment 없음")
+
+    raw = body.get("template_ids", [])
+    if not isinstance(raw, list):
+        raise HTTPException(400, "template_ids는 list여야 합니다")
+    template_ids = sorted({int(x) for x in raw if str(x).strip()})
+
+    if template_ids:
+        valid_ids = set((await db.execute(
+            select(PositionTemplate.id).where(PositionTemplate.id.in_(template_ids))
+        )).scalars().all())
+        invalid = [t for t in template_ids if t not in valid_ids]
+        if invalid:
+            raise HTTPException(400, f"존재하지 않는 template_id: {invalid}")
+
+    # 기존 매핑 일괄 삭제 후 새로 추가 (PUT 의미)
+    await db.execute(
+        sql_delete(EnrollmentPosition).where(EnrollmentPosition.enrollment_id == eid)
+    )
+    for tid in template_ids:
+        db.add(EnrollmentPosition(
+            enrollment_id=eid,
+            position_template_id=tid,
+            granted_by=user.id,
+        ))
+    await db.flush()
+    await log_action(
+        db, user, "enrollment_position.set",
+        target=f"enroll:{eid} templates:{template_ids}", request=request,
+    )
+    return {"ok": True, "count": len(template_ids)}
 
 
 # ── CSV 일괄 등록 (학기별 명단) ──

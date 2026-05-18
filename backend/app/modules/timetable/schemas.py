@@ -25,6 +25,9 @@ class SemesterCreate(BaseModel):
     copy_enrollments: bool = True   # 학생/교사 명단
     copy_clubs: bool = True          # 동아리 + members
     copy_structure: bool = True      # classes_per_grade, subjects, departments
+    # 학기별 직책 매핑(EnrollmentPosition) 복사 여부. 기본 False — 학기마다
+    # 업무분장이 재배정되는 운영 시나리오에서 사고 방지. 같은 직책 유지하려면 True.
+    copy_positions: bool = False
 
     @field_validator("end_date")
     @classmethod

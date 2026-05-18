@@ -74,7 +74,11 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
     해석 순서:
     1. super_admin → 전체 권한 (short-circuit)
     2. designated_admin → 전체 권한 - SUPER_ADMIN_ONLY
-    3. teacher/staff/student → role_permissions + user_permissions + user_permission_groups
+    3. teacher/staff/student →
+         role_permissions
+       + user_permissions
+       + user_permission_groups
+       + 현재 학기 enrollment에 부여된 PositionTemplate.permission_keys (학기 격리)
     """
     if user.role == "super_admin":
         result = await db.execute(select(Permission.key))
@@ -109,7 +113,53 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
     )
     perms.update(result.scalars().all())
 
+    # 현재 학기 직책(PositionTemplate) 기반 권한 — 학기 종료 시 자동 회수
+    perms |= await _resolve_position_permissions(db, user.id)
+
     return perms
+
+
+async def _resolve_position_permissions(db: AsyncSession, user_id: int) -> set[str]:
+    """현재 학기 본인 active enrollment의 직책 → 권한 키 합집합.
+
+    학기 없음 / enrollment 없음 / status != active → 빈 set.
+    PositionTemplate.permission_keys는 JSON 문자열로 저장. 존재하지 않는
+    키는 결과에서 자동 제외 (Permission DB와 교집합).
+    """
+    import json
+    from app.core.semester import get_current_semester
+    from app.models.timetable import SemesterEnrollment
+    from app.models.position import PositionTemplate, EnrollmentPosition
+
+    sem = await get_current_semester(db)
+    if not sem:
+        return set()
+
+    rows = (await db.execute(
+        select(PositionTemplate.permission_keys)
+        .join(EnrollmentPosition, EnrollmentPosition.position_template_id == PositionTemplate.id)
+        .join(SemesterEnrollment, SemesterEnrollment.id == EnrollmentPosition.enrollment_id)
+        .where(
+            SemesterEnrollment.semester_id == sem.id,
+            SemesterEnrollment.user_id == user_id,
+            SemesterEnrollment.status == "active",
+        )
+    )).scalars().all()
+
+    keys: set[str] = set()
+    for raw in rows:
+        try:
+            keys.update(json.loads(raw or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    if not keys:
+        return set()
+
+    # 존재하는 권한 키만 (Permission DB와 교집합 — 향후 키 삭제 안전)
+    valid = (await db.execute(
+        select(Permission.key).where(Permission.key.in_(keys))
+    )).scalars().all()
+    return set(valid)
 
 
 def require_permission(permission_key: str):

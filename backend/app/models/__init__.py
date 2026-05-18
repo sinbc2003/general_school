@@ -73,6 +73,9 @@ from app.models.chatbot import (
 # ── Announcement (공지사항) ──
 from app.models.announcement import Announcement, AnnouncementAudience
 
+# ── Position (학기·직책 기반 권한) ──
+from app.models.position import PositionTemplate, EnrollmentPosition
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -114,4 +117,6 @@ __all__ = [
     "ChatSession", "ChatMessage", "ChatUsageDaily", "ChatbotConfig",
     # Announcement
     "Announcement", "AnnouncementAudience",
+    # Position
+    "PositionTemplate", "EnrollmentPosition",
 ]

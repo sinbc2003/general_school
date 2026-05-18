@@ -2,7 +2,10 @@
 
 - super_admin: 모든 역할 + 모든 사용자의 권한 관리
 - designated_admin: teacher/staff/student 역할의 권한 관리
+- 학기·직책 기반 권한 위임: PositionTemplate CRUD (super_admin/designated_admin)
 """
+
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, delete
@@ -26,6 +29,7 @@ from app.models.permission import (
     PermissionGroupItem,
     UserPermissionGroup,
 )
+from app.models.position import PositionTemplate, EnrollmentPosition
 
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
@@ -413,4 +417,190 @@ async def assign_group_to_user(
     await db.flush()
     await log_action(db, user, "permission_group_assigned",
                      target=f"user:{target_user_id} group:{group_id}", request=request)
+    return {"ok": True}
+
+
+# ── 직책 권한 템플릿 (학기 권한 위임의 근간) ──────────────────────────────
+#
+# 흐름: super_admin/designated_admin이 직책 템플릿 정의 (예 "1학년 담임")
+# → 학기 enrollment에 직책 할당 (timetable router의 positions endpoint)
+# → resolve_permissions가 현재 학기 enrollment의 직책 → 권한 키 합산
+# → 학기 종료 / enrollment 변경 시 자동 회수.
+
+def _parse_permission_keys(raw: str | None) -> list[str]:
+    try:
+        v = json.loads(raw or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [str(x) for x in v] if isinstance(v, list) else []
+
+
+async def _validate_permission_keys(
+    db: AsyncSession, keys: list[str], requester: User,
+) -> list[str]:
+    """입력된 권한 키 목록을 검증 + 정리.
+
+    - DB Permission에 정의된 키만 통과 (존재하지 않는 키는 400)
+    - designated_admin은 SUPER_ADMIN_ONLY 키 포함 시 403
+    """
+    if not isinstance(keys, list):
+        raise HTTPException(400, "permission_keys는 list여야 합니다")
+    cleaned = sorted({str(k).strip() for k in keys if str(k).strip()})
+
+    if requester.role == "designated_admin":
+        bad = [k for k in cleaned if k in SUPER_ADMIN_ONLY_KEYS]
+        if bad:
+            raise HTTPException(
+                403, f"최고관리자 전용 권한은 직책 템플릿에 포함할 수 없습니다: {bad}"
+            )
+
+    if cleaned:
+        valid = set((await db.execute(
+            select(Permission.key).where(Permission.key.in_(cleaned))
+        )).scalars().all())
+        invalid = [k for k in cleaned if k not in valid]
+        if invalid:
+            raise HTTPException(400, f"존재하지 않는 권한 키: {invalid}")
+    return cleaned
+
+
+@router.get("/position-templates")
+async def list_position_templates(
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """모든 직책 템플릿 목록 (UI에서 카테고리별 그룹)."""
+    rows = (await db.execute(
+        select(PositionTemplate).order_by(
+            PositionTemplate.category, PositionTemplate.display_name
+        )
+    )).scalars().all()
+
+    # 할당된 enrollment 수 — UI에 "사용 중" 표시용
+    usage_rows = (await db.execute(
+        select(EnrollmentPosition.position_template_id, EnrollmentPosition.id)
+    )).all()
+    usage: dict[int, int] = {}
+    for tid, _ in usage_rows:
+        usage[tid] = usage.get(tid, 0) + 1
+
+    items = []
+    for p in rows:
+        keys = _parse_permission_keys(p.permission_keys)
+        items.append({
+            "id": p.id,
+            "key": p.key,
+            "display_name": p.display_name,
+            "description": p.description,
+            "category": p.category,
+            "is_system": p.is_system,
+            "permission_keys": keys,
+            "permission_count": len(keys),
+            "assignment_count": usage.get(p.id, 0),
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        })
+    return {"items": items}
+
+
+@router.post("/position-templates")
+async def create_position_template(
+    body: dict,
+    request: Request,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """직책 템플릿 생성.
+    body: {key, display_name, description?, category?, permission_keys: [str]}
+    """
+    key = (body.get("key") or "").strip()
+    display_name = (body.get("display_name") or "").strip()
+    if not key or not display_name:
+        raise HTTPException(400, "key, display_name 필수")
+    if not key.replace("_", "").replace("-", "").replace(".", "").isalnum():
+        raise HTTPException(400, "key는 영문/숫자/_/-/. 만 허용됩니다")
+
+    exists = (await db.execute(
+        select(PositionTemplate).where(PositionTemplate.key == key)
+    )).scalar_one_or_none()
+    if exists:
+        raise HTTPException(400, f"이미 존재하는 key: {key}")
+
+    perm_keys = await _validate_permission_keys(
+        db, body.get("permission_keys", []), user
+    )
+
+    p = PositionTemplate(
+        key=key,
+        display_name=display_name,
+        description=(body.get("description") or None),
+        category=(body.get("category") or "기타").strip()[:50],
+        permission_keys=json.dumps(perm_keys, ensure_ascii=False),
+        is_system=False,  # 시스템 템플릿은 시드/마이그레이션에서만 True
+        created_by=user.id,
+    )
+    db.add(p)
+    await db.flush()
+    await log_action(
+        db, user, "position_template.create",
+        target=f"key:{key} perms:{len(perm_keys)}", request=request,
+    )
+    return {"id": p.id, "key": p.key}
+
+
+@router.put("/position-templates/{tid}")
+async def update_position_template(
+    tid: int, body: dict, request: Request,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """직책 템플릿 수정 (key는 변경 불가 — enrollment 매핑 안전성)."""
+    p = (await db.execute(
+        select(PositionTemplate).where(PositionTemplate.id == tid)
+    )).scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+
+    if "display_name" in body:
+        p.display_name = (body["display_name"] or "").strip()[:200]
+    if "description" in body:
+        p.description = body["description"] or None
+    if "category" in body:
+        p.category = (body["category"] or "기타").strip()[:50]
+    if "permission_keys" in body:
+        perm_keys = await _validate_permission_keys(db, body["permission_keys"], user)
+        p.permission_keys = json.dumps(perm_keys, ensure_ascii=False)
+
+    await db.flush()
+    await log_action(
+        db, user, "position_template.update",
+        target=f"id:{tid}", request=request,
+    )
+    return {"ok": True}
+
+
+@router.delete("/position-templates/{tid}")
+async def delete_position_template(
+    tid: int, request: Request,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """직책 템플릿 삭제. 시스템 기본은 삭제 불가.
+
+    cascade=CASCADE로 enrollment_positions의 매핑 행도 자동 정리.
+    """
+    p = (await db.execute(
+        select(PositionTemplate).where(PositionTemplate.id == tid)
+    )).scalar_one_or_none()
+    if not p:
+        raise HTTPException(404)
+    if p.is_system:
+        raise HTTPException(403, "시스템 기본 템플릿은 삭제할 수 없습니다")
+
+    await db.delete(p)
+    await db.flush()
+    await log_action(
+        db, user, "position_template.delete",
+        target=f"id:{tid} key:{p.key}", request=request,
+    )
     return {"ok": True}
