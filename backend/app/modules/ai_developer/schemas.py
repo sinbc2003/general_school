@@ -1,7 +1,7 @@
 """AI 개발자 요청/응답 스키마"""
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DevRequestCreate(BaseModel):
@@ -22,6 +22,8 @@ class DevRequestApply(BaseModel):
 
 
 class DevRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     feedback_id: int | None
     title: str
@@ -36,9 +38,6 @@ class DevRequestResponse(BaseModel):
     admin_note: str | None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class DevRequestListResponse(BaseModel):
