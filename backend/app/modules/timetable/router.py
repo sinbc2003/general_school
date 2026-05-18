@@ -80,4 +80,6 @@ def _parse_date(v: str | date | None) -> date | None:
 # Sub-modules — endpoint 등록 강제 (마지막에 import해 순환 회피)
 from app.modules.timetable import semesters  # noqa: E402, F401
 from app.modules.timetable import enrollments  # noqa: E402, F401
+from app.modules.timetable import enrollment_positions  # noqa: E402, F401
+from app.modules.timetable import enrollment_csv  # noqa: E402, F401
 from app.modules.timetable import entries  # noqa: E402, F401
