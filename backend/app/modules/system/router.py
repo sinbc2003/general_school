@@ -17,6 +17,10 @@ from app.core.database import get_db
 from app.core.permissions import require_permission, require_super_admin, require_admin
 from app.models.user import User
 from app.models.audit import AuditLog
+from app.modules.system.schemas import (
+    AuditRetentionUpdate, BackupScheduleUpdate, BrandingUpdate,
+    MenuSettingsUpdate, TeacherViewScopeUpdate,
+)
 from app.models.setting import Setting
 
 BRANDING_DIR = Path(__file__).resolve().parents[3] / "storage" / "branding"
@@ -116,12 +120,12 @@ async def get_menu_settings(
 
 @router.put("/menu-settings")
 async def update_menu_settings(
-    body: dict,
+    body: MenuSettingsUpdate,
     user: User = Depends(require_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     """메뉴 숨김 설정 변경 (관리자 — super_admin + designated_admin)"""
-    hidden = body.get("hidden_menus", [])
+    hidden = body.hidden_menus
     row = (await db.execute(
         select(Setting).where(Setting.key == HIDDEN_MENUS_KEY)
     )).scalar_one_or_none()
@@ -220,15 +224,16 @@ async def get_branding(db: AsyncSession = Depends(get_db)):
 
 @router.put("/branding")
 async def update_branding(
-    body: dict,
+    body: BrandingUpdate,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     """사이트 브랜딩 텍스트 저장 (최고관리자 전용)"""
-    if "title" in body:
-        await _set_setting(db, "site.title", (body.get("title") or "").strip()[:200])
-    if "school_name" in body:
-        await _set_setting(db, "site.school_name", (body.get("school_name") or "").strip()[:200])
+    patch = body.model_dump(exclude_unset=True)
+    if "title" in patch:
+        await _set_setting(db, "site.title", (patch["title"] or "").strip()[:200])
+    if "school_name" in patch:
+        await _set_setting(db, "site.school_name", (patch["school_name"] or "").strip()[:200])
     await db.flush()
     return {"ok": True}
 
@@ -255,14 +260,12 @@ async def get_teacher_view_scope(
 
 @router.put("/policy/teacher-view-scope")
 async def update_teacher_view_scope(
-    body: dict,
+    body: TeacherViewScopeUpdate,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """정책 변경. body: {"scope": "all" | "scoped"}"""
-    scope = (body.get("scope") or "").strip()
-    if scope not in VALID_SCOPES:
-        raise HTTPException(400, f"scope must be one of {sorted(VALID_SCOPES)}")
+    """정책 변경 — 'all' or 'scoped'."""
+    scope = body.scope
     await set_view_scope(db, scope)
     await db.flush()
     return {"ok": True, "scope": scope}
@@ -358,22 +361,21 @@ async def get_audit_retention(
 
 @router.put("/audit/retention")
 async def set_audit_retention(
-    body: dict, request: Request,
+    body: AuditRetentionUpdate, request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """audit_log 보관 정책 변경. 2FA 필수.
-    body: {retention_days?, retention_keep_sensitive_days?}
-    """
+    """audit_log 보관 정책 변경 (부분 업데이트). 2FA 필수."""
     from app.core.audit_retention import set_retention_config
     await verify_2fa_session(user, request, db)
+    patch = body.model_dump(exclude_unset=True)
     try:
-        result = await set_retention_config(db, body)
+        result = await set_retention_config(db, patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
     await log_action(
         db, user, "audit.retention.update",
-        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+        target=f"updated:{sorted(patch.keys())}", request=request, is_sensitive=True,
     )
     return result
 
@@ -412,23 +414,21 @@ async def get_backup_schedule(
 
 @router.put("/backup/schedule")
 async def update_backup_schedule(
-    body: dict, request: Request,
+    body: BackupScheduleUpdate, request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
-    """자동 백업 설정 변경. 2FA 필수.
-
-    body: {enabled?, interval_hours?, retention_count?, output_dir?}
-    """
+    """자동 백업 설정 변경 (부분 업데이트). 2FA 필수."""
     from app.core.backup_scheduler import set_config
     await verify_2fa_session(user, request, db)
+    patch = body.model_dump(exclude_unset=True)
     try:
-        result = await set_config(db, body)
+        result = await set_config(db, patch)
     except ValueError as e:
         raise HTTPException(400, str(e))
     await log_action(
         db, user, "backup.schedule.update",
-        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+        target=f"updated:{sorted(patch.keys())}", request=request, is_sensitive=True,
     )
     return result
 
