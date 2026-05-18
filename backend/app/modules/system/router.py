@@ -344,6 +344,57 @@ async def restore_apply(
     return result
 
 
+# ── audit_log retention ──
+
+@router.get("/audit/retention")
+async def get_audit_retention(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """audit_log 보관 정책 조회 + 최근 cleanup 상태."""
+    from app.core.audit_retention import get_retention_config
+    return await get_retention_config(db)
+
+
+@router.put("/audit/retention")
+async def set_audit_retention(
+    body: dict, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """audit_log 보관 정책 변경. 2FA 필수.
+    body: {retention_days?, retention_keep_sensitive_days?}
+    """
+    from app.core.audit_retention import set_retention_config
+    await verify_2fa_session(user, request, db)
+    try:
+        result = await set_retention_config(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await log_action(
+        db, user, "audit.retention.update",
+        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+    )
+    return result
+
+
+@router.post("/audit/retention/cleanup")
+async def trigger_audit_cleanup(
+    request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """수동으로 retention 정책에 따라 즉시 정리. 2FA 필수."""
+    from app.core.audit_retention import cleanup_audit_logs
+    await verify_2fa_session(user, request, db)
+    result = await cleanup_audit_logs(db)
+    await log_action(
+        db, user, "audit.retention.cleanup",
+        target=f"total:{result['total']}", request=request, is_sensitive=True,
+    )
+    return result
+
+
 # ── 자동 백업 스케줄 ──
 # 백그라운드 task는 main.py lifespan에서 자동 시작.
 # 이 API는 설정 조회·변경 + 수동 트리거 + 저장된 파일 목록.
