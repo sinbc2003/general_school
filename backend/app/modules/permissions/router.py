@@ -774,3 +774,116 @@ async def delete_position_template(
         target=f"id:{tid} key:{p.key} affected:{len(set(affected_uids))}", request=request,
     )
     return {"ok": True}
+
+
+@router.post("/position-templates/{tid}/apply-to-department")
+async def apply_position_template_to_department(
+    tid: int, body: dict, request: Request,
+    user: User = Depends(require_permission_manager()),
+    db: AsyncSession = Depends(get_db),
+):
+    """직책 템플릿을 특정 학기·부서의 모든 교직원 enrollment에 일괄 할당.
+
+    body: {
+      "semester_id": int,
+      "department": str,                # SemesterEnrollment.department 매칭값
+      "include_roles": ["teacher"|"staff"]?,  # 기본 ["teacher","staff"]
+      "replace": bool = false           # True면 대상 enrollment의 기존 직책 통째로 교체
+    }
+
+    학년도 단위 운영 시나리오에서 "수학과 전체에 동일 권한" 같은 패턴을 빠르게.
+    archived 학기는 차단.
+    2FA 필수 (영향 범위 큼).
+    """
+    from sqlalchemy import delete as sql_delete
+    await verify_2fa_session(user, request, db)
+
+    template = (await db.execute(
+        select(PositionTemplate).where(PositionTemplate.id == tid)
+    )).scalar_one_or_none()
+    if not template:
+        raise HTTPException(404, "직책 템플릿 없음")
+
+    semester_id = body.get("semester_id")
+    department = (body.get("department") or "").strip()
+    if not semester_id or not department:
+        raise HTTPException(400, "semester_id, department 필수")
+
+    # archived 학기 차단
+    from app.models.timetable import Semester
+    sem = (await db.execute(
+        select(Semester).where(Semester.id == int(semester_id))
+    )).scalar_one_or_none()
+    if not sem:
+        raise HTTPException(404, "학기 없음")
+    if sem.is_archived:
+        raise HTTPException(423, f"학기 '{sem.name}'은(는) 보관 상태입니다")
+
+    include_roles = body.get("include_roles") or ["teacher", "staff"]
+    replace = bool(body.get("replace", False))
+
+    # 대상 enrollment 조회
+    target_enrolls = (await db.execute(
+        select(SemesterEnrollment).where(
+            SemesterEnrollment.semester_id == int(semester_id),
+            SemesterEnrollment.department == department,
+            SemesterEnrollment.role.in_(include_roles),
+            SemesterEnrollment.status == "active",
+        )
+    )).scalars().all()
+
+    if not target_enrolls:
+        return {
+            "ok": True, "applied": 0, "skipped": 0,
+            "message": f"부서 '{department}'에 해당하는 active enrollment 없음",
+        }
+
+    applied = 0
+    skipped = 0
+    affected_uids: set[int] = set()
+    for e in target_enrolls:
+        if replace:
+            # 기존 직책 모두 삭제 후 새로 추가
+            await db.execute(
+                sql_delete(EnrollmentPosition).where(EnrollmentPosition.enrollment_id == e.id)
+            )
+            db.add(EnrollmentPosition(
+                enrollment_id=e.id, position_template_id=tid, granted_by=user.id,
+            ))
+            applied += 1
+            affected_uids.add(e.user_id)
+        else:
+            # 이미 이 직책이 할당된 enrollment는 skip
+            already = (await db.execute(
+                select(EnrollmentPosition).where(
+                    EnrollmentPosition.enrollment_id == e.id,
+                    EnrollmentPosition.position_template_id == tid,
+                )
+            )).scalar_one_or_none()
+            if already:
+                skipped += 1
+                continue
+            db.add(EnrollmentPosition(
+                enrollment_id=e.id, position_template_id=tid, granted_by=user.id,
+            ))
+            applied += 1
+            affected_uids.add(e.user_id)
+
+    await db.flush()
+
+    # 영향받은 사용자 세션 무효화
+    for uid in affected_uids:
+        await _invalidate_user_sessions(db, uid)
+    await db.flush()
+
+    await log_action(
+        db, user, "position_template.apply_to_department",
+        target=f"tid:{tid} sem:{semester_id} dept:{department} applied:{applied} replace:{replace}",
+        request=request, is_sensitive=True,
+    )
+    return {
+        "ok": True,
+        "applied": applied,
+        "skipped": skipped,
+        "affected_users": len(affected_uids),
+    }

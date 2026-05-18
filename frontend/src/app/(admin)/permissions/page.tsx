@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
-import { Shield, Users, Layers, Save, Lock, Briefcase, Plus, Edit3, Trash2, Check, X } from "lucide-react";
+import { Shield, Users, Layers, Save, Lock, Briefcase, Plus, Edit3, Trash2, Check, X, Building2 } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
+import { PositionApplyToDepartmentModal } from "@/components/admin/PositionApplyToDepartmentModal";
 
 type Tab = "matrix" | "admins" | "groups" | "positions";
 
@@ -525,6 +526,7 @@ function PositionTemplates() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<PositionTemplate | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [applyToDept, setApplyToDept] = useState<{ id: number; name: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -635,6 +637,13 @@ function PositionTemplates() {
                     </div>
                     <div className="flex items-center gap-1">
                       <button
+                        onClick={() => setApplyToDept({ id: t.id, name: t.display_name })}
+                        title="부서에 일괄 할당 (학기 단위)"
+                        className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
+                      >
+                        <Building2 size={13} />
+                      </button>
+                      <button
                         onClick={() => openEdit(t)}
                         title="수정"
                         className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
@@ -686,6 +695,16 @@ function PositionTemplates() {
             setEditing(null);
             fetchAll();
           }}
+        />
+      )}
+
+      {applyToDept && (
+        <PositionApplyToDepartmentModal
+          open={true}
+          templateId={applyToDept.id}
+          templateName={applyToDept.name}
+          onClose={() => setApplyToDept(null)}
+          onSuccess={fetchAll}
         />
       )}
     </div>
