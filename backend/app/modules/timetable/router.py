@@ -49,11 +49,24 @@ def _semester_to_dict(s: Semester) -> dict:
         "start_date": s.start_date.isoformat() if s.start_date else None,
         "end_date": s.end_date.isoformat() if s.end_date else None,
         "is_current": s.is_current,
+        "is_archived": s.is_archived,
+        "archived_at": s.archived_at.isoformat() if s.archived_at else None,
         # 학교 구조 (드롭다운 용도)
         "classes_per_grade": _safe_json_parse(s.classes_per_grade, {}),
         "subjects": _safe_json_parse(s.subjects, []),
         "departments": _safe_json_parse(s.departments, []),
     }
+
+
+async def _assert_semester_writable(db: AsyncSession, sid: int) -> Semester:
+    """학기 쓰기 작업 전 archived 여부 검증. archived면 423 Locked."""
+    s = await get_semester_by_id_or_404(db, sid)
+    if s.is_archived:
+        raise HTTPException(
+            423,  # Locked
+            f"학기 '{s.name}'은(는) 보관(archived) 상태입니다. 편집하려면 먼저 보관을 해제하세요.",
+        )
+    return s
 
 
 def _parse_date(v: str | date | None) -> date | None:
@@ -260,12 +273,61 @@ async def set_current_semester(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    """이 학기를 현재 학기로 지정 (다른 모든 학기는 is_current=False)."""
+    """이 학기를 현재 학기로 지정 (다른 모든 학기는 is_current=False).
+    archived 학기는 현재 학기로 지정 불가.
+    """
     s = await get_semester_by_id_or_404(db, sid)
+    if s.is_archived:
+        raise HTTPException(400, "보관된 학기는 현재 학기로 지정할 수 없습니다. 먼저 보관 해제하세요.")
     await db.execute(sql_update(Semester).values(is_current=False))
     s.is_current = True
     await db.flush()
     await log_action(db, user, "semester.set_current", f"semester:{sid}", request=request)
+    return _semester_to_dict(s)
+
+
+@router.post("/semesters/{sid}/archive")
+async def archive_semester(
+    sid: int, request: Request,
+    user: User = Depends(require_permission("system.semester.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """학기 보관 (종료).
+    - is_archived=True 설정 → 모든 쓰기 차단 (조회만 가능)
+    - is_current=True인 학기는 보관 불가 (먼저 다른 학기를 현재로 지정)
+    - 보관 시각 기록 (archived_at)
+    - enrollment positions·시간표는 그대로 보존 (히스토리/생기부용)
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    s = await get_semester_by_id_or_404(db, sid)
+    if s.is_archived:
+        return _semester_to_dict(s)  # 이미 보관됨 — 멱등
+    if s.is_current:
+        raise HTTPException(
+            400,
+            "현재 학기는 보관할 수 없습니다. 다른 학기를 현재 학기로 지정한 후 보관하세요.",
+        )
+    s.is_archived = True
+    s.archived_at = _dt.now(_tz.utc)
+    await db.flush()
+    await log_action(db, user, "semester.archive", f"semester:{sid}", request=request, is_sensitive=True)
+    return _semester_to_dict(s)
+
+
+@router.post("/semesters/{sid}/unarchive")
+async def unarchive_semester(
+    sid: int, request: Request,
+    user: User = Depends(require_permission("system.semester.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """학기 보관 해제 — 쓰기 다시 허용."""
+    s = await get_semester_by_id_or_404(db, sid)
+    if not s.is_archived:
+        return _semester_to_dict(s)  # 이미 해제 — 멱등
+    s.is_archived = False
+    s.archived_at = None
+    await db.flush()
+    await log_action(db, user, "semester.unarchive", f"semester:{sid}", request=request)
     return _semester_to_dict(s)
 
 
@@ -532,7 +594,7 @@ async def add_enrollment(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
-    await get_semester_by_id_or_404(db, sid)
+    await _assert_semester_writable(db, sid)
     uid = body.user_id
     target = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     if not target:
@@ -577,6 +639,7 @@ async def update_enrollment(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await _assert_semester_writable(db, sid)
     e = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.id == eid,
@@ -606,6 +669,7 @@ async def delete_enrollment(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await _assert_semester_writable(db, sid)
     e = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.id == eid,
@@ -684,6 +748,7 @@ async def set_enrollment_positions(
     from app.models.position import PositionTemplate, EnrollmentPosition
     from sqlalchemy import delete as sql_delete
 
+    await _assert_semester_writable(db, sid)
     e = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.id == eid,
@@ -747,6 +812,7 @@ async def sync_enrollment_positions_to_year(
     from app.models.position import PositionTemplate, EnrollmentPosition
     from sqlalchemy import delete as sql_delete
 
+    await _assert_semester_writable(db, sid)
     src = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.id == eid,
@@ -1021,10 +1087,12 @@ async def update_entry(
     - super_admin / designated_admin: 모든 entry 수정 가능
     - teacher: 본인 entry(teacher_id==user.id) 만 수정 가능
     - 시간표가 가끔 바뀌는 경우 본인 entry를 직접 고칠 수 있게.
+    - 보관된 학기는 수정 차단.
     """
     e = (await db.execute(select(TimetableEntry).where(TimetableEntry.id == eid))).scalar_one_or_none()
     if not e:
         raise HTTPException(404, "시간표 항목을 찾을 수 없습니다")
+    await _assert_semester_writable(db, e.semester_id)
 
     is_admin = user.role in ("super_admin", "designated_admin")
     is_owner = e.teacher_id == user.id
@@ -1055,6 +1123,7 @@ async def create_entry(
     user: User = Depends(require_permission("timetable.edit")),
     db: AsyncSession = Depends(get_db),
 ):
+    await _assert_semester_writable(db, body["semester_id"])
     e = TimetableEntry(
         semester_id=body["semester_id"], teacher_id=body["teacher_id"],
         day_of_week=body["day_of_week"], period=body["period"],

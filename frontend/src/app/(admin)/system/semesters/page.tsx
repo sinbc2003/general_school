@@ -22,6 +22,8 @@ import {
   Download,
   Upload,
   School,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { ChipInput } from "@/components/ui/ChipInput";
 
@@ -35,6 +37,8 @@ interface Semester {
   start_date: string;
   end_date: string;
   is_current: boolean;
+  is_archived?: boolean;
+  archived_at?: string | null;
   classes_per_grade?: Record<string, number>;
   subjects?: string[];
   departments?: string[];
@@ -305,6 +309,32 @@ export default function SemestersPage() {
       fetchSemesters();
     } catch (err: any) {
       alert(err?.detail || "삭제 실패");
+    }
+  };
+
+  const archive = async (sid: number, name: string) => {
+    if (!confirm(
+      `'${name}' 학기를 보관합니다.\n\n` +
+      `보관 후:\n` +
+      `· 명단 수정·시간표 편집·직책 변경이 차단됩니다 (조회는 가능 — 생기부/히스토리)\n` +
+      `· 보관 상태는 언제든 해제할 수 있습니다.\n\n` +
+      `계속하시겠습니까?`,
+    )) return;
+    try {
+      await api.post(`/api/timetable/semesters/${sid}/archive`);
+      fetchSemesters();
+    } catch (err: any) {
+      alert(err?.detail || "보관 실패");
+    }
+  };
+
+  const unarchive = async (sid: number, name: string) => {
+    if (!confirm(`'${name}' 학기의 보관을 해제하고 편집을 다시 허용합니다. 계속하시겠습니까?`)) return;
+    try {
+      await api.post(`/api/timetable/semesters/${sid}/unarchive`);
+      fetchSemesters();
+    } catch (err: any) {
+      alert(err?.detail || "보관 해제 실패");
     }
   };
 
@@ -939,11 +969,20 @@ export default function SemestersPage() {
           </thead>
           <tbody>
             {items.map((s) => (
-              <tr key={s.id} className={`border-t border-border-default hover:bg-bg-secondary ${s.is_current ? "bg-cream-100/40" : ""}`}>
+              <tr
+                key={s.id}
+                className={`border-t border-border-default hover:bg-bg-secondary ${
+                  s.is_current ? "bg-cream-100/40" : ""
+                } ${s.is_archived ? "opacity-60" : ""}`}
+              >
                 <td className="px-4 py-2">
                   {s.is_current ? (
                     <span className="inline-flex items-center gap-1 text-caption text-accent font-medium">
                       <CheckCircle2 size={14} /> 현재
+                    </span>
+                  ) : s.is_archived ? (
+                    <span className="inline-flex items-center gap-1 text-caption text-text-tertiary" title={s.archived_at ? `보관 시각: ${s.archived_at.slice(0,16).replace('T',' ')}` : undefined}>
+                      <Archive size={14} /> 보관
                     </span>
                   ) : (
                     <button
@@ -956,7 +995,12 @@ export default function SemestersPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <div className="text-body text-text-primary font-medium">{s.name}</div>
+                  <div className="text-body text-text-primary font-medium">
+                    {s.name}
+                    {s.is_archived && (
+                      <span className="ml-2 text-caption text-text-tertiary font-normal">(보관됨)</span>
+                    )}
+                  </div>
                   <div className="text-caption text-text-tertiary">{s.year}학년도 · {s.semester}학기</div>
                 </td>
                 <td className="px-4 py-2 text-body text-text-secondary">
@@ -967,22 +1011,42 @@ export default function SemestersPage() {
                     <button
                       onClick={() => openStructure(s)}
                       title="학교 구조 설정 (학급 수·과목·부서)"
-                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent"
+                      disabled={s.is_archived}
+                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <School size={14} />
                     </button>
                     <button
                       onClick={() => openEdit(s)}
                       title="수정"
-                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent"
+                      disabled={s.is_archived}
+                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Edit3 size={14} />
                     </button>
+                    {s.is_archived ? (
+                      <button
+                        onClick={() => unarchive(s.id, s.name)}
+                        title="보관 해제 — 편집 다시 허용"
+                        className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent"
+                      >
+                        <ArchiveRestore size={14} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => archive(s.id, s.name)}
+                        title={s.is_current ? "현재 학기는 보관 불가 — 먼저 다른 학기를 현재로 지정" : "학기 보관 (편집 차단, 조회 가능)"}
+                        disabled={s.is_current}
+                        className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Archive size={14} />
+                      </button>
+                    )}
                     <button
                       onClick={() => remove(s.id, s.name)}
                       title="삭제"
                       disabled={s.is_current}
-                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-status-error disabled:opacity-30"
+                      className="p-1 hover:bg-bg-primary rounded text-text-tertiary hover:text-status-error disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={14} />
                     </button>

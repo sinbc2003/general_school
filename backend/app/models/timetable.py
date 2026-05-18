@@ -35,6 +35,16 @@ class Semester(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     is_current: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 학기 종료 후 보관 상태. archived=True면:
+    #  · 모든 쓰기 차단 (enrollment, positions, timetable 편집 X)
+    #  · 조회는 허용 (히스토리/생기부)
+    #  · is_current=True와 동시 가능 X (archive 시 자동 해제)
+    is_archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false",
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
 
     # 학교 구조 (드롭다운 표준화 용도). 모두 JSON 문자열로 저장.
     # 교사 onboarding 시 이 정보로 드롭다운 생성 → 표준화된 데이터 수집.
