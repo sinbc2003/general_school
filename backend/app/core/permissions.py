@@ -46,6 +46,38 @@ SUPER_ADMIN_ONLY_KEYS = {
     "user.manage.delete",
 }
 
+# 지정관리자 모드 — Setting 키 'permissions.designated_admin_mode'
+#  "full"   : SUPER_ADMIN_ONLY 제외 모든 권한 자동 (디폴트, 기존 동작)
+#  "scoped" : 일반 역할처럼 매트릭스에서 명시 부여한 권한만
+DESIGNATED_ADMIN_MODE_KEY = "permissions.designated_admin_mode"
+VALID_DESIGNATED_ADMIN_MODES = {"full", "scoped"}
+DEFAULT_DESIGNATED_ADMIN_MODE = "full"
+
+
+async def get_designated_admin_mode(db: AsyncSession) -> str:
+    """지정관리자 모드 조회. 디폴트 'full'.
+    Setting 테이블에서 읽음 — 없으면 디폴트 반환.
+    """
+    from app.models.setting import Setting
+    row = (await db.execute(
+        select(Setting).where(Setting.key == DESIGNATED_ADMIN_MODE_KEY)
+    )).scalar_one_or_none()
+    val = (row.value if row else None) or DEFAULT_DESIGNATED_ADMIN_MODE
+    return val if val in VALID_DESIGNATED_ADMIN_MODES else DEFAULT_DESIGNATED_ADMIN_MODE
+
+
+async def set_designated_admin_mode(db: AsyncSession, mode: str) -> None:
+    if mode not in VALID_DESIGNATED_ADMIN_MODES:
+        raise ValueError(f"invalid mode: {mode}")
+    from app.models.setting import Setting
+    row = (await db.execute(
+        select(Setting).where(Setting.key == DESIGNATED_ADMIN_MODE_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = mode
+    else:
+        db.add(Setting(key=DESIGNATED_ADMIN_MODE_KEY, value=mode))
+
 # 라우터에서 require_permission()으로 실제 사용되는 키들 (자동 추적)
 # 이 set은 모듈 라우터들이 import될 때 자동으로 채워진다.
 _REGISTERED_KEYS: set[str] = set()
@@ -73,7 +105,9 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
 
     해석 순서:
     1. super_admin → 전체 권한 (short-circuit)
-    2. designated_admin → 전체 권한 - SUPER_ADMIN_ONLY
+    2. designated_admin —
+         · full 모드 (디폴트): 전체 권한 - SUPER_ADMIN_ONLY
+         · scoped 모드:        role/user/group/position 합집합 (SUPER_ADMIN_ONLY 강제 제외)
     3. teacher/staff/student →
          role_permissions
        + user_permissions
@@ -85,9 +119,13 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
         return set(result.scalars().all())
 
     if user.role == "designated_admin":
-        result = await db.execute(select(Permission.key))
-        all_keys = set(result.scalars().all())
-        return all_keys - SUPER_ADMIN_ONLY_KEYS
+        mode = await get_designated_admin_mode(db)
+        if mode == "full":
+            result = await db.execute(select(Permission.key))
+            all_keys = set(result.scalars().all())
+            return all_keys - SUPER_ADMIN_ONLY_KEYS
+        # scoped 모드: 아래 일반 역할 계산을 그대로 수행한 뒤 SUPER_ADMIN_ONLY 강제 제외.
+        # (fall-through)
 
     perms: set[str] = set()
 
@@ -115,6 +153,10 @@ async def resolve_permissions(db: AsyncSession, user: User) -> set[str]:
 
     # 현재 학기 직책(PositionTemplate) 기반 권한 — 학기 종료 시 자동 회수
     perms |= await _resolve_position_permissions(db, user.id)
+
+    # designated_admin은 scoped 모드라도 SUPER_ADMIN_ONLY 권한 가질 수 없음
+    if user.role == "designated_admin":
+        perms -= SUPER_ADMIN_ONLY_KEYS
 
     return perms
 
@@ -184,6 +226,12 @@ def require_permission(permission_key: str):
         if user.role == "designated_admin":
             if permission_key in SUPER_ADMIN_ONLY_KEYS:
                 raise HTTPException(403, f"최고관리자 전용 권한: {permission_key}")
+            # full 모드는 즉시 통과, scoped 모드는 명시 권한 확인
+            mode = await get_designated_admin_mode(db)
+            if mode == "scoped":
+                user_perms = await resolve_permissions(db, user)
+                if permission_key not in user_perms:
+                    raise HTTPException(403, f"권한 부족: {permission_key}")
             perm = await _get_permission(db, permission_key)
             if perm and perm.requires_2fa:
                 await verify_2fa_session(user, request, db)

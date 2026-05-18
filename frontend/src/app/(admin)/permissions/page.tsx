@@ -66,6 +66,9 @@ function PermissionMatrix() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // 지정관리자 모드 (full/scoped) — full이면 designated_admin 컬럼 토글 비활성
+  const [designatedMode, setDesignatedMode] = useState<"full" | "scoped">("full");
+  const [modeChanging, setModeChanging] = useState(false);
 
   const fetchMatrix = useCallback(async () => {
     setLoading(true);
@@ -73,12 +76,34 @@ function PermissionMatrix() {
       const data = await api.get("/api/permissions/matrix");
       setMatrix(data.matrix);
       setRoles(data.roles);
+      if (data.designated_admin_mode) {
+        setDesignatedMode(data.designated_admin_mode);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const changeMode = async (newMode: "full" | "scoped") => {
+    if (newMode === designatedMode) return;
+    const msg = newMode === "scoped"
+      ? "지정관리자 모드를 'scoped'로 변경합니다.\n매트릭스에서 명시 부여한 권한만 보유하게 됩니다.\n현재 활동 중인 지정관리자는 자동 로그아웃됩니다.\n계속하시겠습니까?"
+      : "지정관리자 모드를 'full'로 변경합니다.\n모든 지정관리자가 (super_admin 전용 제외) 모든 권한을 자동 보유하게 됩니다.\n현재 활동 중인 지정관리자는 자동 로그아웃됩니다.\n계속하시겠습니까?";
+    if (!confirm(msg)) return;
+    setModeChanging(true);
+    try {
+      await api.put("/api/permissions/policy/designated-admin-mode", { mode: newMode });
+      setDesignatedMode(newMode);
+      await fetchMatrix();
+      alert(`모드 변경 완료: ${newMode}`);
+    } catch (err: any) {
+      alert(err?.detail || "모드 변경 실패");
+    } finally {
+      setModeChanging(false);
+    }
+  };
 
   useEffect(() => {
     fetchMatrix();
@@ -87,7 +112,13 @@ function PermissionMatrix() {
   const togglePermission = (rowIdx: number, role: string) => {
     const row = matrix[rowIdx];
     if (row.super_admin_only && !isSuperAdmin) return;
-    if (role === "super_admin" || role === "designated_admin") return;
+    if (role === "super_admin") return;
+    // designated_admin은 scoped 모드 + super_admin인 경우만 토글 가능
+    if (role === "designated_admin") {
+      if (!isSuperAdmin || designatedMode !== "scoped") return;
+      // SUPER_ADMIN_ONLY 키는 designated_admin이 가질 수 없음
+      if (row.super_admin_only) return;
+    }
 
     setMatrix((prev) => {
       const next = [...prev];
@@ -101,7 +132,11 @@ function PermissionMatrix() {
     setSaving(true);
     try {
       for (const role of roles) {
-        if (role === "super_admin" || role === "designated_admin") continue;
+        if (role === "super_admin") continue;
+        // designated_admin은 super_admin + scoped 모드일 때만 저장
+        if (role === "designated_admin" && (!isSuperAdmin || designatedMode !== "scoped")) {
+          continue;
+        }
         const keys = matrix.filter((r) => r[role]).map((r) => r.key);
         await api.put(`/api/permissions/roles/${role}`, { permissions: keys });
       }
@@ -115,6 +150,7 @@ function PermissionMatrix() {
   };
 
   const ROLE_LABELS: Record<string, string> = {
+    super_admin: "최고관리자",
     designated_admin: "지정관리자",
     teacher: "교사",
     staff: "직원",
@@ -133,6 +169,46 @@ function PermissionMatrix() {
 
   return (
     <div>
+      {/* 지정관리자 모드 선택 (super_admin 전용) */}
+      {isSuperAdmin && (
+        <div className="mb-4 p-3 bg-cream-100 border border-cream-300 rounded-lg">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-caption text-text-secondary flex-1 min-w-[280px]">
+              <b>지정관리자 권한 모드</b> · 변경 시 모든 지정관리자 세션 자동 종료
+              <div className="text-text-tertiary mt-0.5">
+                {designatedMode === "full"
+                  ? "현재: 모든 권한 자동 (최고관리자 전용 제외)"
+                  : "현재: 매트릭스에서 명시 부여한 권한만"}
+              </div>
+            </div>
+            <div className="flex gap-1 bg-bg-primary rounded p-0.5">
+              <button
+                onClick={() => changeMode("full")}
+                disabled={modeChanging || designatedMode === "full"}
+                className={`px-3 py-1 text-caption rounded transition-colors ${
+                  designatedMode === "full"
+                    ? "bg-accent text-white"
+                    : "text-text-secondary hover:bg-bg-secondary"
+                }`}
+              >
+                전체 (디폴트)
+              </button>
+              <button
+                onClick={() => changeMode("scoped")}
+                disabled={modeChanging || designatedMode === "scoped"}
+                className={`px-3 py-1 text-caption rounded transition-colors ${
+                  designatedMode === "scoped"
+                    ? "bg-accent text-white"
+                    : "text-text-secondary hover:bg-bg-secondary"
+                }`}
+              >
+                세분화
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {dirty && (
         <div className="flex items-center justify-between mb-4 p-3 bg-accent-light rounded-lg">
           <span className="text-body text-accent">변경사항이 있습니다</span>
@@ -186,20 +262,42 @@ function PermissionMatrix() {
                         <div className="text-caption text-text-tertiary">{row.key}</div>
                       </td>
                       {roles.map((role) => {
-                        const isAdminRole = role === "super_admin" || role === "designated_admin";
-                        const isLocked = row.super_admin_only && !isSuperAdmin;
-                        const checked = isAdminRole ? true : row[role];
+                        const isSuperRow = role === "super_admin";
+                        // designated_admin은 모드/권한에 따라 분기
+                        let isAutoChecked = false;  // 토글 비활성 + 체크된 상태로 표시
+                        let isTogglable = false;
+                        if (isSuperRow) {
+                          isAutoChecked = true;
+                        } else if (role === "designated_admin") {
+                          if (designatedMode === "full") {
+                            // full 모드: SUPER_ADMIN_ONLY 제외 모두 자동 보유
+                            isAutoChecked = !row.super_admin_only;
+                          } else {
+                            // scoped: super_admin만 토글 가능, SUPER_ADMIN_ONLY는 불가
+                            isTogglable = isSuperAdmin && !row.super_admin_only;
+                          }
+                        } else {
+                          isTogglable = !(row.super_admin_only && !isSuperAdmin);
+                        }
+                        const checked = isAutoChecked ? true : row[role];
 
                         return (
                           <td key={role} className="px-4 py-2 text-center">
                             <button
-                              onClick={() => !isAdminRole && !isLocked && togglePermission(rowIdx, role)}
-                              disabled={isAdminRole || isLocked}
+                              onClick={() => isTogglable && togglePermission(rowIdx, role)}
+                              disabled={!isTogglable}
                               className={`w-8 h-5 rounded-full relative transition-colors ${
                                 checked
                                   ? "bg-accent"
                                   : "bg-gray-200"
-                              } ${isAdminRole || isLocked ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                              } ${!isTogglable ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                              title={
+                                role === "designated_admin" && designatedMode === "full"
+                                  ? "full 모드: 자동 부여 (모드를 scoped로 바꿔야 토글 가능)"
+                                  : row.super_admin_only && role !== "super_admin"
+                                  ? "최고관리자 전용 권한"
+                                  : ""
+                              }
                             >
                               <span
                                 className={`block w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 transition-all ${

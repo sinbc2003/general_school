@@ -132,8 +132,12 @@ async def update_role_permissions(
     if user.role == "designated_admin" and role not in MANAGEABLE_ROLES_BY_DESIGNATED:
         raise HTTPException(403, "해당 역할의 권한을 수정할 수 없습니다")
 
-    if role in ("super_admin", "designated_admin"):
-        raise HTTPException(400, "관리자 역할의 기본 권한은 변경할 수 없습니다")
+    # super_admin role은 변경 불가 (항상 전체 권한)
+    if role == "super_admin":
+        raise HTTPException(400, "최고관리자 역할은 항상 모든 권한을 가집니다")
+    # designated_admin role은 super_admin만 변경 가능 (designated_admin 자기 자신은 권한 상승 위험)
+    if role == "designated_admin" and user.role != "super_admin":
+        raise HTTPException(403, "지정관리자 역할의 권한은 최고관리자만 변경할 수 있습니다")
 
     permission_keys = body.get("permissions", [])
 
@@ -142,6 +146,9 @@ async def update_role_permissions(
         for key in permission_keys:
             if key in SUPER_ADMIN_ONLY_KEYS:
                 raise HTTPException(403, f"최고관리자 전용 권한은 부여할 수 없습니다: {key}")
+    # designated_admin role의 권한 셋에는 SUPER_ADMIN_ONLY 키가 들어갈 수 없음 (정책 강제)
+    if role == "designated_admin":
+        permission_keys = [k for k in permission_keys if k not in SUPER_ADMIN_ONLY_KEYS]
 
     # 기존 role_permissions 삭제
     await db.execute(
@@ -178,10 +185,19 @@ async def get_permission_matrix(
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """전체 권한 매트릭스 — UI의 토글 그리드용"""
+    """전체 권한 매트릭스 — UI의 토글 그리드용.
+
+    designated_admin 컬럼은:
+      - super_admin이 보는 경우만 노출
+      - 'scoped' 모드일 때만 토글 활성 (full 모드는 자동 부여라 토글 의미 없음)
+    """
+    from app.core.permissions import get_designated_admin_mode
+
     # 모든 권한
     result = await db.execute(select(Permission).order_by(Permission.category, Permission.key))
     all_perms = result.scalars().all()
+
+    designated_mode = await get_designated_admin_mode(db)
 
     # 역할별 부여된 권한 ID
     roles = ["teacher", "staff", "student"]
@@ -209,7 +225,73 @@ async def get_permission_matrix(
             row[role] = p.id in role_perm_map.get(role, set())
         matrix.append(row)
 
-    return {"roles": roles, "matrix": matrix}
+    return {
+        "roles": roles,
+        "matrix": matrix,
+        "designated_admin_mode": designated_mode,
+    }
+
+
+# ── 지정관리자 모드 정책 (super_admin only) ──
+
+@router.get("/policy/designated-admin-mode")
+async def get_designated_admin_mode_endpoint(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 지정관리자 모드 조회."""
+    from app.core.permissions import (
+        get_designated_admin_mode,
+        VALID_DESIGNATED_ADMIN_MODES,
+    )
+    return {
+        "mode": await get_designated_admin_mode(db),
+        "options": [
+            {
+                "value": "full",
+                "label": "전체 권한 (디폴트)",
+                "description": "지정관리자는 최고관리자 전용 권한을 제외한 모든 권한 자동 보유.",
+            },
+            {
+                "value": "scoped",
+                "label": "세분화 (매트릭스 토글)",
+                "description": "지정관리자도 일반 역할처럼 매트릭스에서 명시 부여한 권한만 보유.",
+            },
+        ],
+        "valid": sorted(VALID_DESIGNATED_ADMIN_MODES),
+    }
+
+
+@router.put("/policy/designated-admin-mode")
+async def set_designated_admin_mode_endpoint(
+    body: dict, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """지정관리자 모드 변경. 'full' ↔ 'scoped'.
+
+    모드 변경 시 모든 designated_admin 사용자의 세션 무효화 (권한 셋이 달라짐).
+    2FA 필수 (정책 변경은 영향력 큼).
+    """
+    from app.core.permissions import (
+        set_designated_admin_mode,
+        VALID_DESIGNATED_ADMIN_MODES,
+    )
+    await verify_2fa_session(user, request, db)
+
+    mode = (body.get("mode") or "").strip()
+    if mode not in VALID_DESIGNATED_ADMIN_MODES:
+        raise HTTPException(400, f"mode must be one of {sorted(VALID_DESIGNATED_ADMIN_MODES)}")
+
+    await set_designated_admin_mode(db, mode)
+    invalidated = await _invalidate_role_sessions(db, "designated_admin")
+    await db.flush()
+    await log_action(
+        db, user, "policy.designated_admin_mode",
+        target=f"mode:{mode} sessions_invalidated:{invalidated}",
+        request=request, is_sensitive=True,
+    )
+    return {"ok": True, "mode": mode, "sessions_invalidated": invalidated}
 
 
 # ── 개별 사용자 권한 ──
