@@ -301,7 +301,18 @@ async def get_user_permissions(
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """특정 사용자의 유효 권한 반환"""
+    """특정 사용자의 유효 권한 + **출처별 상세** 반환.
+
+    응답:
+      effective_permissions: 유효 권한 키 목록 (정렬)
+      sources:
+        role: 이 사용자의 role 기본 권한 키 목록
+        user: user_permissions 테이블의 개별 부여 키 목록
+        groups: [{id, name, permissions: [key, ...]}]
+        positions: [{id, key, display_name, semester_id, semester_name, permissions: [key, ...]}]
+      permission_sources: {key: [source_tag, ...]} — 권한별 출처 추적용
+        source_tag 예: "role:teacher", "user", "group:1", "position:3"
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
@@ -312,28 +323,117 @@ async def get_user_permissions(
 
     effective = await resolve_permissions(db, target)
 
-    # 개인 추가 권한만 별도로 조회
-    result = await db.execute(
+    # 출처별 권한 키 수집
+    perm_sources: dict[str, list[str]] = {k: [] for k in effective}
+
+    # 1) role 기본 권한 (super_admin/designated_admin은 special — 'role:auto'로 표시)
+    role_keys: list[str] = []
+    if target.role == "super_admin":
+        role_keys = sorted(effective)
+        for k in role_keys:
+            perm_sources.setdefault(k, []).append("role:super_admin (auto)")
+    elif target.role == "designated_admin":
+        from app.core.permissions import get_designated_admin_mode
+        mode = await get_designated_admin_mode(db)
+        if mode == "full":
+            role_keys = sorted(effective)
+            for k in role_keys:
+                perm_sources.setdefault(k, []).append(f"role:designated_admin (mode=full)")
+        else:
+            # scoped 모드 — 일반 역할처럼 role_permissions 사용
+            rows = (await db.execute(
+                select(Permission.key)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(RolePermission.role == "designated_admin")
+            )).scalars().all()
+            role_keys = sorted(rows)
+            for k in role_keys:
+                perm_sources.setdefault(k, []).append(f"role:designated_admin (mode=scoped)")
+    else:
+        rows = (await db.execute(
+            select(Permission.key)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role == target.role)
+        )).scalars().all()
+        role_keys = sorted(rows)
+        for k in role_keys:
+            perm_sources.setdefault(k, []).append(f"role:{target.role}")
+
+    # 2) user_permissions
+    user_keys = list((await db.execute(
         select(Permission.key)
         .join(UserPermission, UserPermission.permission_id == Permission.id)
         .where(UserPermission.user_id == user_id)
-    )
-    individual = list(result.scalars().all())
+    )).scalars().all())
+    for k in user_keys:
+        perm_sources.setdefault(k, []).append("user (개별 부여)")
 
-    # 그룹 권한
-    result = await db.execute(
+    # 3) permission_groups
+    group_rows = (await db.execute(
         select(PermissionGroup.id, PermissionGroup.name)
         .join(UserPermissionGroup, UserPermissionGroup.group_id == PermissionGroup.id)
         .where(UserPermissionGroup.user_id == user_id)
-    )
-    groups = [{"id": r[0], "name": r[1]} for r in result.all()]
+    )).all()
+    groups_detail = []
+    for gid, gname in group_rows:
+        gkeys = list((await db.execute(
+            select(Permission.key)
+            .join(PermissionGroupItem, PermissionGroupItem.permission_id == Permission.id)
+            .where(PermissionGroupItem.group_id == gid)
+        )).scalars().all())
+        groups_detail.append({"id": gid, "name": gname, "permissions": gkeys})
+        for k in gkeys:
+            perm_sources.setdefault(k, []).append(f"group:{gname}")
+
+    # 4) 현재 학기 직책 (PositionTemplate via EnrollmentPosition)
+    from app.core.semester import get_current_semester
+    import json as _json
+    positions_detail = []
+    sem = await get_current_semester(db)
+    if sem:
+        pos_rows = (await db.execute(
+            select(
+                PositionTemplate.id, PositionTemplate.key,
+                PositionTemplate.display_name, PositionTemplate.permission_keys,
+                SemesterEnrollment.semester_id,
+            )
+            .join(EnrollmentPosition, EnrollmentPosition.position_template_id == PositionTemplate.id)
+            .join(SemesterEnrollment, SemesterEnrollment.id == EnrollmentPosition.enrollment_id)
+            .where(
+                SemesterEnrollment.semester_id == sem.id,
+                SemesterEnrollment.user_id == user_id,
+                SemesterEnrollment.status == "active",
+            )
+        )).all()
+        for tid, tkey, tname, raw, sid in pos_rows:
+            try:
+                pkeys = _json.loads(raw or "[]")
+            except (ValueError, TypeError):
+                pkeys = []
+            # 존재하는 키만 (직책 권한 해석과 동일한 정책)
+            pkeys = [k for k in pkeys if k in effective]
+            positions_detail.append({
+                "template_id": tid, "key": tkey, "display_name": tname,
+                "semester_id": sid, "semester_name": sem.name,
+                "permissions": pkeys,
+            })
+            for k in pkeys:
+                perm_sources.setdefault(k, []).append(f"position:{tname}")
 
     return {
         "user_id": user_id,
         "role": target.role,
         "effective_permissions": sorted(effective),
-        "individual_permissions": individual,
-        "permission_groups": groups,
+        "sources": {
+            "role": role_keys,
+            "user": user_keys,
+            "groups": groups_detail,
+            "positions": positions_detail,
+        },
+        "permission_sources": perm_sources,
+        # 하위 호환 — 기존 응답 필드 유지
+        "individual_permissions": user_keys,
+        "permission_groups": [{"id": g["id"], "name": g["name"]} for g in groups_detail],
     }
 
 
