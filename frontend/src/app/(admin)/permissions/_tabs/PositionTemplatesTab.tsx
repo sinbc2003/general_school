@@ -1,0 +1,412 @@
+"use client";
+
+/**
+ * 직책 권한 (학기 단위 권한 위임) 탭.
+ *
+ * 직책 템플릿 CRUD + 부서 일괄 적용 모달.
+ * 시스템 기본 직책(is_system=True)은 삭제 차단.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { Plus, Edit3, Trash2, Check, X, Building2 } from "lucide-react";
+import { api } from "@/lib/api/client";
+import { Modal, ModalFooter } from "@/components/ui/Modal";
+import { PositionApplyToDepartmentModal } from "@/components/admin/PositionApplyToDepartmentModal";
+import type { PermissionItem, PositionTemplate } from "./types";
+
+
+export function PositionTemplatesTab() {
+  const [templates, setTemplates] = useState<PositionTemplate[]>([]);
+  const [allPerms, setAllPerms] = useState<Record<string, PermissionItem[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<PositionTemplate | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [applyToDept, setApplyToDept] = useState<{ id: number; name: string } | null>(null);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tplData, permData] = await Promise.all([
+        api.get<{ items: PositionTemplate[] }>("/api/permissions/position-templates"),
+        api.get<{ categories: Record<string, PermissionItem[]> }>("/api/permissions"),
+      ]);
+      setTemplates(tplData.items);
+      setAllPerms(permData.categories);
+    } catch (err: any) {
+      alert(err?.detail || "로딩 실패");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  const openCreate = () => {
+    setEditing({
+      id: 0, key: "", display_name: "", description: "",
+      category: "기타", is_system: false,
+      permission_keys: [], permission_count: 0, assignment_count: 0,
+    });
+    setShowForm(true);
+  };
+
+  const openEdit = (t: PositionTemplate) => {
+    setEditing({ ...t });
+    setShowForm(true);
+  };
+
+  const remove = async (t: PositionTemplate) => {
+    if (t.is_system) {
+      alert("시스템 기본 템플릿은 삭제할 수 없습니다");
+      return;
+    }
+    if (t.assignment_count > 0) {
+      if (!confirm(
+        `이 직책이 ${t.assignment_count}개 enrollment에 할당되어 있습니다.\n삭제하면 해당 사용자들의 권한이 즉시 회수됩니다. 계속하시겠습니까?`,
+      )) return;
+    } else {
+      if (!confirm(`'${t.display_name}' 직책을 삭제하시겠습니까?`)) return;
+    }
+    try {
+      await api.delete(`/api/permissions/position-templates/${t.id}`);
+      fetchAll();
+    } catch (err: any) {
+      alert(err?.detail || "삭제 실패");
+    }
+  };
+
+  // 카테고리별 그룹핑
+  const byCategory = new Map<string, PositionTemplate[]>();
+  for (const t of templates) {
+    if (!byCategory.has(t.category)) byCategory.set(t.category, []);
+    byCategory.get(t.category)!.push(t);
+  }
+
+  if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
+
+  return (
+    <div>
+      <div className="mb-4 p-3 bg-cream-100 border border-cream-300 rounded-lg">
+        <div className="text-caption text-text-secondary">
+          <b>학기·직책 기반 권한 위임</b> — 학기 명단의 한 사람에게 직책을 부여하면,
+          그 직책에 정의된 권한이 <b>현재 학기 동안만</b> 자동 부여됩니다. 학기가 바뀌면
+          새 학기 명단에서 다시 할당해야 합니다 (자동 회수).
+          업무분장이 학년도 단위라면 학기 복사 시 <code>copy_positions=True</code>로
+          1→2학기 그대로 가져올 수 있습니다.
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-body font-semibold text-text-primary">
+          직책 템플릿 ({templates.length}개)
+        </h3>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+        >
+          <Plus size={14} />
+          새 직책
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        {Array.from(byCategory.entries()).map(([cat, items]) => (
+          <div key={cat}>
+            <h4 className="text-caption font-semibold text-text-secondary mb-2">{cat}</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {items.map((t) => (
+                <div
+                  key={t.id}
+                  className="bg-bg-primary rounded-lg border border-border-default p-3 hover:shadow-sm transition-shadow"
+                >
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-body font-medium text-text-primary">{t.display_name}</span>
+                      {t.is_system && (
+                        <span className="text-caption px-1.5 py-0.5 bg-cream-200 text-text-secondary rounded" title="시스템 기본">
+                          기본
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setApplyToDept({ id: t.id, name: t.display_name })}
+                        title="부서에 일괄 할당 (학기 단위)"
+                        className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
+                      >
+                        <Building2 size={13} />
+                      </button>
+                      <button
+                        onClick={() => openEdit(t)}
+                        title="수정"
+                        className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-accent"
+                      >
+                        <Edit3 size={13} />
+                      </button>
+                      <button
+                        onClick={() => remove(t)}
+                        title={t.is_system ? "시스템 기본은 삭제 불가" : "삭제"}
+                        disabled={t.is_system}
+                        className="p-1 hover:bg-bg-secondary rounded text-text-tertiary hover:text-status-error disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-caption text-text-tertiary mb-1">{t.key}</div>
+                  {t.description && (
+                    <div className="text-caption text-text-secondary mb-2">{t.description}</div>
+                  )}
+                  <div className="flex items-center gap-3 text-caption">
+                    <span className="text-accent">권한 {t.permission_count}개</span>
+                    <span className="text-text-tertiary">
+                      할당 {t.assignment_count}건
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {templates.length === 0 && (
+          <div className="text-center py-12 text-body text-text-tertiary">
+            직책 템플릿이 없습니다. {`'+ 새 직책'`} 버튼으로 만드세요.
+          </div>
+        )}
+      </div>
+
+      {showForm && editing && (
+        <PositionTemplateForm
+          template={editing}
+          allPerms={allPerms}
+          onClose={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setShowForm(false);
+            setEditing(null);
+            fetchAll();
+          }}
+        />
+      )}
+
+      {applyToDept && (
+        <PositionApplyToDepartmentModal
+          open={true}
+          templateId={applyToDept.id}
+          templateName={applyToDept.name}
+          onClose={() => setApplyToDept(null)}
+          onSuccess={fetchAll}
+        />
+      )}
+    </div>
+  );
+}
+
+
+function PositionTemplateForm({
+  template, allPerms, onClose, onSaved,
+}: {
+  template: PositionTemplate;
+  allPerms: Record<string, PermissionItem[]>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isNew = template.id === 0;
+  const [key, setKey] = useState(template.key);
+  const [displayName, setDisplayName] = useState(template.display_name);
+  const [description, setDescription] = useState(template.description || "");
+  const [category, setCategory] = useState(template.category || "기타");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(
+    new Set(template.permission_keys),
+  );
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const toggle = (k: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    if (!displayName.trim()) {
+      alert("직책 이름을 입력하세요");
+      return;
+    }
+    if (isNew && !key.trim()) {
+      alert("키를 입력하세요 (영문/숫자/_/-/.)");
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: any = {
+        display_name: displayName.trim(),
+        description: description.trim() || null,
+        category: category.trim() || "기타",
+        permission_keys: Array.from(selectedKeys),
+      };
+      if (isNew) {
+        body.key = key.trim();
+        await api.post("/api/permissions/position-templates", body);
+      } else {
+        await api.put(`/api/permissions/position-templates/${template.id}`, body);
+      }
+      onSaved();
+    } catch (err: any) {
+      alert(err?.detail || "저장 실패");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 검색 필터
+  const filtered: Record<string, PermissionItem[]> = {};
+  for (const [cat, perms] of Object.entries(allPerms)) {
+    const matched = perms.filter((p) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        p.key.toLowerCase().includes(q) ||
+        p.display_name.toLowerCase().includes(q) ||
+        cat.toLowerCase().includes(q)
+      );
+    });
+    if (matched.length > 0) filtered[cat] = matched;
+  }
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={isNew ? "직책 템플릿 생성" : `직책 수정: ${template.display_name}`}
+      maxWidth="2xl"
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-caption text-text-secondary mb-1">
+              키 {isNew && "*"} {!isNew && "(변경 불가)"}
+            </label>
+            <input
+              type="text"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              disabled={!isNew}
+              placeholder="예: homeroom_1grade"
+              className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary disabled:bg-bg-secondary disabled:text-text-tertiary"
+            />
+          </div>
+          <div>
+            <label className="block text-caption text-text-secondary mb-1">분류</label>
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="예: 학급, 부장, 동아리"
+              className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-caption text-text-secondary mb-1">직책 이름 *</label>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="예: 1학년 담임"
+            className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+          />
+        </div>
+        <div>
+          <label className="block text-caption text-text-secondary mb-1">설명 (선택)</label>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="이 직책이 어떤 업무를 담당하는지"
+            className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-caption text-text-secondary">
+              부여할 권한 ({selectedKeys.size}개 선택됨)
+            </label>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="검색..."
+              className="px-2 py-1 text-caption border border-border-default rounded bg-bg-primary w-48"
+            />
+          </div>
+          <div className="border border-border-default rounded max-h-96 overflow-y-auto">
+            {Object.entries(filtered).map(([cat, perms]) => (
+              <div key={cat}>
+                <div className="bg-bg-tertiary px-3 py-1.5 text-caption font-semibold text-text-secondary sticky top-0">
+                  {cat}
+                </div>
+                {perms.map((p) => {
+                  const checked = selectedKeys.has(p.key);
+                  return (
+                    <label
+                      key={p.id}
+                      className={`flex items-center gap-2 px-3 py-1.5 border-t border-border-default cursor-pointer hover:bg-bg-secondary ${
+                        p.super_admin_only ? "opacity-40" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => !p.super_admin_only && toggle(p.key)}
+                        disabled={p.super_admin_only}
+                        className="rounded"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-body text-text-primary">{p.display_name}</div>
+                        <div className="text-caption text-text-tertiary truncate">{p.key}</div>
+                      </div>
+                      {p.super_admin_only && (
+                        <span className="text-caption text-status-error" title="최고관리자 전용 — 직책 권한에 포함 불가">SA</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+            {Object.keys(filtered).length === 0 && (
+              <div className="px-3 py-6 text-center text-caption text-text-tertiary">
+                검색 결과 없음
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ModalFooter>
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1 px-4 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+        >
+          <X size={14} /> 취소
+        </button>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+        >
+          <Check size={14} />
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </ModalFooter>
+    </Modal>
+  );
+}
