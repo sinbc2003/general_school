@@ -76,6 +76,11 @@ class VerifyEmailCodeRequest(BaseModel):
     device_label: str | None = None
 
 
+class ResendEmailCodeRequest(BaseModel):
+    """POST /api/auth/login/resend-email"""
+    challenge_token: str
+
+
 class TrustedDeviceItem(BaseModel):
     id: int
     label: str | None

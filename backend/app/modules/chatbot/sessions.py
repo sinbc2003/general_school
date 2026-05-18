@@ -32,6 +32,9 @@ from app.modules.chatbot.router import (
     _ensure_active_provider,
     _ensure_model_available,
 )
+from app.modules.chatbot.schemas import (
+    ChatSessionCreate, ChatSessionUpdate, ChatStreamRequest,
+)
 
 
 @router.get("/sessions/all")
@@ -97,26 +100,24 @@ async def list_sessions(
 
 @router.post("/sessions")
 async def create_session(
-    body: dict, request: Request,
+    body: ChatSessionCreate, request: Request,
     user: User = Depends(require_permission("chatbot.use")),
     db: AsyncSession = Depends(get_db),
 ):
-    """새 세션 생성. body: {provider?, model_id?, system_prompt_id?}
-    값 누락 시 ChatbotConfig의 audience별 default 사용.
-    """
+    """새 세션 생성. provider/model_id/system_prompt_id 누락 시 audience별 default 사용."""
     audience = _audience_for(user)
     default_provider = await _get_config(db, f"default_provider_{audience}", "")
     default_model = await _get_config(db, f"default_model_{audience}", "")
 
-    provider = body.get("provider") or default_provider
-    model_id = body.get("model_id") or default_model
+    provider = body.provider or default_provider
+    model_id = body.model_id or default_model
     if not provider or not model_id:
         raise HTTPException(400, "provider/model이 설정되지 않았습니다. 관리자에게 문의하세요.")
 
     await _ensure_active_provider(db, provider)
     await _ensure_model_available(db, provider, model_id)
 
-    system_prompt_id = body.get("system_prompt_id")
+    system_prompt_id = body.system_prompt_id
     if system_prompt_id:
         sp = (await db.execute(
             select(SystemPrompt).where(SystemPrompt.id == system_prompt_id, SystemPrompt.is_active == True)
@@ -137,7 +138,7 @@ async def create_session(
         system_prompt_id = sp_default.id if sp_default else None
 
     s = ChatSession(
-        user_id=user.id, title=body.get("title") or "새 대화",
+        user_id=user.id, title=body.title or "새 대화",
         audience=audience, provider=provider, model_id=model_id,
         system_prompt_id=system_prompt_id,
     )
@@ -186,7 +187,7 @@ async def get_session(
 
 @router.patch("/sessions/{sid}")
 async def update_session(
-    sid: int, body: dict,
+    sid: int, body: ChatSessionUpdate,
     user: User = Depends(require_permission("chatbot.session.view_own")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -195,23 +196,24 @@ async def update_session(
     if not s or s.user_id != user.id:
         raise HTTPException(404)
 
-    if "title" in body:
-        s.title = body["title"][:300]
-    if "pinned" in body:
-        s.pinned = bool(body["pinned"])
-    if "archived" in body:
-        s.archived = bool(body["archived"])
+    patch = body.model_dump(exclude_unset=True)
+    if "title" in patch and patch["title"] is not None:
+        s.title = patch["title"]
+    if "pinned" in patch and patch["pinned"] is not None:
+        s.pinned = patch["pinned"]
+    if "archived" in patch and patch["archived"] is not None:
+        s.archived = patch["archived"]
 
-    if "provider" in body or "model_id" in body:
-        new_provider = body.get("provider", s.provider)
-        new_model = body.get("model_id", s.model_id)
+    if "provider" in patch or "model_id" in patch:
+        new_provider = patch.get("provider", s.provider) or s.provider
+        new_model = patch.get("model_id", s.model_id) or s.model_id
         await _ensure_active_provider(db, new_provider)
         await _ensure_model_available(db, new_provider, new_model)
         s.provider = new_provider
         s.model_id = new_model
 
-    if "system_prompt_id" in body:
-        s.system_prompt_id = body["system_prompt_id"]
+    if "system_prompt_id" in patch:
+        s.system_prompt_id = patch["system_prompt_id"]
 
     return {"ok": True}
 
@@ -363,11 +365,11 @@ async def _stream_response(sid: int, content: str, user_id: int) -> AsyncIterato
 
 @router.post("/sessions/{sid}/stream")
 async def stream_message(
-    sid: int, body: dict,
+    sid: int, body: ChatStreamRequest,
     user: User = Depends(require_permission("chatbot.use")),
 ):
-    """SSE 스트림 — body: {content: str}"""
-    content = (body.get("content") or "").strip()
+    """SSE 스트림"""
+    content = body.content.strip()
     if not content:
         raise HTTPException(400, "내용이 비었습니다")
     return StreamingResponse(

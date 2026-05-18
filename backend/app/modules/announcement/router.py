@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.announcement import Announcement, AnnouncementAudience
 from app.models.user import User
+from app.modules.announcement.schemas import AnnouncementCreate, AnnouncementUpdate
 
 router = APIRouter(prefix="/api/announcements", tags=["announcements"])
 
@@ -132,28 +133,23 @@ async def get_announcement(
 
 @router.post("")
 async def create_announcement(
-    body: dict,
+    body: AnnouncementCreate,
     request: Request = None,
     user: User = Depends(require_permission("announcement.post.create")),
     db: AsyncSession = Depends(get_db),
 ):
-    title = (body.get("title") or "").strip()
-    content = (body.get("body") or "").strip()
+    title = body.title.strip()
+    content = body.body.strip()
     if not title:
         raise HTTPException(400, "제목을 입력하세요")
     if not content:
         raise HTTPException(400, "본문을 입력하세요")
-    audience_raw = body.get("audience") or "all"
-    try:
-        audience = AnnouncementAudience(audience_raw)
-    except ValueError:
-        raise HTTPException(400, f"잘못된 audience: {audience_raw}")
 
     a = Announcement(
-        title=title[:200],
+        title=title,
         body=content,
-        audience=audience,
-        is_pinned=bool(body.get("is_pinned", False)),
+        audience=AnnouncementAudience(body.audience),
+        is_pinned=body.is_pinned,
         author_id=user.id,
     )
     db.add(a)
@@ -165,7 +161,7 @@ async def create_announcement(
 @router.put("/{ann_id}")
 async def update_announcement(
     ann_id: int,
-    body: dict,
+    body: AnnouncementUpdate,
     request: Request = None,
     user: User = Depends(require_permission("announcement.post.edit")),
     db: AsyncSession = Depends(get_db),
@@ -176,23 +172,15 @@ async def update_announcement(
     if not _can_edit(user, a):
         raise HTTPException(403, "본인이 작성한 공지만 수정할 수 있습니다")
 
-    if "title" in body:
-        t = (body["title"] or "").strip()
-        if not t:
-            raise HTTPException(400, "제목은 비울 수 없습니다")
-        a.title = t[:200]
-    if "body" in body:
-        c = (body["body"] or "").strip()
-        if not c:
-            raise HTTPException(400, "본문은 비울 수 없습니다")
-        a.body = c
-    if "audience" in body:
-        try:
-            a.audience = AnnouncementAudience(body["audience"])
-        except ValueError:
-            raise HTTPException(400, "잘못된 audience")
-    if "is_pinned" in body:
-        a.is_pinned = bool(body["is_pinned"])
+    patch = body.model_dump(exclude_unset=True)
+    if "title" in patch and patch["title"] is not None:
+        a.title = patch["title"].strip()
+    if "body" in patch and patch["body"] is not None:
+        a.body = patch["body"].strip()
+    if "audience" in patch and patch["audience"] is not None:
+        a.audience = AnnouncementAudience(patch["audience"])
+    if "is_pinned" in patch and patch["is_pinned"] is not None:
+        a.is_pinned = patch["is_pinned"]
 
     await db.flush()
     await log_action(db, user, "announcement.update", f"announcement:{a.id}", request=request)

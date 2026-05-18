@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.pipeline import PipelineJob, JobStatus, AgentResult, LLMUsageLog, PromptTemplate
 from app.models.user import User
+from app.modules.pipeline.schemas import PipelineJobTrigger, PromptTemplateUpdate
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -68,14 +69,14 @@ async def get_job(
 
 @router.post("/trigger")
 async def trigger_job(
-    body: dict,
+    body: PipelineJobTrigger,
     user: User = Depends(require_permission("pipeline.job.trigger")),
     db: AsyncSession = Depends(get_db),
 ):
     j = PipelineJob(
-        job_type=body["job_type"],
-        input_data=body.get("input_data"),
-        document_id=body.get("document_id"),
+        job_type=body.job_type,
+        input_data=body.input_data,
+        document_id=body.document_id,
         triggered_by_id=user.id,
     )
     db.add(j)
@@ -116,17 +117,18 @@ async def list_prompts(
 
 @router.put("/prompts/{pid}")
 async def update_prompt(
-    pid: int, body: dict,
+    pid: int, body: PromptTemplateUpdate,
     user: User = Depends(require_permission("pipeline.prompt.edit")),
     db: AsyncSession = Depends(get_db),
 ):
     p = (await db.execute(select(PromptTemplate).where(PromptTemplate.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    if "template" in body:
-        p.template = body["template"]
+    patch = body.model_dump(exclude_unset=True)
+    if "template" in patch and patch["template"] is not None:
+        p.template = patch["template"]
         p.version += 1
-    if "is_active" in body:
-        p.is_active = body["is_active"]
+    if "is_active" in patch and patch["is_active"] is not None:
+        p.is_active = patch["is_active"]
     await db.flush()
     return {"ok": True}

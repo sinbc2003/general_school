@@ -9,6 +9,10 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.admissions import AdmissionsQuestion, AdmissionsRecord, AdmissionsResponse
 from app.models.user import User
+from app.modules.admissions.schemas import (
+    AdmissionsQuestionCreate, AdmissionsQuestionUpdate,
+    AdmissionsRecordCreate, AdmissionsResponseSubmit,
+)
 
 router = APIRouter(prefix="/api/admissions", tags=["admissions"])
 
@@ -17,17 +21,17 @@ router = APIRouter(prefix="/api/admissions", tags=["admissions"])
 
 @router.post("/questions")
 async def create_question(
-    body: dict,
+    body: AdmissionsQuestionCreate,
     user: User = Depends(require_permission("admissions.question.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     q = AdmissionsQuestion(
-        university=body["university"], department=body.get("department"),
-        admission_type=body["admission_type"],
-        question_type=body["question_type"], year=body["year"],
-        content=body["content"], solution=body.get("solution"),
-        subject=body.get("subject"), tags=body.get("tags"),
+        university=body.university, department=body.department,
+        admission_type=body.admission_type,
+        question_type=body.question_type, year=body.year,
+        content=body.content, solution=body.solution,
+        subject=body.subject, tags=body.tags,
     )
     db.add(q)
     await db.flush()
@@ -93,7 +97,7 @@ async def get_question(
 
 @router.put("/questions/{qid}")
 async def update_question(
-    qid: int, body: dict,
+    qid: int, body: AdmissionsQuestionUpdate,
     user: User = Depends(require_permission("admissions.question.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
@@ -101,10 +105,9 @@ async def update_question(
     q = (await db.execute(select(AdmissionsQuestion).where(AdmissionsQuestion.id == qid))).scalar_one_or_none()
     if not q:
         raise HTTPException(404)
-    for f in ["university", "department", "admission_type", "question_type",
-              "year", "content", "solution", "subject", "tags"]:
-        if f in body:
-            setattr(q, f, body[f])
+    patch = body.model_dump(exclude_unset=True)
+    for f, v in patch.items():
+        setattr(q, f, v)
     await db.flush()
     await log_action(db, user, "admissions.question.update", f"question:{qid}", request=request)
     return {"ok": True}
@@ -129,14 +132,14 @@ async def delete_question(
 
 @router.post("/records")
 async def create_record(
-    body: dict,
+    body: AdmissionsRecordCreate,
     user: User = Depends(require_permission("admissions.record.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     r = AdmissionsRecord(
-        student_id=body["student_id"], graduation_year=body["graduation_year"],
-        results=body.get("results"), portfolio_summary=body.get("portfolio_summary"),
+        student_id=body.student_id, graduation_year=body.graduation_year,
+        results=body.results, portfolio_summary=body.portfolio_summary,
         created_by_id=user.id,
     )
     db.add(r)
@@ -176,11 +179,11 @@ async def list_records(
 
 @router.post("/questions/{qid}/respond")
 async def submit_response(
-    qid: int, body: dict,
+    qid: int, body: AdmissionsResponseSubmit,
     user: User = Depends(require_permission("admissions.question.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    r = AdmissionsResponse(question_id=qid, user_id=user.id, response=body["response"])
+    r = AdmissionsResponse(question_id=qid, user_id=user.id, response=body.response)
     db.add(r)
     await db.flush()
     return {"id": r.id}

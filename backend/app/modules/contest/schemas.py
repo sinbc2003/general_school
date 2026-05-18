@@ -31,3 +31,22 @@ class ContestUpdate(BaseModel):
     is_visible: bool | None = None
     status: ContestStatusStr | None = None
     extra: dict | None = None
+
+
+class ContestProblemCreate(BaseModel):
+    """POST /api/contest/{cid}/problems"""
+    problem_number: int = Field(..., ge=1)
+    content: str = Field(..., min_length=1)
+    answer: str | None = None
+    points: int = Field(10, ge=0)
+
+
+class ContestParticipantAdd(BaseModel):
+    """POST /api/contest/{cid}/participants"""
+    user_id: int
+
+
+class ContestSubmissionCreate(BaseModel):
+    """POST /api/contest/{cid}/submissions"""
+    content: str | None = None
+    file_path: str | None = None

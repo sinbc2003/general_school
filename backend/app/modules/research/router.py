@@ -13,7 +13,10 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.research import ResearchProject, ResearchLog, ResearchSubmission, ResearchJournal
 from app.models.user import User
-from app.modules.research.schemas import ResearchProjectCreate, ResearchProjectUpdate
+from app.modules.research.schemas import (
+    ResearchJournalCreate, ResearchLogCreate,
+    ResearchProjectCreate, ResearchProjectUpdate,
+)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 UPLOAD_DIR = os.path.join("storage", "research")
@@ -110,14 +113,14 @@ async def update_project(
 
 @router.post("/{pid}/logs")
 async def create_log(
-    pid: int, body: dict,
+    pid: int, body: ResearchLogCreate,
     user: User = Depends(require_permission("research.journal.write")),
     db: AsyncSession = Depends(get_db),
 ):
     log = ResearchLog(
         project_id=pid, author_id=user.id,
-        title=body["title"], content=body["content"],
-        log_type=body.get("log_type", "progress"),
+        title=body.title, content=body.content,
+        log_type=body.log_type,
     )
     db.add(log)
     await db.flush()
@@ -145,13 +148,13 @@ async def list_logs(
 
 @router.post("/{pid}/journals")
 async def create_journal(
-    pid: int, body: dict,
+    pid: int, body: ResearchJournalCreate,
     user: User = Depends(require_permission("research.journal.write")),
     db: AsyncSession = Depends(get_db),
 ):
     j = ResearchJournal(
         project_id=pid, author_id=user.id,
-        content=body["content"], week_number=body["week_number"],
+        content=body.content, week_number=body.week_number,
     )
     db.add(j)
     await db.flush()

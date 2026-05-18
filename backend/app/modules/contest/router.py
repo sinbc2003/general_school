@@ -17,7 +17,10 @@ from app.models.contest import (
     ContestTeam, ContestSubmission,
 )
 from app.models.user import User
-from app.modules.contest.schemas import ContestCreate, ContestUpdate
+from app.modules.contest.schemas import (
+    ContestCreate, ContestParticipantAdd, ContestProblemCreate,
+    ContestSubmissionCreate, ContestUpdate,
+)
 
 router = APIRouter(prefix="/api/contest", tags=["contest"])
 
@@ -186,17 +189,17 @@ async def list_contest_problems(
 
 @router.post("/{cid}/problems")
 async def add_contest_problem(
-    cid: int, body: dict,
+    cid: int, body: ContestProblemCreate,
     user: User = Depends(require_permission("contest.manage.edit")),
     db: AsyncSession = Depends(get_db),
 ):
     await _get_contest(db, cid)
     p = ContestProblem(
         contest_id=cid,
-        problem_number=body["problem_number"],
-        content=body["content"],
-        answer=body.get("answer"),
-        points=body.get("points", 10),
+        problem_number=body.problem_number,
+        content=body.content,
+        answer=body.answer,
+        points=body.points,
     )
     db.add(p)
     await db.flush()
@@ -228,11 +231,11 @@ async def list_participants(
 
 @router.post("/{cid}/participants")
 async def add_participant(
-    cid: int, body: dict,
+    cid: int, body: ContestParticipantAdd,
     user: User = Depends(require_permission("contest.manage.teams")),
     db: AsyncSession = Depends(get_db),
 ):
-    p = ContestParticipant(contest_id=cid, user_id=body["user_id"])
+    p = ContestParticipant(contest_id=cid, user_id=body.user_id)
     db.add(p)
     await db.flush()
     return {"id": p.id}
@@ -242,15 +245,15 @@ async def add_participant(
 
 @router.post("/{cid}/submissions")
 async def submit_to_contest(
-    cid: int, body: dict,
+    cid: int, body: ContestSubmissionCreate,
     user: User = Depends(require_permission("contest.participate.submit")),
     db: AsyncSession = Depends(get_db),
 ):
     s = ContestSubmission(
         contest_id=cid,
         user_id=user.id,
-        content=body.get("content"),
-        file_path=body.get("file_path"),
+        content=body.content,
+        file_path=body.file_path,
     )
     db.add(s)
     await db.flush()

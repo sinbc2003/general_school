@@ -27,3 +27,16 @@ class ResearchProjectUpdate(BaseModel):
     members: list | None = None
     status: ResearchStatus | None = None
     milestones: list | None = None
+
+
+class ResearchLogCreate(BaseModel):
+    """POST /api/research/{pid}/logs"""
+    title: str = Field(..., min_length=1, max_length=255)
+    content: str = Field(..., min_length=1)
+    log_type: str = Field("progress", max_length=30)
+
+
+class ResearchJournalCreate(BaseModel):
+    """POST /api/research/{pid}/journals"""
+    content: str = Field(..., min_length=1)
+    week_number: int = Field(..., ge=1, le=200)

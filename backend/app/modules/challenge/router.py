@@ -8,6 +8,9 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.challenge import ChallengeLevel, ChallengeProblem, ChallengeProgress
 from app.models.user import User
+from app.modules.challenge.schemas import (
+    ChallengeLevelCreate, ChallengeProblemCreate, ChallengeSolveSubmit,
+)
 
 router = APIRouter(prefix="/api/challenge", tags=["challenge"])
 
@@ -16,14 +19,14 @@ router = APIRouter(prefix="/api/challenge", tags=["challenge"])
 
 @router.post("/levels")
 async def create_level(
-    body: dict,
+    body: ChallengeLevelCreate,
     user: User = Depends(require_permission("challenge.level.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     lv = ChallengeLevel(
-        category=body["category"], title=body["title"],
-        level_number=body["level_number"],
-        unlock_threshold=body.get("unlock_threshold", 70),
+        category=body.category, title=body.title,
+        level_number=body.level_number,
+        unlock_threshold=body.unlock_threshold,
     )
     db.add(lv)
     await db.flush()
@@ -64,15 +67,15 @@ async def list_levels(
 
 @router.post("/levels/{lid}/problems")
 async def add_problem(
-    lid: int, body: dict,
+    lid: int, body: ChallengeProblemCreate,
     user: User = Depends(require_permission("challenge.problem.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     p = ChallengeProblem(
-        level_id=lid, content=body["content"],
-        solution=body.get("solution"), difficulty=body["difficulty"],
-        source_name=body.get("source_name"),
-        order=body.get("order", 0), points=body.get("points", 10),
+        level_id=lid, content=body.content,
+        solution=body.solution, difficulty=body.difficulty,
+        source_name=body.source_name,
+        order=body.order, points=body.points,
     )
     db.add(p)
     await db.flush()
@@ -101,7 +104,7 @@ async def list_problems(
 
 @router.post("/problems/{pid}/solve")
 async def solve_problem(
-    pid: int, body: dict,
+    pid: int, body: ChallengeSolveSubmit,
     user: User = Depends(require_permission("challenge.participate.view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -112,8 +115,8 @@ async def solve_problem(
     if not prog:
         prog = ChallengeProgress(user_id=user.id, problem_id=pid)
         db.add(prog)
-    prog.status = body.get("status", "completed")
-    prog.score = body.get("score", 0)
+    prog.status = body.status
+    prog.score = body.score
     if prog.status == "completed":
         from datetime import datetime, timezone
         prog.solved_at = datetime.now(timezone.utc)

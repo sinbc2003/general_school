@@ -66,3 +66,26 @@ class ChatbotConfigUpdate(BaseModel):
     student_can_change_prompt: bool | None = None
     max_messages_per_session: int | None = Field(None, gt=0)
     max_sessions_per_user: int | None = Field(None, gt=0)
+
+
+class ChatSessionCreate(BaseModel):
+    """POST /api/chatbot/sessions"""
+    provider: str | None = None
+    model_id: str | None = None
+    system_prompt_id: int | None = None
+    title: str | None = Field(None, max_length=300)
+
+
+class ChatSessionUpdate(BaseModel):
+    """PATCH /api/chatbot/sessions/{sid} — 부분 업데이트."""
+    title: str | None = Field(None, max_length=300)
+    pinned: bool | None = None
+    archived: bool | None = None
+    provider: str | None = None
+    model_id: str | None = None
+    system_prompt_id: int | None = None
+
+
+class ChatStreamRequest(BaseModel):
+    """POST /api/chatbot/sessions/{sid}/stream"""
+    content: str = Field(..., min_length=1)

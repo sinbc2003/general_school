@@ -9,21 +9,22 @@ from app.core.auth import get_current_user
 from app.core.permissions import require_admin
 from app.models.feedback import Feedback
 from app.models.user import User
+from app.modules.feedback.schemas import FeedbackCreate, FeedbackStatusUpdate
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
 
 @router.post("")
 async def create_feedback(
-    body: dict,
+    body: FeedbackCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     f = Feedback(
         user_id=user.id,
-        feedback_type=body["feedback_type"],
-        content=body["content"],
-        page_url=body.get("page_url"),
+        feedback_type=body.feedback_type,
+        content=body.content,
+        page_url=body.page_url,
     )
     db.add(f)
     await db.flush()
@@ -79,16 +80,15 @@ async def list_feedback(
 
 @router.patch("/{fid}")
 async def update_feedback_status(
-    fid: int, body: dict,
+    fid: int, body: FeedbackStatusUpdate,
     user: User = Depends(require_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     f = (await db.execute(select(Feedback).where(Feedback.id == fid))).scalar_one_or_none()
     if not f:
         raise HTTPException(404, "피드백을 찾을 수 없습니다")
-    if "status" in body:
-        f.status = body["status"]
-    if "admin_note" in body:
-        f.admin_note = body["admin_note"]
+    patch = body.model_dump(exclude_unset=True)
+    for k, v in patch.items():
+        setattr(f, k, v)
     await db.flush()
     return {"ok": True}

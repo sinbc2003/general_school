@@ -20,6 +20,8 @@ from app.modules.users.schemas import (
     UserResponse,
     BulkValidationResult,
     BulkImportResult,
+    CohortPromoteRequest,
+    CohortGraduateRequest,
 )
 from app.services.excel_service import (
     generate_user_template,
@@ -495,64 +497,51 @@ async def export_users(
 
 @router.post("/_cohort/promote")
 async def promote_students(
-    body: dict, request: Request,
+    body: CohortPromoteRequest, request: Request,
     user: User = Depends(require_permission("user.manage.edit")),
     db: AsyncSession = Depends(get_db),
 ):
-    """학년 일괄 진급
-    body: {from_grade: 1, to_grade: 2, dry_run: false}
-    학년 = 1, 2, 3 외 → 무시. dry_run=true는 영향받는 학생 수만 반환.
-    """
+    """학년 일괄 진급. 학년 = 1, 2만 허용 (3학년 진급은 졸업 처리 사용)."""
     if not _is_admin(user):
         raise HTTPException(403, "학년 진급은 관리자만 가능합니다")
-    from_grade = body.get("from_grade")
-    to_grade = body.get("to_grade")
-    dry_run = bool(body.get("dry_run", False))
-    if from_grade not in (1, 2) or to_grade != from_grade + 1:
+    if body.from_grade not in (1, 2) or body.to_grade != body.from_grade + 1:
         raise HTTPException(400, "from_grade는 1 또는 2, to_grade는 from_grade+1이어야 합니다 (3학년 진급은 졸업 처리 사용)")
 
     targets = (await db.execute(
-        select(User).where(User.role == "student", User.grade == from_grade, User.status == "approved")
+        select(User).where(User.role == "student", User.grade == body.from_grade, User.status == "approved")
     )).scalars().all()
 
-    if dry_run:
+    if body.dry_run:
         return {"affected": len(targets), "dry_run": True}
 
     for u in targets:
-        u.grade = to_grade
+        u.grade = body.to_grade
     await db.flush()
-    await log_action(db, user, "student.promote", f"from_grade={from_grade} count={len(targets)}", request=request)
+    await log_action(db, user, "student.promote", f"from_grade={body.from_grade} count={len(targets)}", request=request)
     return {"affected": len(targets), "dry_run": False}
 
 
 @router.post("/_cohort/graduate")
 async def graduate_students(
-    body: dict, request: Request,
+    body: CohortGraduateRequest, request: Request,
     user: User = Depends(require_permission("user.manage.edit")),
     db: AsyncSession = Depends(get_db),
 ):
-    """졸업 처리
-    body: {graduation_year: 2026, ids?: [int], from_grade?: 3, dry_run?: false}
-    ids 우선, 없으면 from_grade(기본 3)의 모든 재학생.
+    """졸업 처리. ids 우선, 없으면 from_grade(기본 3)의 모든 재학생.
+
     User.status = "graduated"로 변경. 데이터는 모두 보존.
     """
     if not _is_admin(user):
         raise HTTPException(403, "졸업 처리는 관리자만 가능합니다")
-    grad_year = body.get("graduation_year")
-    if not grad_year:
-        raise HTTPException(400, "graduation_year 필수")
-    ids = body.get("ids")
-    from_grade = body.get("from_grade", 3)
-    dry_run = bool(body.get("dry_run", False))
 
     q = select(User).where(User.role == "student", User.status == "approved")
-    if ids:
-        q = q.where(User.id.in_(ids))
+    if body.ids:
+        q = q.where(User.id.in_(body.ids))
     else:
-        q = q.where(User.grade == from_grade)
+        q = q.where(User.grade == (body.from_grade or 3))
     targets = (await db.execute(q)).scalars().all()
 
-    if dry_run:
+    if body.dry_run:
         return {"affected": len(targets), "dry_run": True,
                 "preview_names": [u.name for u in targets[:20]]}
 
@@ -560,8 +549,8 @@ async def graduate_students(
         u.status = "graduated"
         # graduation_year를 어딘가 기록 — User에 컬럼이 없으니 admissions.AdmissionsRecord에 의존하거나 그냥 status만 변경
     await db.flush()
-    await log_action(db, user, "student.graduate", f"year={grad_year} count={len(targets)}", request=request)
-    return {"affected": len(targets), "dry_run": False, "graduation_year": grad_year}
+    await log_action(db, user, "student.graduate", f"year={body.graduation_year} count={len(targets)}", request=request)
+    return {"affected": len(targets), "dry_run": False, "graduation_year": body.graduation_year}
 
 
 @router.get("/_cohort/graduates")

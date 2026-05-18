@@ -44,6 +44,7 @@ from app.modules.auth.schemas import (
     RegisterRequest,
     BootstrapStatus,
     VerifyEmailCodeRequest,
+    ResendEmailCodeRequest,
 )
 from sqlalchemy import func
 
@@ -429,14 +430,14 @@ async def verify_email_code(
 
 @router.post("/login/resend-email")
 async def resend_email_code(
-    body: dict, request: Request,
+    body: ResendEmailCodeRequest, request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """이메일 코드 재발송 — 동일 challenge_token으로 새 코드 생성.
 
     공격 방지: 동일 challenge에 대해 60초 쿨다운.
     """
-    challenge_token = (body.get("challenge_token") or "").strip()
+    challenge_token = body.challenge_token.strip()
     if not challenge_token:
         raise HTTPException(400, "challenge_token 필수")
     ch = (await db.execute(

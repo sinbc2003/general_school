@@ -49,3 +49,18 @@ class BulkValidationResult(BaseModel):
 class BulkImportResult(BaseModel):
     created: int
     skipped: int
+
+
+class CohortPromoteRequest(BaseModel):
+    """POST /api/users/_cohort/promote — 학년 일괄 진급."""
+    from_grade: int
+    to_grade: int
+    dry_run: bool = False
+
+
+class CohortGraduateRequest(BaseModel):
+    """POST /api/users/_cohort/graduate — 졸업 처리."""
+    graduation_year: int
+    ids: list[int] | None = None
+    from_grade: int | None = 3
+    dry_run: bool = False
