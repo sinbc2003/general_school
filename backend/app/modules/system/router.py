@@ -342,6 +342,137 @@ async def restore_apply(
     return result
 
 
+# ── 자동 백업 스케줄 ──
+# 백그라운드 task는 main.py lifespan에서 자동 시작.
+# 이 API는 설정 조회·변경 + 수동 트리거 + 저장된 파일 목록.
+
+
+@router.get("/backup/schedule")
+async def get_backup_schedule(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """현재 자동 백업 스케줄 설정 + 최근 실행 상태."""
+    from app.core.backup_scheduler import get_config
+    return await get_config(db)
+
+
+@router.put("/backup/schedule")
+async def update_backup_schedule(
+    body: dict, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """자동 백업 설정 변경. 2FA 필수.
+
+    body: {enabled?, interval_hours?, retention_count?, output_dir?}
+    """
+    from app.core.backup_scheduler import set_config
+    await verify_2fa_session(user, request, db)
+    try:
+        result = await set_config(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await log_action(
+        db, user, "backup.schedule.update",
+        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+    )
+    return result
+
+
+@router.post("/backup/schedule/run-now")
+async def trigger_backup_now(
+    request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """즉시 한 번 백업 실행 (스케줄과 무관). 2FA 필수."""
+    from app.core.backup_scheduler import run_backup_now
+    await verify_2fa_session(user, request, db)
+    try:
+        result = await run_backup_now(db)
+    except Exception as e:
+        raise HTTPException(500, f"백업 실행 실패: {e}")
+    await log_action(
+        db, user, "backup.schedule.run_now",
+        target=f"file:{result['filename']} size:{result['size_bytes']}",
+        request=request, is_sensitive=True,
+    )
+    return result
+
+
+@router.get("/backup/schedule/files")
+async def list_backup_files(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """저장된 자동 백업 파일 목록."""
+    from app.core.backup_scheduler import list_backups
+    return {"items": await list_backups(db)}
+
+
+@router.delete("/backup/schedule/files/{filename}")
+async def delete_backup_file(
+    filename: str, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """저장된 백업 파일 1개 삭제. 2FA 필수."""
+    from app.core.backup_scheduler import get_config, _is_backup_file
+    import os as _os
+    await verify_2fa_session(user, request, db)
+
+    # 경로 traversal 방어
+    if not _is_backup_file(filename) or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "유효하지 않은 파일명")
+
+    config = await get_config(db)
+    target = Path(config["output_dir"]) / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "파일 없음")
+
+    try:
+        _os.remove(target)
+    except OSError as e:
+        raise HTTPException(500, f"삭제 실패: {e}")
+
+    await log_action(
+        db, user, "backup.schedule.delete_file",
+        target=filename, request=request, is_sensitive=True,
+    )
+    return {"ok": True}
+
+
+@router.get("/backup/schedule/files/{filename}/download")
+async def download_backup_file(
+    filename: str, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """저장된 자동 백업 파일 1개 다운로드. 2FA 필수."""
+    from app.core.backup_scheduler import get_config, _is_backup_file
+    await verify_2fa_session(user, request, db)
+
+    if not _is_backup_file(filename) or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "유효하지 않은 파일명")
+
+    config = await get_config(db)
+    target = Path(config["output_dir"]) / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "파일 없음")
+
+    await log_action(
+        db, user, "backup.schedule.download",
+        target=filename, request=request, is_sensitive=True,
+    )
+    data = target.read_bytes()
+    return FastResponse(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/branding/favicon")
 async def upload_favicon(
     file: UploadFile = File(...),

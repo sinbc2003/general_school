@@ -20,6 +20,7 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio as _asyncio
     # 권한 일관성 검증 — 라우터 require_permission 키 vs 모듈 permissions.py 정의
     # 이 시점에는 모든 라우터가 import 완료라 _REGISTERED_KEYS가 채워진 상태.
     from app.core.permission_registry import (
@@ -61,7 +62,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[WARN] auto-grant default roles 실패 (수동 실행 가능): {e}")
         await db.commit()
-    yield
+
+    # 자동 백업 스케줄러 시작 (백그라운드 task)
+    from app.core.backup_scheduler import start_scheduler
+    bg_backup_task = start_scheduler()
+
+    try:
+        yield
+    finally:
+        bg_backup_task.cancel()
+        try:
+            await bg_backup_task
+        except _asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[WARN] backup scheduler shutdown error: {e}")
 
 
 app = FastAPI(
