@@ -23,6 +23,7 @@ import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { CsvUploader, type CsvUploadResult } from "@/components/ui/CsvUploader";
 import { InlineCell as SharedInlineCell, type InlineCellOption } from "@/components/ui/InlineCell";
 import { EnrollmentPositionsModal } from "@/components/admin/EnrollmentPositionsModal";
+import { UserSearchInput } from "@/components/admin/UserSearchInput";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -496,17 +497,31 @@ export default function EnrollmentsPage() {
         <div className="grid grid-cols-2 gap-3">
               {!editingId && (
                 <div className="col-span-2">
-                  <label className="block text-caption text-text-secondary mb-1">사용자 ID *</label>
-                  <input
-                    type="number"
+                  <label className="block text-caption text-text-secondary mb-1">사용자 *</label>
+                  <UserSearchInput
                     value={form.user_id}
-                    onChange={(e) => update("user_id", e.target.value === "" ? "" : parseInt(e.target.value))}
-                    placeholder="등록된 사용자 ID (사용자 관리 페이지에서 확인)"
-                    className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary"
+                    onSelect={(u) => {
+                      if (u) {
+                        // 사용자가 학생/교사 등 본인 역할 가지면 form.role도 자동 맞춤
+                        update("user_id", u.id);
+                        if (["student", "teacher", "staff"].includes(u.role)) {
+                          update("role", u.role);
+                        }
+                        // 학생이면 학년/반/번호 자동 채움 (수정 가능)
+                        if (u.role === "student") {
+                          if (u.grade != null) update("grade", u.grade);
+                          if (u.class_number != null) update("class_number", u.class_number);
+                        }
+                      } else {
+                        update("user_id", "");
+                      }
+                    }}
+                    excludeUserIds={
+                      new Set(enrollments.map((e) => e.user_id))
+                    }
+                    placeholder="이름 또는 이메일로 검색..."
+                    autoFocus
                   />
-                  <div className="text-caption text-text-tertiary mt-1">
-                    추후 사용자 검색 기능 추가 예정. 일단 사용자 관리(/users)에서 ID 확인 후 입력하세요.
-                  </div>
                 </div>
               )}
               <div>

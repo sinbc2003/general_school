@@ -52,6 +52,7 @@ interface FormData {
   copy_enrollments: boolean;
   copy_clubs: boolean;
   copy_structure: boolean;
+  copy_positions: boolean;  // 학기 직책 권한 매핑 복사 (학년도 단위 운영 시 True)
 }
 
 const EMPTY_FORM: FormData = {
@@ -65,6 +66,7 @@ const EMPTY_FORM: FormData = {
   copy_enrollments: true,
   copy_clubs: true,
   copy_structure: true,
+  copy_positions: true,  // 디폴트 True — 업무분장은 학년도 단위
 };
 
 export default function SemestersPage() {
@@ -171,6 +173,7 @@ export default function SemestersPage() {
       copy_enrollments: true,
       copy_clubs: true,
       copy_structure: true,
+      copy_positions: true,
     });
     setTeacherFile(null);
     setStudentFile(null);
@@ -236,6 +239,7 @@ export default function SemestersPage() {
         body.copy_enrollments = form.copy_enrollments;
         body.copy_clubs = form.copy_clubs;
         body.copy_structure = form.copy_structure;
+        body.copy_positions = form.copy_positions;
       }
       // 1. 학기 생성/수정
       let sid: number;
@@ -511,8 +515,37 @@ export default function SemestersPage() {
                       />
                       학교 구조 (학급 수·교과·부서)
                     </label>
+                    <label className="flex items-center gap-2 text-caption text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={form.copy_positions}
+                        onChange={(e) => update("copy_positions", e.target.checked)}
+                        disabled={!form.copy_from_semester_id || !form.copy_enrollments}
+                      />
+                      직책·업무분장 권한
+                      <span
+                        className="text-text-tertiary"
+                        title="업무분장은 학년도 단위 — 1학기→2학기는 그대로 가져옴. 새 학년도(다음 1학기) 시작 시에는 해제 권장."
+                      >
+                        ⓘ
+                      </span>
+                    </label>
                   </div>
                 </div>
+                {form.copy_from_semester_id && (() => {
+                  const src = items.find((s) => s.id === form.copy_from_semester_id);
+                  if (!src) return null;
+                  const isNewYear = src.year !== form.year;
+                  if (isNewYear && form.copy_positions) {
+                    return (
+                      <div className="mt-2 p-2 bg-cream-100 border border-cream-300 rounded text-caption text-text-secondary">
+                        ⚠ <b>학년도가 바뀌었습니다</b> ({src.year} → {form.year}).
+                        업무분장이 재배정되는 경우가 많으므로 <b>'직책·업무분장 권한'을 해제</b>하는 것이 안전합니다.
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
 
