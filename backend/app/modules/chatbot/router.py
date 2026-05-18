@@ -81,4 +81,8 @@ async def _ensure_model_available(db: AsyncSession, provider: str, model_id: str
 
 # Sub-modules — endpoint 등록 강제 (마지막에 import해 순환 회피)
 from app.modules.chatbot import sessions  # noqa: E402, F401
-from app.modules.chatbot import admin  # noqa: E402, F401
+from app.modules.chatbot import admin_providers  # noqa: E402, F401
+from app.modules.chatbot import admin_models  # noqa: E402, F401
+from app.modules.chatbot import admin_prompts  # noqa: E402, F401
+from app.modules.chatbot import admin_config  # noqa: E402, F401
+from app.modules.chatbot import admin_usage  # noqa: E402, F401
