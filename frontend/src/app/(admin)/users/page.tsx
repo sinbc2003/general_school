@@ -330,12 +330,13 @@ export default function UsersPage() {
 
 // ── CSV 일괄 등록 모달 ──
 function CsvBulkImportModal({ onClose }: { onClose: () => void }) {
-  const [role, setRole] = useState<"designated_admin" | "teacher" | "student">("student");
+  type CsvRole = "designated_admin" | "teacher" | "student";
+  const [role, setRole] = useState<CsvRole>("student");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
 
-  const ROLE_INFO: Record<string, { label: string; desc: string; cols: string }> = {
+  const ROLE_INFO: Record<CsvRole, { label: string; desc: string; cols: string }> = {
     designated_admin: {
       label: "지정관리자",
       desc: "권한 관리·사용자 등록 등 super_admin과 거의 동일한 권한",

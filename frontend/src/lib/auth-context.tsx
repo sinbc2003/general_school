@@ -198,7 +198,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isSuperAdmin: user?.role === "super_admin",
       isDesignatedAdmin: user?.role === "designated_admin",
       isAdmin: user?.role === "super_admin" || user?.role === "designated_admin",
-      refreshUser: fetchUser as () => Promise<void>,
+      refreshUser: async () => {
+        await fetchUser();
+      },
     }),
     [user, loading, login, completeChallenge, logout, hasPermission, fetchUser]
   );
