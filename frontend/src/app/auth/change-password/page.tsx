@@ -7,11 +7,19 @@
  * 로그인 후 AuthProvider가 이 페이지로 강제 리다이렉트하며, 변경 완료 시 본래 흐름 재개.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, AlertCircle } from "lucide-react";
+import { KeyRound, AlertCircle, Check } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+
+interface PasswordPolicy {
+  min_length: number;
+  require_letter: boolean;
+  require_digit: boolean;
+  require_symbol: boolean;
+  rules: string[];
+}
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -21,20 +29,40 @@ export default function ChangePasswordPage() {
   const [next2, setNext2] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
+
+  useEffect(() => {
+    api.get<PasswordPolicy>("/api/auth/password-policy")
+      .then(setPolicy)
+      .catch(() => null);
+  }, []);
+
+  // 클라이언트 사이드 정책 체크 (실시간 피드백) — 서버에서도 검증함
+  const checkRules = (pw: string) => {
+    if (!policy) return [];
+    const checks: Array<{ ok: boolean; label: string }> = [];
+    checks.push({ ok: pw.length >= policy.min_length, label: `최소 ${policy.min_length}자 이상` });
+    if (policy.require_letter) checks.push({ ok: /[A-Za-z]/.test(pw), label: "영문자 포함" });
+    if (policy.require_digit) checks.push({ ok: /\d/.test(pw), label: "숫자 포함" });
+    if (policy.require_symbol) checks.push({ ok: /[^A-Za-z0-9\s]/.test(pw), label: "특수문자 포함" });
+    return checks;
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (next1.length < 8) {
-      setError("새 비밀번호는 8자 이상이어야 합니다.");
-      return;
-    }
     if (next1 !== next2) {
       setError("새 비밀번호 확인이 일치하지 않습니다.");
       return;
     }
     if (next1 === current) {
       setError("새 비밀번호가 현재 비밀번호와 같습니다.");
+      return;
+    }
+    // 클라이언트 사이드 빠른 차단 (서버에서도 검증)
+    const failed = checkRules(next1).filter((c) => !c.ok);
+    if (failed.length > 0) {
+      setError(failed.map((c) => c.label).join(" · "));
       return;
     }
     setLoading(true);
@@ -94,16 +122,33 @@ export default function ChangePasswordPage() {
           </div>
           <div>
             <label className="block text-caption text-text-secondary mb-1">
-              새 비밀번호 * <span className="text-text-tertiary">(8자 이상)</span>
+              새 비밀번호 *
+              {policy && (
+                <span className="text-text-tertiary ml-1">({policy.rules.join(" · ")})</span>
+              )}
             </label>
             <input
               type="password"
               value={next1}
               onChange={(e) => setNext1(e.target.value)}
               required
-              minLength={8}
+              minLength={policy?.min_length || 8}
               className="w-full px-3 py-2 border border-border-default rounded bg-bg-primary"
             />
+            {policy && next1 && (
+              <div className="mt-1.5 flex flex-wrap gap-2 text-caption">
+                {checkRules(next1).map((c, i) => (
+                  <span
+                    key={i}
+                    className={`inline-flex items-center gap-1 ${
+                      c.ok ? "text-accent" : "text-text-tertiary"
+                    }`}
+                  >
+                    {c.ok ? <Check size={12} /> : "·"} {c.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-caption text-text-secondary mb-1">새 비밀번호 확인 *</label>

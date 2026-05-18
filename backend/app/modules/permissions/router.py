@@ -345,6 +345,43 @@ async def set_admin_2fa_required_endpoint(
     return {"ok": True, "required": required}
 
 
+# ── 비밀번호 정책 (super_admin only) ──
+
+@router.get("/policy/password")
+async def get_password_policy_admin(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """비밀번호 정책 상세 조회 (관리자 — 편집용 정보 포함)."""
+    from app.core.password_policy import describe_policy
+    return await describe_policy(db)
+
+
+@router.put("/policy/password")
+async def update_password_policy(
+    body: dict, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """비밀번호 정책 변경. 2FA 필수.
+
+    body: {min_length?, require_letter?, require_digit?, require_symbol?}
+    부분 업데이트 (None인 키는 보존).
+    """
+    from app.core.password_policy import set_policy, describe_policy
+    await verify_2fa_session(user, request, db)
+    try:
+        await set_policy(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    await db.flush()
+    await log_action(
+        db, user, "policy.password",
+        target=f"updated:{sorted(body.keys())}", request=request, is_sensitive=True,
+    )
+    return {"ok": True, **(await describe_policy(db))}
+
+
 # ── 개별 사용자 권한 ──
 @router.get("/users/{user_id}")
 async def get_user_permissions(

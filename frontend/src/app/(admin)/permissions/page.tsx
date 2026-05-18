@@ -102,6 +102,18 @@ function PermissionMatrix() {
     }
   }, [isSuperAdmin]);
 
+  // 검색/필터
+  const [matrixSearch, setMatrixSearch] = useState("");
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
+  const toggleCat = (cat: string) => {
+    setCollapsedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
   const toggleAdmin2fa = async () => {
     const newVal = !admin2faRequired;
     if (newVal && !user?.totp_enabled) {
@@ -197,13 +209,23 @@ function PermissionMatrix() {
     student: "학생",
   };
 
-  // 카테고리별 그룹핑
+  // 카테고리별 그룹핑 + 검색 필터
+  const q = matrixSearch.trim().toLowerCase();
+  const filteredMatrix = q
+    ? matrix.filter(
+        (r) =>
+          r.key.toLowerCase().includes(q) ||
+          r.display_name.toLowerCase().includes(q) ||
+          r.category.toLowerCase().includes(q),
+      )
+    : matrix;
   const categories = new Map<string, MatrixRow[]>();
-  for (const row of matrix) {
+  for (const row of filteredMatrix) {
     const cat = row.category;
     if (!categories.has(cat)) categories.set(cat, []);
     categories.get(cat)!.push(row);
   }
+  const totalFiltered = filteredMatrix.length;
 
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
 
@@ -285,6 +307,36 @@ function PermissionMatrix() {
         </div>
       )}
 
+      {/* 검색 + 일괄 접기 */}
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+          <input
+            type="text"
+            value={matrixSearch}
+            onChange={(e) => setMatrixSearch(e.target.value)}
+            placeholder="권한 키·표시명·카테고리 검색..."
+            className="w-full pl-8 pr-3 py-1.5 text-body border border-border-default rounded bg-bg-primary focus:outline-none focus:border-accent"
+          />
+        </div>
+        <div className="flex items-center gap-2 text-caption text-text-tertiary">
+          <span>전체 {matrix.length}개</span>
+          {matrixSearch && <span>· 매칭 {totalFiltered}개</span>}
+          <button
+            onClick={() => setCollapsedCats(new Set(Array.from(categories.keys())))}
+            className="text-caption text-text-tertiary hover:text-accent"
+          >
+            전체 접기
+          </button>
+          <button
+            onClick={() => setCollapsedCats(new Set())}
+            className="text-caption text-text-tertiary hover:text-accent"
+          >
+            전체 펼치기
+          </button>
+        </div>
+      </div>
+
       {dirty && (
         <div className="flex items-center justify-between mb-4 p-3 bg-accent-light rounded-lg">
           <span className="text-body text-accent">변경사항이 있습니다</span>
@@ -315,11 +367,20 @@ function PermissionMatrix() {
             {Array.from(categories.entries()).map(([cat, rows]) => (
               <>
                 <tr key={`cat-${cat}`} className="bg-bg-tertiary">
-                  <td colSpan={roles.length + 1} className="px-4 py-2 text-caption font-semibold text-text-secondary">
-                    {cat}
+                  <td colSpan={roles.length + 1} className="px-4 py-2">
+                    <button
+                      onClick={() => toggleCat(cat)}
+                      className="flex items-center gap-1.5 text-caption font-semibold text-text-secondary hover:text-text-primary w-full text-left"
+                    >
+                      <span className="inline-block w-3 text-text-tertiary">
+                        {collapsedCats.has(cat) ? "▶" : "▼"}
+                      </span>
+                      {cat}
+                      <span className="ml-2 text-text-tertiary font-normal">({rows.length})</span>
+                    </button>
                   </td>
                 </tr>
-                {rows.map((row) => {
+                {!collapsedCats.has(cat) && rows.map((row) => {
                   const rowIdx = matrix.indexOf(row);
                   return (
                     <tr key={row.key} className="border-t border-border-default hover:bg-bg-secondary">

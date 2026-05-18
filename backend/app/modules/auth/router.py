@@ -126,8 +126,13 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
     email = (body.email or "").strip().lower()
     username = (body.username or "").strip()
     password = body.password or ""
-    if not name or not email or not username or len(password) < 8:
-        raise HTTPException(400, "이름, 이메일, 아이디, 8자 이상 비밀번호 모두 필요합니다")
+    if not name or not email or not username:
+        raise HTTPException(400, "이름, 이메일, 아이디는 필수입니다")
+    from app.core.password_policy import validate_password
+    try:
+        await validate_password(db, password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     new_user = User(
         username=username,
@@ -369,8 +374,11 @@ async def change_password(
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(400, "현재 비밀번호가 잘못되었습니다")
 
-    if len(body.new_password) < 8:
-        raise HTTPException(400, "새 비밀번호는 8자 이상이어야 합니다")
+    from app.core.password_policy import validate_password
+    try:
+        await validate_password(db, body.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = False
@@ -378,3 +386,11 @@ async def change_password(
 
     await log_action(db, user, "password_changed", request=request)
     return {"ok": True}
+
+
+# ── 비밀번호 정책 공개 조회 (로그인 페이지·강제 변경 페이지에서 안내용) ──
+@router.get("/password-policy")
+async def get_password_policy_endpoint(db: AsyncSession = Depends(get_db)):
+    """현재 비밀번호 정책 요약. 인증 불필요 — 로그인/변경 페이지에 안내."""
+    from app.core.password_policy import describe_policy
+    return await describe_policy(db)
