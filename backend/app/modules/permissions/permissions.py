@@ -2,5 +2,6 @@
 # 매트릭스/메뉴 표시 + SUPER_ADMIN_ONLY 인식용 등록.
 PERMISSIONS = [
     {"key": "permission.manage.view", "display_name": "권한 조회", "category": "권한 관리", "unused_ok": True},
-    {"key": "permission.manage.edit", "display_name": "권한 편집", "category": "권한 관리", "unused_ok": True},
+    {"key": "permission.manage.edit", "display_name": "권한 편집", "category": "권한 관리", "unused_ok": True,
+     "requires_2fa": True, "is_sensitive": True},
 ]

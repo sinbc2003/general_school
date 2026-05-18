@@ -717,6 +717,12 @@ async def set_enrollment_positions(
             granted_by=user.id,
         ))
     await db.flush()
+
+    # 대상 사용자의 세션 무효화 → stale 권한 차단
+    from app.modules.permissions.router import _invalidate_user_sessions
+    await _invalidate_user_sessions(db, e.user_id)
+    await db.flush()
+
     await log_action(
         db, user, "enrollment_position.set",
         target=f"enroll:{eid} templates:{template_ids}", request=request,
@@ -796,6 +802,13 @@ async def sync_enrollment_positions_to_year(
         synced.append(target_enroll.id)
 
     await db.flush()
+
+    # 대상 사용자(같은 사용자의 학년도 전체 enrollment) 세션 무효화
+    if synced:
+        from app.modules.permissions.router import _invalidate_user_sessions
+        await _invalidate_user_sessions(db, src.user_id)
+        await db.flush()
+
     await log_action(
         db, user, "enrollment_position.sync_year",
         target=f"year:{src_semester.year} user:{src.user_id} count:{len(synced)}",

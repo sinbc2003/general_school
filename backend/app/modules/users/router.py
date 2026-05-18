@@ -224,6 +224,7 @@ async def update_user(
     if body.role is not None and body.role != target.role and not _is_admin(user):
         raise HTTPException(403, "역할 변경은 관리자만 가능합니다")
 
+    role_or_status_changed = False
     if body.name is not None:
         target.name = body.name
     if body.role is not None:
@@ -234,10 +235,13 @@ async def update_user(
         if body.role != target.role:
             # super_admin → 다른 role로 강등 시 마지막 super_admin 보호
             await _ensure_not_last_super_admin(db, target)
+            role_or_status_changed = True
         target.role = body.role
     if body.status is not None:
         if body.status == "disabled" and target.status != "disabled":
             await _ensure_not_last_super_admin(db, target)
+        if body.status != target.status:
+            role_or_status_changed = True
         target.status = body.status
     if body.grade is not None:
         target.grade = body.grade
@@ -249,6 +253,13 @@ async def update_user(
         target.department = body.department
 
     await db.flush()
+
+    # role/status가 바뀌면 stale 권한 차단
+    if role_or_status_changed:
+        from app.modules.permissions.router import _invalidate_user_sessions
+        await _invalidate_user_sessions(db, target.id)
+        await db.flush()
+
     await log_action(db, user, "user_updated", target=target.email, request=request)
     return _user_response(target)
 
@@ -274,6 +285,12 @@ async def delete_user(
 
     target.status = "disabled"
     await db.flush()
+
+    # 즉시 세션 차단 (disabled 사용자는 더 이상 토큰 갱신 불가)
+    from app.modules.permissions.router import _invalidate_user_sessions
+    await _invalidate_user_sessions(db, target.id)
+    await db.flush()
+
     await log_action(db, user, "user_disabled", target=target.email, request=request)
     return {"ok": True}
 

@@ -11,6 +11,7 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
+from app.core.auth import verify_2fa_session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission, require_super_admin, require_admin
@@ -275,9 +276,9 @@ from app.services.backup import export_all, restore_all, RestoreError
 
 @router.get("/backup/export")
 async def export_backup(
+    request: Request,
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
-    request: Request = None,
 ):
     """전체 데이터 + storage 백업 → ZIP 다운로드.
 
@@ -287,7 +288,9 @@ async def export_backup(
       - storage.tar.gz (사용자 업로드 파일)
 
     DB 엔진 무관 (SQLite ↔ PostgreSQL 호환).
+    2FA 필수 (system.backup.manage requires_2fa).
     """
+    await verify_2fa_session(user, request, db)
     zip_bytes = await export_all(db)
     await log_action(db, user, "backup.export", f"size:{len(zip_bytes)}", request=request, is_sensitive=True)
     filename = f"school_backup_{settings.SCHOOL_SHORT}_{__import__('datetime').datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
@@ -314,16 +317,18 @@ async def restore_preview(
 
 @router.post("/backup/restore")
 async def restore_apply(
+    request: Request,
     file: UploadFile = File(...),
     user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
-    request: Request = None,
 ):
     """실제 복원 — 모든 데이터 wipe 후 백업으로 교체. **돌이킬 수 없음**.
 
     먼저 /backup/restore/preview로 검증 권장.
     복원 후 alembic 버전이 다르면 백엔드 재시작 + `alembic upgrade head` 실행.
+    2FA 필수 (destructive 작업).
     """
+    await verify_2fa_session(user, request, db)
     zip_bytes = await file.read()
     try:
         result = await restore_all(db, zip_bytes, confirm=True)

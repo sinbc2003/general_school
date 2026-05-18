@@ -12,7 +12,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, verify_2fa_session
 from app.core.permissions import (
     require_super_admin,
     require_permission_manager,
@@ -30,10 +30,41 @@ from app.models.permission import (
     UserPermissionGroup,
 )
 from app.models.position import PositionTemplate, EnrollmentPosition
+from app.models.timetable import SemesterEnrollment
 
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
 MANAGEABLE_ROLES_BY_DESIGNATED = {"teacher", "staff", "student"}
+
+
+async def _invalidate_user_sessions(db: AsyncSession, user_id: int) -> int:
+    """대상 사용자의 모든 refresh token 삭제 → 다음 access token 만료 시 강제 재로그인.
+
+    권한이 변경된 사용자가 stale 권한으로 계속 활동하는 것을 방지.
+    access token 자체는 만료될 때까지(보통 15-30분) 유효하지만 refresh 차단으로
+    수명 이상 점유 불가. 즉시 차단이 필요하면 access TTL을 짧게 + 권한 거부.
+    """
+    from sqlalchemy import delete as sql_delete
+    from app.models.user import RefreshToken
+    result = await db.execute(
+        sql_delete(RefreshToken).where(RefreshToken.user_id == user_id)
+    )
+    return result.rowcount or 0
+
+
+async def _invalidate_role_sessions(db: AsyncSession, role: str) -> int:
+    """특정 role의 모든 사용자 refresh token 삭제 (role_permissions 변경 시)."""
+    from sqlalchemy import delete as sql_delete, select as _select
+    from app.models.user import RefreshToken, User
+    uids = (await db.execute(
+        _select(User.id).where(User.role == role)
+    )).scalars().all()
+    if not uids:
+        return 0
+    result = await db.execute(
+        sql_delete(RefreshToken).where(RefreshToken.user_id.in_(uids))
+    )
+    return result.rowcount or 0
 
 
 # ── 권한 키 목록 ──
@@ -95,7 +126,9 @@ async def update_role_permissions(
     """역할의 기본 권한을 업데이트
 
     body: {"permissions": ["key1", "key2", ...]}
+    2FA 필수 (permission.manage.edit requires_2fa).
     """
+    await verify_2fa_session(user, request, db)
     if user.role == "designated_admin" and role not in MANAGEABLE_ROLES_BY_DESIGNATED:
         raise HTTPException(403, "해당 역할의 권한을 수정할 수 없습니다")
 
@@ -127,8 +160,16 @@ async def update_role_permissions(
             ))
 
     await db.flush()
-    await log_action(db, user, "role_permissions_updated", target=role, request=request)
-    return {"ok": True, "role": role, "count": len(permission_keys)}
+    invalidated = await _invalidate_role_sessions(db, role)
+    await db.flush()
+    await log_action(
+        db, user, "role_permissions_updated",
+        target=f"{role} sessions_invalidated:{invalidated}", request=request,
+    )
+    return {
+        "ok": True, "role": role, "count": len(permission_keys),
+        "sessions_invalidated": invalidated,
+    }
 
 
 # ── 역할별 권한 매트릭스 (UI용) ──
@@ -225,7 +266,9 @@ async def update_user_permissions(
     """사용자 개별 권한 설정
 
     body: {"permissions": ["key1", "key2", ...]}
+    2FA 필수.
     """
+    await verify_2fa_session(user, request, db)
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
@@ -257,6 +300,8 @@ async def update_user_permissions(
                 granted_by=user.id,
             ))
 
+    await db.flush()
+    await _invalidate_user_sessions(db, user_id)
     await db.flush()
     await log_action(db, user, "user_permissions_updated", target=str(user_id), request=request)
     return {"ok": True}
@@ -334,7 +379,8 @@ async def update_group(
     if "description" in body:
         group.description = body["description"]
 
-    if "permissions" in body:
+    perms_changed = "permissions" in body
+    if perms_changed:
         await db.execute(
             delete(PermissionGroupItem).where(PermissionGroupItem.group_id == group_id)
         )
@@ -345,6 +391,17 @@ async def update_group(
                 db.add(PermissionGroupItem(group_id=group_id, permission_id=perm.id))
 
     await db.flush()
+
+    # 권한이 변경됐다면 이 그룹을 할당받은 모든 사용자 세션 무효화
+    if perms_changed:
+        member_uids = (await db.execute(
+            select(UserPermissionGroup.user_id)
+            .where(UserPermissionGroup.group_id == group_id)
+        )).scalars().all()
+        for uid in set(member_uids):
+            await _invalidate_user_sessions(db, uid)
+        await db.flush()
+
     await log_action(db, user, "permission_group_updated", target=str(group_id), request=request)
     return {"ok": True}
 
@@ -414,6 +471,8 @@ async def assign_group_to_user(
         group_id=group_id,
         granted_by=user.id,
     ))
+    await db.flush()
+    await _invalidate_user_sessions(db, target_user_id)
     await db.flush()
     await log_action(db, user, "permission_group_assigned",
                      target=f"user:{target_user_id} group:{group_id}", request=request)
@@ -512,7 +571,9 @@ async def create_position_template(
 ):
     """직책 템플릿 생성.
     body: {key, display_name, description?, category?, permission_keys: [str]}
+    2FA 필수 (권한 정의는 영향력 큼).
     """
+    await verify_2fa_session(user, request, db)
     key = (body.get("key") or "").strip()
     display_name = (body.get("display_name") or "").strip()
     if not key or not display_name:
@@ -554,7 +615,8 @@ async def update_position_template(
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """직책 템플릿 수정 (key는 변경 불가 — enrollment 매핑 안전성)."""
+    """직책 템플릿 수정 (key는 변경 불가 — enrollment 매핑 안전성). 2FA 필수."""
+    await verify_2fa_session(user, request, db)
     p = (await db.execute(
         select(PositionTemplate).where(PositionTemplate.id == tid)
     )).scalar_one_or_none()
@@ -567,11 +629,24 @@ async def update_position_template(
         p.description = body["description"] or None
     if "category" in body:
         p.category = (body["category"] or "기타").strip()[:50]
-    if "permission_keys" in body:
+    keys_changed = "permission_keys" in body
+    if keys_changed:
         perm_keys = await _validate_permission_keys(db, body["permission_keys"], user)
         p.permission_keys = json.dumps(perm_keys, ensure_ascii=False)
 
     await db.flush()
+
+    # permission_keys가 바뀌면 이 직책을 부여받은 모든 enrollment의 사용자 세션 무효화
+    if keys_changed:
+        member_uids = (await db.execute(
+            select(SemesterEnrollment.user_id)
+            .join(EnrollmentPosition, EnrollmentPosition.enrollment_id == SemesterEnrollment.id)
+            .where(EnrollmentPosition.position_template_id == tid)
+        )).scalars().all()
+        for uid in set(member_uids):
+            await _invalidate_user_sessions(db, uid)
+        await db.flush()
+
     await log_action(
         db, user, "position_template.update",
         target=f"id:{tid}", request=request,
@@ -585,10 +660,11 @@ async def delete_position_template(
     user: User = Depends(require_permission_manager()),
     db: AsyncSession = Depends(get_db),
 ):
-    """직책 템플릿 삭제. 시스템 기본은 삭제 불가.
+    """직책 템플릿 삭제. 시스템 기본은 삭제 불가. 2FA 필수.
 
     cascade=CASCADE로 enrollment_positions의 매핑 행도 자동 정리.
     """
+    await verify_2fa_session(user, request, db)
     p = (await db.execute(
         select(PositionTemplate).where(PositionTemplate.id == tid)
     )).scalar_one_or_none()
@@ -597,10 +673,22 @@ async def delete_position_template(
     if p.is_system:
         raise HTTPException(403, "시스템 기본 템플릿은 삭제할 수 없습니다")
 
+    # 삭제 전 영향받을 user_id 수집 (cascade로 EnrollmentPosition 함께 사라짐)
+    affected_uids = (await db.execute(
+        select(SemesterEnrollment.user_id)
+        .join(EnrollmentPosition, EnrollmentPosition.enrollment_id == SemesterEnrollment.id)
+        .where(EnrollmentPosition.position_template_id == tid)
+    )).scalars().all()
+
     await db.delete(p)
     await db.flush()
+
+    for uid in set(affected_uids):
+        await _invalidate_user_sessions(db, uid)
+    await db.flush()
+
     await log_action(
         db, user, "position_template.delete",
-        target=f"id:{tid} key:{p.key}", request=request,
+        target=f"id:{tid} key:{p.key} affected:{len(set(affected_uids))}", request=request,
     )
     return {"ok": True}
