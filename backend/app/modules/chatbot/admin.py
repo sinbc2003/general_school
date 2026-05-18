@@ -23,6 +23,9 @@ from app.services.llm.registry import (
 )
 
 from app.modules.chatbot.router import router, _get_config, _set_config
+from app.modules.chatbot.schemas import (
+    ModelCreate, ModelUpdate, PromptCreate, PromptUpdate, ProviderUpsert,
+)
 
 
 @router.get("/providers")
@@ -59,13 +62,11 @@ async def list_providers(
 
 @router.put("/providers/{provider}")
 async def upsert_provider(
-    provider: str, body: dict, request: Request,
+    provider: str, body: ProviderUpsert, request: Request,
     user: User = Depends(require_permission("chatbot.provider.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """body: {api_key?, is_active?, notes?}
-    api_key가 빈 문자열/null이면 변경 안 함. is_active는 명시적으로 보낼 때만 변경.
-    """
+    """provider 키·활성 상태 부분 업데이트. api_key가 None/빈 문자열이면 변경 안 함."""
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(400, f"지원하지 않는 provider: {provider}")
 
@@ -74,15 +75,18 @@ async def upsert_provider(
         p = LLMProvider(provider=provider)
         db.add(p)
 
-    if body.get("api_key"):
-        p.api_key_encrypted = encrypt(body["api_key"].strip())
+    patch = body.model_dump(exclude_unset=True)
+    if patch.get("api_key"):
+        p.api_key_encrypted = encrypt(patch["api_key"].strip())
         p.last_tested_at = None
         p.last_test_ok = False
         p.last_test_error = None
-    if "is_active" in body:
-        p.is_active = bool(body["is_active"])
-    if "notes" in body:
-        p.notes = body["notes"]
+    if "is_active" in patch:
+        p.is_active = bool(patch["is_active"])
+    if "notes" in patch:
+        p.notes = patch["notes"]
+    if "default_model_id" in patch and hasattr(p, "default_model_id"):
+        p.default_model_id = patch["default_model_id"]
 
     await db.flush()
     invalidate_cache(provider)
@@ -167,21 +171,20 @@ async def list_all_models(
 
 @router.post("/models")
 async def create_model(
-    body: dict, request: Request,
+    body: ModelCreate, request: Request,
     user: User = Depends(require_permission("chatbot.model.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.get("provider") not in SUPPORTED_PROVIDERS:
+    if body.provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(400, "지원하지 않는 provider")
     m = LLMModel(
-        provider=body["provider"], model_id=body["model_id"],
-        display_name=body.get("display_name") or body["model_id"],
-        input_per_1m_usd=float(body.get("input_per_1m_usd", 0)),
-        output_per_1m_usd=float(body.get("output_per_1m_usd", 0)),
-        context_window=body.get("context_window"),
-        is_active=bool(body.get("is_active", True)),
-        sort_order=int(body.get("sort_order", 100)),
-        notes=body.get("notes"),
+        provider=body.provider, model_id=body.model_id,
+        display_name=body.display_name or body.model_id,
+        input_per_1m_usd=body.input_price_per_1m_usd or 0.0,
+        output_per_1m_usd=body.output_price_per_1m_usd or 0.0,
+        context_window=body.context_window,
+        is_active=body.is_active,
+        sort_order=body.sort_order,
     )
     db.add(m)
     await db.flush()
@@ -191,17 +194,23 @@ async def create_model(
 
 @router.put("/models/{mid}")
 async def update_model(
-    mid: int, body: dict, request: Request,
+    mid: int, body: ModelUpdate, request: Request,
     user: User = Depends(require_permission("chatbot.model.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     m = (await db.execute(select(LLMModel).where(LLMModel.id == mid))).scalar_one_or_none()
     if not m:
         raise HTTPException(404)
-    for f in ("display_name", "input_per_1m_usd", "output_per_1m_usd",
-              "context_window", "is_active", "sort_order", "notes"):
-        if f in body:
-            setattr(m, f, body[f])
+    patch = body.model_dump(exclude_unset=True)
+    # schema 필드명 → 모델 필드명 매핑
+    field_map = {
+        "input_price_per_1m_usd": "input_per_1m_usd",
+        "output_price_per_1m_usd": "output_per_1m_usd",
+    }
+    for k, v in patch.items():
+        target = field_map.get(k, k)
+        if hasattr(m, target):
+            setattr(m, target, v)
     await log_action(db, user, "llm_model_updated", target=str(mid), request=request)
     return {"ok": True}
 
@@ -249,17 +258,15 @@ async def list_prompts(
 
 @router.post("/prompts")
 async def create_prompt(
-    body: dict, request: Request,
+    body: PromptCreate, request: Request,
     user: User = Depends(require_permission("chatbot.prompt.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.get("audience") not in ("teacher", "student", "both"):
-        raise HTTPException(400, "audience는 teacher|student|both")
     p = SystemPrompt(
-        name=body["name"], audience=body["audience"], content=body["content"],
-        is_default=bool(body.get("is_default", False)),
-        is_active=bool(body.get("is_active", True)),
-        sort_order=int(body.get("sort_order", 100)),
+        name=body.name, audience=body.audience, content=body.content,
+        is_default=body.is_default,
+        is_active=True,
+        sort_order=100,
         created_by=user.id,
     )
     db.add(p)
@@ -285,18 +292,19 @@ async def _clear_other_defaults(db: AsyncSession, audience: str, keep_id: int):
 
 @router.put("/prompts/{pid}")
 async def update_prompt(
-    pid: int, body: dict, request: Request,
+    pid: int, body: PromptUpdate, request: Request,
     user: User = Depends(require_permission("chatbot.prompt.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     p = (await db.execute(select(SystemPrompt).where(SystemPrompt.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404)
-    for f in ("name", "content", "audience", "is_active", "sort_order"):
-        if f in body:
-            setattr(p, f, body[f])
-    if "is_default" in body:
-        p.is_default = bool(body["is_default"])
+    patch = body.model_dump(exclude_unset=True)
+    for f in ("name", "content", "audience"):
+        if f in patch and patch[f] is not None:
+            setattr(p, f, patch[f])
+    if "is_default" in patch and patch["is_default"] is not None:
+        p.is_default = patch["is_default"]
         if p.is_default:
             await _clear_other_defaults(db, p.audience, p.id)
     await log_action(db, user, "llm_prompt_updated", target=str(pid), request=request)

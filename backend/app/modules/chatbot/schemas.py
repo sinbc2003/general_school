@@ -9,6 +9,7 @@ class ProviderUpsert(BaseModel):
     """PUT /api/chatbot/providers/{provider}"""
     api_key: str | None = None
     is_active: bool | None = None
+    notes: str | None = None
     default_model_id: str | None = None
 
 
