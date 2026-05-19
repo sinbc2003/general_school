@@ -56,7 +56,7 @@ const server = Server.configure({
   port: config.port,
   address: "0.0.0.0",
 
-  async onAuthenticate({ token, documentName }: onAuthenticatePayload) {
+  async onAuthenticate({ token, documentName, connection }: onAuthenticatePayload) {
     if (!token) {
       throw new Error("token required");
     }
@@ -72,6 +72,13 @@ const server = Server.configure({
     if (!perm.can_read) {
       throw new Error("forbidden");
     }
+
+    // read-only 사용자도 connection은 허용 (presence·커서 보기 위해)
+    // 단 변경 message는 Hocuspocus 자체가 readOnly 플래그로 무시.
+    if (!perm.can_write) {
+      connection.readOnly = true;
+    }
+
     // 반환값은 context로 onChange/onStoreDocument 등에서 접근 가능
     return {
       userId: parseInt(payload.sub, 10),
@@ -79,18 +86,6 @@ const server = Server.configure({
       canWrite: perm.can_write,
     };
   },
-
-  /**
-   * 권한 없는 사용자의 update를 거부. Hocuspocus는 onAuthenticate에서
-   * connection 자체를 막을 수 있지만, 같은 connection 내에서 read-only를
-   * enforce하려면 onStateless/onAwarenessUpdate 등에서 추가 검사 필요.
-   *
-   * 간단화: read-only 사용자도 connection 자체는 허용 (presence 보기 위해).
-   * 단 변경된 update는 onChange에서 무시 (canWrite=false 사용자 update 차단).
-   *
-   * 실제로 무시하려면 Hocuspocus의 readOnly extension 사용. 본 버전은 v0.1에서
-   * 추가 강화 — 현재는 단순화: 권한 있는 사용자만 connection 허용 (can_read).
-   */
 
   async onLoadDocument({ documentName, document }: onLoadDocumentPayload) {
     const docId = extractDocIdFromName(documentName);

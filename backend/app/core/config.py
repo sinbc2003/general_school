@@ -86,5 +86,11 @@ class Settings(BaseSettings):
     # ── 기본 비밀번호 (엑셀 임포트 시 비밀번호 미입력 시) ──
     DEFAULT_USER_PASSWORD: str = "school1234!"
 
+    # ── Hocuspocus 협업 문서 사이드카 ──
+    # backend-hocuspocus가 snapshot POST 시 X-Internal-Token 헤더로 보내는 값.
+    # 빈 문자열이면 snapshot endpoint 자체가 503 (서비스 미구성).
+    # 운영 환경: 양쪽 .env에 동일한 강한 랜덤 값.
+    HOCUSPOCUS_INTERNAL_TOKEN: str = ""
+
 
 settings = Settings()

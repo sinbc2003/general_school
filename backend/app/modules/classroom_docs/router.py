@@ -27,7 +27,6 @@
 """
 
 import base64
-import os
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import desc, or_, select
@@ -35,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.classroom import Course, CourseStudent
@@ -433,7 +433,7 @@ async def save_yjs_snapshot(
 
     1분 debounce로 호출 → Document.yjs_state 갱신 + DocumentRevision insert.
     """
-    expected_token = os.environ.get("HOCUSPOCUS_INTERNAL_TOKEN", "")
+    expected_token = settings.HOCUSPOCUS_INTERNAL_TOKEN
     if not expected_token:
         raise HTTPException(503, "HOCUSPOCUS_INTERNAL_TOKEN 미설정 (서버 환경변수 확인)")
     if x_internal_token != expected_token:
