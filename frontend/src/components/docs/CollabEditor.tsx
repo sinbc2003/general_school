@@ -86,11 +86,23 @@ export default function CollabEditor({
       onAwarenessChange: ({ states }) => {
         // eslint-disable-next-line no-console
         console.log(
-          "[CollabEditor] awareness peers=",
-          states.map((s: any) => s?.user?.name ?? "?").join(","),
+          "[CollabEditor] awareness raw=",
+          JSON.stringify(states),
         );
       },
     });
+
+    // CollaborationCaret이 user 정보를 자동으로 awareness에 박지 못하는 경우가 있어
+    // provider awareness에 직접 setLocalStateField 호출 (이중 안전망).
+    try {
+      prov.setAwarenessField("user", {
+        name: userName,
+        color: userColor(userId),
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[CollabEditor] setAwarenessField 실패", e);
+    }
 
     // 본문 update 진단 — 다른 client의 update를 받는지 확인용
     yDoc.on("update", (_update: Uint8Array, origin: any) => {
@@ -133,7 +145,13 @@ export default function CollabEditor({
       Placeholder.configure({
         placeholder: "여기에 함께 작성해보세요...",
       }),
-      Collaboration.configure({ document: doc }),
+      // v3: Collaboration extension은 document + provider 둘 다 받아야
+      // editor↔yDoc binding이 완성됨. provider 없으면 editor 변경이 yDoc으로
+      // propagate 안 되어 다른 client에게 broadcast 안 됨 (실제 검증 결과).
+      Collaboration.configure({
+        document: doc,
+        provider,
+      }),
       CollaborationCaret.configure({
         provider,
         user: {
@@ -143,8 +161,15 @@ export default function CollabEditor({
       }),
     ],
     editable: canWrite,
-    // SSR/Next.js 14 호환
     immediatelyRender: false,
+    onCreate: ({ editor: e }) => {
+      // eslint-disable-next-line no-console
+      console.log("[CollabEditor] editor onCreate, editable=", e.isEditable);
+    },
+    onUpdate: ({ editor: e }) => {
+      // eslint-disable-next-line no-console
+      console.log("[CollabEditor] editor onUpdate, len=", e.getText().length);
+    },
     editorProps: {
       attributes: {
         class:
