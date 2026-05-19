@@ -1,11 +1,28 @@
 """Pydantic schemas — classroom 모듈."""
 
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 PostType = Literal["notice", "material", "assignment_ref"]
+AttachmentType = Literal["link", "file", "doc", "survey"]
+
+
+class Attachment(BaseModel):
+    """글 첨부 항목. 다형 — type 별로 선택 필드.
+
+    예: {type: "link", url: "https://...", title: "참고 자료"}
+        {type: "doc", doc_id: 42, title: "프로젝트 노트"}
+    """
+    type: AttachmentType
+    title: str = Field(..., min_length=1, max_length=255)
+    url: str | None = None
+    file_url: str | None = None
+    file_name: str | None = None
+    doc_id: int | None = None
+    survey_id: int | None = None
 
 
 class CourseCreate(BaseModel):
@@ -44,6 +61,11 @@ class CoursePostCreate(BaseModel):
     content: str = Field(..., min_length=1)
     post_type: PostType = "notice"
     is_pinned: bool = False
+    # 과제 메타 (assignment_ref·자료에서 활용; 공지는 비워둠)
+    due_date: datetime | None = None
+    max_score: int | None = Field(None, ge=0, le=10000)
+    topic: str | None = Field(None, max_length=100)
+    attachments: list[Attachment] | None = None
 
 
 class CoursePostUpdate(BaseModel):
@@ -51,6 +73,10 @@ class CoursePostUpdate(BaseModel):
     content: str | None = Field(None, min_length=1)
     post_type: PostType | None = None
     is_pinned: bool | None = None
+    due_date: datetime | None = None
+    max_score: int | None = Field(None, ge=0, le=10000)
+    topic: str | None = Field(None, max_length=100)
+    attachments: list[Attachment] | None = None
 
 
 class AutoGenerateRequest(BaseModel):

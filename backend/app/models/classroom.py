@@ -13,9 +13,10 @@
 """
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Index, Integer, String, Text,
+    JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -119,6 +120,23 @@ class CoursePost(Base):
     file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # ── 과제 메타 (post_type='assignment_ref'일 때 주로 사용) ──
+    # 모두 nullable — 공지/자료는 비워둠. 향후 점수·기한 시스템 확장에 활용.
+    due_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    max_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 주제별 그룹화 (Google Classroom "주제 없음" 패턴). null이면 "주제 없음" 그룹.
+    topic: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 첨부 자료 list. 각 원소:
+    #   {type: "link", url: "...", title: "..."}
+    #   {type: "file", file_url: "/storage/classroom/...", file_name: "..."}
+    #   {type: "doc", doc_id: 42, title: "..."}        ← 협업 문서 연결
+    #   {type: "survey", survey_id: 7, title: "..."}   ← 설문 연결
+    # 형식 검증은 schemas Pydantic에서 진행.
+    attachments: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

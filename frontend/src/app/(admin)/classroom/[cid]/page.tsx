@@ -21,6 +21,7 @@ import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CreateMenu, type CreateActionKind } from "@/components/classroom/CreateMenu";
 import { PostComposer, type PostType } from "@/components/classroom/PostComposer";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
+import { AssignmentModal, type CreateKind } from "@/components/classroom/AssignmentModal";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Student {
@@ -33,6 +34,16 @@ interface Student {
   joined_at: string | null;
 }
 
+interface Attachment {
+  type: "link" | "file" | "doc" | "survey";
+  title: string;
+  url?: string;
+  file_url?: string;
+  file_name?: string;
+  doc_id?: number;
+  survey_id?: number;
+}
+
 interface Post {
   id: number;
   course_id: number;
@@ -42,6 +53,10 @@ interface Post {
   title: string;
   content: string;
   is_pinned: boolean;
+  due_date: string | null;
+  max_score: number | null;
+  topic: string | null;
+  attachments: Attachment[];
   created_at: string | null;
 }
 
@@ -73,6 +88,8 @@ export default function CourseDetailAdminPage() {
   const [postFormInitType, setPostFormInitType] = useState<PostType>("notice");
   // composerKey > 0이면 강제 remount + 펼침 상태로 시작 (CreateMenu에서 진입한 신호)
   const [composerKey, setComposerKey] = useState(0);
+  // 풀스크린 과제·자료 생성 modal
+  const [modalKind, setModalKind] = useState<CreateKind | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,9 +122,8 @@ export default function CourseDetailAdminPage() {
 
   const handleCreate = (kind: CreateActionKind) => {
     if (kind === "assignment" || kind === "material") {
-      setPostFormInitType(kind === "assignment" ? "assignment_ref" : "material");
-      setComposerKey((k) => k + 1);  // 강제 remount + 펼침
-      setActiveTab("stream");
+      // 풀스크린 modal — 점수·기한·주제·첨부 함께 설정
+      setModalKind(kind);
     } else if (kind === "doc") {
       router.push(`/classroom/${cid}/docs`);
     } else if (kind === "survey") {
@@ -208,6 +224,7 @@ export default function CourseDetailAdminPage() {
           canEdit={canEdit}
           tone={tone}
           onCreate={(kind) => handleCreate(kind)}
+          onDelete={deletePost}
         />
       )}
 
@@ -285,26 +302,67 @@ export default function CourseDetailAdminPage() {
           onSaved={() => { setShowBulk(false); load(); }}
         />
       )}
+
+      {modalKind && (
+        <AssignmentModal
+          cid={cid}
+          kind={modalKind}
+          studentCount={course.students.length}
+          existingTopics={Array.from(new Set(posts.map((p) => p.topic).filter(Boolean) as string[]))}
+          onClose={() => setModalKind(null)}
+          onSaved={() => { setModalKind(null); setActiveTab("coursework"); load(); }}
+        />
+      )}
     </div>
   );
 }
 
 
-// ─── 수업 과제 탭 — Google Classroom 식 (+ 만들기 드롭다운 + 카테고리 list) ───
+// ─── 수업 과제 탭 — Google Classroom 식 주제별 그룹 + 항목 아이콘 + 더보기 메뉴 ───
 function CourseworkTab({
-  cid, posts, canEdit, tone, onCreate,
+  cid, posts, canEdit, tone, onCreate, onDelete,
 }: {
   cid: number; posts: Post[]; canEdit: boolean;
   tone: { accent: string };
   onCreate: (kind: CreateActionKind) => void;
+  onDelete: (pid: number) => void;
 }) {
   // 과제·자료만 (공지는 게시판 탭에서)
   const materials = posts.filter((p) => p.post_type !== "notice");
-  const assignments = materials.filter((p) => p.post_type === "assignment_ref");
-  const others = materials.filter((p) => p.post_type !== "assignment_ref");
+  // 주제별 그룹화: topic null → "주제 없음"
+  const groups: Record<string, Post[]> = {};
+  for (const p of materials) {
+    const key = p.topic || "주제 없음";
+    groups[key] = groups[key] || [];
+    groups[key].push(p);
+  }
+  const topicOrder = Object.keys(groups).sort((a, b) => {
+    if (a === "주제 없음") return 1;
+    if (b === "주제 없음") return -1;
+    return a.localeCompare(b, "ko");
+  });
+
+  const [collapsedAll, setCollapsedAll] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    if (collapsedAll || collapsed.size === topicOrder.length) {
+      setCollapsed(new Set());
+      setCollapsedAll(false);
+    } else {
+      setCollapsed(new Set(topicOrder));
+      setCollapsedAll(true);
+    }
+  };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {canEdit && (
         <div className="flex items-center gap-3">
           <CreateMenu onAction={onCreate} accentColor={tone.accent} />
@@ -312,14 +370,22 @@ function CourseworkTab({
             href={`/classroom/${cid}/docs`}
             className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
           >
-            협업 문서 전체 보기 →
+            협업 문서 →
           </Link>
           <Link
             href={`/classroom/${cid}/surveys`}
             className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
           >
-            설문 전체 보기 →
+            설문 →
           </Link>
+          {materials.length > 0 && (
+            <button
+              onClick={toggleAll}
+              className="ml-auto text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
+            >
+              {collapsed.size === topicOrder.length && topicOrder.length > 0 ? "모두 펼치기" : "모두 접기"}
+            </button>
+          )}
         </div>
       )}
 
@@ -331,43 +397,154 @@ function CourseworkTab({
           </div>
         </div>
       ) : (
-        <>
-          {assignments.length > 0 && (
-            <PostGroup title="과제" posts={assignments} />
-          )}
-          {others.length > 0 && (
-            <PostGroup title="자료" posts={others} />
-          )}
-        </>
+        topicOrder.map((topicKey) => (
+          <TopicGroup
+            key={topicKey}
+            topic={topicKey}
+            posts={groups[topicKey]}
+            collapsed={collapsed.has(topicKey)}
+            onToggle={() => toggleCollapse(topicKey)}
+            canEdit={canEdit}
+            onDelete={onDelete}
+            tone={tone}
+          />
+        ))
       )}
     </div>
   );
 }
 
-function PostGroup({ title, posts }: { title: string; posts: Post[] }) {
+function TopicGroup({
+  topic, posts, collapsed, onToggle, canEdit, onDelete, tone,
+}: {
+  topic: string; posts: Post[]; collapsed: boolean; onToggle: () => void;
+  canEdit: boolean; onDelete: (pid: number) => void;
+  tone: { accent: string };
+}) {
   return (
     <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
-      <div className="px-4 py-2 border-b border-border-default text-caption font-semibold text-text-secondary">
-        {title} ({posts.length})
-      </div>
-      <div className="divide-y divide-border-default">
-        {posts.map((p) => (
-          <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary cursor-pointer">
-            <div className="flex items-center gap-2">
-              <div className="text-body font-medium flex-1 truncate">{p.title}</div>
-              <span className="text-caption text-text-tertiary">
-                {p.created_at && p.created_at.slice(0, 10)}
-              </span>
-            </div>
-            {p.content && (
-              <div className="text-caption text-text-secondary mt-1 line-clamp-2 whitespace-pre-wrap">
-                {p.content}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-5 py-3 hover:bg-bg-secondary text-left"
+      >
+        <div className="text-body font-semibold" style={{ color: tone.accent }}>
+          {topic}
+        </div>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          className={`text-text-tertiary transition-transform ${collapsed ? "" : "rotate-180"}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+      {!collapsed && (
+        <div className="divide-y divide-border-default border-t border-border-default">
+          {posts.map((p) => (
+            <CourseworkItem
+              key={p.id}
+              post={p}
+              canEdit={canEdit}
+              onDelete={() => onDelete(p.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function CourseworkItem({
+  post, canEdit, onDelete,
+}: { post: Post; canEdit: boolean; onDelete: () => void }) {
+  const isAssignment = post.post_type === "assignment_ref";
+  const isMaterial = post.post_type === "material";
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div className="group flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer">
+      <div
+        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{
+          backgroundColor: isAssignment ? "#fef3c7" : isMaterial ? "#dcfce7" : "#dbeafe",
+          color: isAssignment ? "#a16207" : isMaterial ? "#15803d" : "#1d4ed8",
+        }}
+      >
+        {isAssignment ? <ClipboardListIcon /> : <FolderIcon />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-body font-medium text-text-primary truncate">{post.title}</div>
+        {post.due_date && (
+          <div className="text-[11.5px] text-status-error mt-0.5">
+            기한 {new Date(post.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
+            {post.max_score != null && ` · ${post.max_score}점`}
+          </div>
+        )}
+        {!post.due_date && post.max_score != null && (
+          <div className="text-[11.5px] text-text-tertiary mt-0.5">{post.max_score}점</div>
+        )}
+      </div>
+      <div className="text-caption text-text-tertiary whitespace-nowrap">
+        게시일: {post.created_at && new Date(post.created_at).toLocaleString("ko-KR", { hour: "numeric", minute: "2-digit" })}
+      </div>
+      {canEdit && (
+        <div className="relative">
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+            className="p-1.5 hover:bg-bg-primary rounded-full opacity-0 group-hover:opacity-100"
+            title="더보기"
+          >
+            <DotsIcon />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute top-full right-0 mt-1 z-20 bg-bg-primary border border-border-default rounded shadow-lg w-32 py-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
+                  className="w-full text-left px-3 py-1.5 text-caption text-status-error hover:bg-bg-secondary"
+                >
+                  삭제
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 작은 인라인 svg 아이콘들 (lucide-react를 매번 import 안 하기 위해)
+function ClipboardListIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+      <line x1="9" y1="16" x2="13" y2="16" />
+    </svg>
+  );
+}
+function FolderIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+function DotsIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="6" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="12" cy="18" r="1.5" />
+    </svg>
   );
 }
 

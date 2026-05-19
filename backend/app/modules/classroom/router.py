@@ -81,6 +81,11 @@ def _post_to_dict(p: CoursePost, author_name: str | None = None) -> dict:
         "file_url": p.file_url,
         "file_name": p.file_name,
         "is_pinned": p.is_pinned,
+        # 과제 메타
+        "due_date": p.due_date.isoformat() if p.due_date else None,
+        "max_score": p.max_score,
+        "topic": p.topic,
+        "attachments": p.attachments or [],
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
@@ -642,6 +647,13 @@ async def create_course_post(
         title=body.title,
         content=body.content,
         is_pinned=body.is_pinned,
+        due_date=body.due_date,
+        max_score=body.max_score,
+        topic=body.topic,
+        attachments=(
+            [a.model_dump(exclude_none=True) for a in body.attachments]
+            if body.attachments else None
+        ),
     )
     db.add(p)
     await db.flush()
@@ -665,7 +677,10 @@ async def update_course_post(
         raise HTTPException(403, "본인 글만 편집 가능")
     patch = body.model_dump(exclude_unset=True)
     for k, v in patch.items():
-        if v is not None:
+        if k == "attachments" and v is not None:
+            # Attachment 객체 list → dict list
+            setattr(p, k, [a.model_dump(exclude_none=True) if hasattr(a, "model_dump") else a for a in v])
+        elif v is not None:
             setattr(p, k, v)
     await db.flush()
     return _post_to_dict(p)
