@@ -147,6 +147,14 @@ export const adminMenu: MenuItem[] = [
     excludeRoles: ["student"],
   },
   {
+    key: "classroom",
+    label: "클래스룸",
+    icon: GraduationCap,
+    path: "/classroom",
+    permission: "classroom.course.view",
+    excludeRoles: ["student"],
+  },
+  {
     key: "research",
     label: "연구 프로젝트",
     icon: FlaskConical,

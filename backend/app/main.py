@@ -138,6 +138,7 @@ from app.modules.chatbot.router import router as chatbot_router
 from app.modules.student_self.router import router as student_self_router
 from app.modules.announcement.router import router as announcement_router
 from app.modules.files.router import router as files_router
+from app.modules.classroom.router import router as classroom_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -163,6 +164,7 @@ app.include_router(chatbot_router)
 app.include_router(student_self_router)
 app.include_router(announcement_router)
 app.include_router(files_router)
+app.include_router(classroom_router)
 
 
 @app.get("/api/health")

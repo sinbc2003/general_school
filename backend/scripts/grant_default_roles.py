@@ -61,6 +61,8 @@ STAFF_KEYS = {
     # 공지사항: 직원도 작성/열람 가능
     "announcement.post.view", "announcement.post.create",
     "announcement.post.edit", "announcement.post.delete",
+    # 클래스룸 조회만 (강좌 관리는 본인 강좌만 — 라우터에서 자동 가드)
+    "classroom.course.view", "classroom.post.view",
 }
 
 STUDENT_KEYS = {
@@ -85,6 +87,8 @@ STUDENT_KEYS = {
     "research.project.view",
     # 학생도 공지사항 열람 가능 (라우터에서 audience=all만 노출)
     "announcement.post.view",
+    # 학생: 본인 수강 강좌 조회 + 클래스룸 글 읽기
+    "classroom.course.view", "classroom.post.view",
 }
 
 

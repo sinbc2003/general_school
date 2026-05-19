@@ -64,7 +64,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       name: "수업",
       icon: "BookOpen",
       // 수업 자료실 + 대회·과제 + 동아리·연구 통합
-      items: ["archive", "contest", "assignment", "club", "research"],
+      items: ["archive", "classroom", "contest", "assignment", "club", "research"],
     },
     {
       id: "students",
@@ -99,6 +99,12 @@ export const defaultCategories: MenuCategoriesConfig = {
       name: "홈",
       icon: "Home",
       items: ["dashboard", "announcements", "chat"],
+    },
+    {
+      id: "class",
+      name: "수업",
+      icon: "BookOpen",
+      items: ["classroom"],
     },
     {
       id: "competition",

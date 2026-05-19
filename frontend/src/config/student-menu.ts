@@ -12,6 +12,7 @@ import {
   Target,
   Library,
   Megaphone,
+  GraduationCap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "chat", label: "AI 도우미", icon: Sparkles, path: "/s/chat", permission: "chatbot.use", newTab: true },
   { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: null },
   { key: "assignment", label: "과제", icon: ClipboardList, path: "/s/assignment", permission: null },
+  { key: "classroom", label: "내 수업", icon: GraduationCap, path: "/s/classroom", permission: null },
   { key: "my-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
   { key: "career", label: "진로/진학 설계", icon: Target, path: "/s/career", permission: null },
   { key: "research-archive", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: null },
