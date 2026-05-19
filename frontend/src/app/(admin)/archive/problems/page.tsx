@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 문제 DB 관리 페이지.
+ * 문제 검색 페이지.
  *
  * 필터·페이지네이션·테이블만 본 파일. 등록/수정 모달은 _components/ProblemFormModal.
  */
@@ -78,7 +78,7 @@ export default function ProblemsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-title text-text-primary">문제 DB</h1>
+        <h1 className="text-title text-text-primary">문제 검색</h1>
         <button
           onClick={() => {
             setEditingId(null);

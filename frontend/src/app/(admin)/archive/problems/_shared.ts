@@ -1,5 +1,5 @@
 /**
- * 문제 DB 페이지 공유 타입 + 상수.
+ * 문제 검색 페이지 공유 타입 + 상수.
  */
 
 export interface ProblemItem {

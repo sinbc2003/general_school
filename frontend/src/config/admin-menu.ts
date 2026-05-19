@@ -127,7 +127,7 @@ export const adminMenu: MenuItem[] = [
     excludeRoles: ["student"],
     children: [
       { key: "documents", label: "문서 검색", icon: FileText, path: "/archive/documents", permission: "archive.document.upload" },
-      { key: "problems", label: "문제 DB", icon: FileText, path: "/archive/problems", permission: "problem.library.view" },
+      { key: "problems", label: "문제 검색", icon: FileText, path: "/archive/problems", permission: "problem.library.view" },
     ],
   },
   {
