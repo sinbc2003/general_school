@@ -4,6 +4,9 @@
   GET    /api/classroom/courses                  본인 관련 강좌 (교사·학생)
   GET    /api/classroom/courses/all              관리자: 전체 강좌
   POST   /api/classroom/courses                  강좌 생성
+
+  NOTE: list / create endpoint는 명시적으로 "/courses"에 등록 (frontend 호출과 일치).
+        과거 빈 path("")에 등록되어 있어 frontend POST /courses가 404였음.
   PUT    /api/classroom/courses/{cid}            편집
   DELETE /api/classroom/courses/{cid}            삭제
   POST   /api/classroom/courses/_auto-generate   학기 enrollment 기반 자동 생성
@@ -134,7 +137,7 @@ def _parse_teaching_list(s: str | None) -> list[str]:
 # ── 강좌 CRUD ──────────────────────────────────────────────
 
 
-@router.get("")
+@router.get("/courses")
 async def list_my_courses(
     semester_id: int | None = Query(None, description="미지정 시 현재 학기"),
     user: User = Depends(require_permission("classroom.course.view")),
@@ -212,7 +215,7 @@ async def list_all_courses(
     return {"items": items}
 
 
-@router.post("")
+@router.post("/courses")
 async def create_course(
     body: CourseCreate, request: Request,
     user: User = Depends(require_permission("classroom.course.manage")),
