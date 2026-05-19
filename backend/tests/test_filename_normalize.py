@@ -202,8 +202,68 @@ def test_preview_with_dict_student():
 def test_supported_vars_set():
     """문서화된 변수 목록 확인."""
     expected = {
-        "grade", "class", "number", "student_number", "name",
+        "grade", "class", "class2", "number", "number2",
+        "student_number", "snum5", "name",
         "date", "original", "ext",
         "assignment_title", "club_name", "project_title",
     }
     assert SUPPORTED_VARS == expected
+
+
+# ── 한국 학교 표준 5자리 학번 ─────────────────────────────
+
+
+def test_snum5_from_combination():
+    """grade + class + number 조합으로 5자리 자동 생성 (학년1+반2+번호2)."""
+    s = _Student(grade=2, class_number=3, student_number=15, name="홍길동")
+    result = render(
+        "{snum5}_{name}_{original}",
+        student=s, original_filename="보고서.pdf",
+    )
+    # 2학년 3반 15번 → 20315
+    assert result == "20315_홍길동_보고서.pdf"
+
+
+def test_snum5_from_already_5digit():
+    """학번이 이미 5자리(10000~99999)면 그대로 사용."""
+    # 예: student_number 컬럼에 학교가 10101 같은 5자리 학번 통째 저장
+    s = _Student(grade=1, class_number=1, student_number=10101, name="A")
+    result = render("{snum5}_{name}", student=s, original_filename="x.pdf")
+    assert result == "10101_A.pdf"
+
+
+def test_snum5_higher_class():
+    """반이 10반 이상도 5자리 (학년1+반2+번호2)."""
+    s = _Student(grade=3, class_number=12, student_number=5, name="B")
+    result = render("{snum5}_{name}", student=s, original_filename="x.pdf")
+    # 3학년 12반 5번 → 31205
+    assert result == "31205_B.pdf"
+
+
+def test_snum5_missing_returns_undecided():
+    """grade/class/number 모두 없으면 '미정'."""
+    s = _Student(name="A")
+    result = render("{snum5}_{name}", student=s, original_filename="x.pdf")
+    assert "미정" in result
+
+
+def test_class2_number2_zero_pad():
+    """{class2} {number2}는 2자리 zero-pad."""
+    s = _Student(grade=1, class_number=1, student_number=5, name="A")
+    result = render(
+        "{grade}{class2}{number2}_{name}",
+        student=s, original_filename="x.pdf",
+    )
+    # 1학년 1반 5번 → 10105
+    assert result == "10105_A.pdf"
+
+
+def test_class2_double_digit():
+    """두 자리 반/번호는 그대로 (이미 2자리)."""
+    s = _Student(grade=2, class_number=15, student_number=23, name="A")
+    result = render(
+        "{grade}{class2}{number2}",
+        student=s, original_filename="x.pdf",
+    )
+    # 2학년 15반 23번 → 21523
+    assert result == "21523.pdf"

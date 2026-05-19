@@ -6,10 +6,14 @@
   - 공개 갤러리·생기부·관리자가 한눈에 식별 가능
 
 지원 변수 (괄호 안: 비어있을 때 fallback):
-  {grade}            학년 (예: 2). 없으면 "?"
-  {class}            반 (예: 3). 없으면 "?"
-  {number}           번호 (예: 15). 없으면 "?"
+  {grade}            학년 (예: 2). 없으면 "미정"
+  {class}            반 (예: 3). 없으면 "미정"
+  {class2}           2자리 zero-pad 반 (예: 03)
+  {number}           번호 (예: 15). 없으면 "미정"
+  {number2}          2자리 zero-pad 번호 (예: 05, 15)
   {student_number}   학생 학번 컬럼 (있다면). 없으면 {number}
+  {snum5}            한국 학교 표준 5자리 학번 (예: 20315 = 2학년 3반 15번).
+                     User.student_number가 5자리면 그대로, 아니면 grade+class2+number2 조합.
   {name}             이름. 없으면 "이름없음"
   {date}             업로드 날짜 YYYYMMDD
   {date:format}      커스텀 포맷 (예: {date:YYYY-MM-DD}, {date:MM-DD})
@@ -34,10 +38,48 @@ from typing import Any
 
 # 지원하는 변수 keys (확장 시 여기에 추가)
 SUPPORTED_VARS = {
-    "grade", "class", "number", "student_number", "name",
+    "grade", "class", "class2", "number", "number2",
+    "student_number", "snum5", "name",
     "date", "original", "ext",
     "assignment_title", "club_name", "project_title",
 }
+
+
+def _zero_pad(value, width: int) -> str:
+    """int·str을 width 자리 zero-pad (실패 시 원본)."""
+    try:
+        return str(int(value)).zfill(width)
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def _korean_snum5(student) -> str:
+    """한국 학교 표준 5자리 학번 생성.
+
+    우선순위:
+      1. student.student_number가 5자리 정수면 그대로 (예: 20315)
+      2. 그 외 grade(1자리) + class(2자리 zero-pad) + number(2자리 zero-pad)
+      3. 누락 시 "미정"
+    """
+    if not student:
+        return "미정"
+    snum = getattr(student, "student_number", None)
+    # 이미 5자리 학번이면 그대로 사용 (10000 ~ 99999)
+    try:
+        if snum is not None and 10000 <= int(snum) <= 99999:
+            return str(int(snum))
+    except (TypeError, ValueError):
+        pass
+    # 조합 생성
+    g = getattr(student, "grade", None)
+    c = getattr(student, "class_number", None)
+    n = getattr(student, "student_number", None) or snum
+    if g is None or c is None or n is None:
+        return "미정"
+    try:
+        return f"{int(g)}{int(c):02d}{int(n):02d}"
+    except (TypeError, ValueError):
+        return "미정"
 
 # 파일명에 위험한 문자 (Windows·POSIX 공통)
 _UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|\x00-\x1f]')
@@ -111,16 +153,23 @@ def render(
     orig_name, orig_ext = _split_ext(original_filename or "file")
 
     # 변수 dict 구성 (fallback은 한글 — `?`는 Windows 파일명 위험 문자라 사용 금지)
+    g = getattr(student, "grade", None) if student else None
+    c = getattr(student, "class_number", None) if student else None
+    n = getattr(student, "student_number", None) if student else None
     values: dict[str, str] = {
-        "grade": str(getattr(student, "grade", "") or "미정") if student else "미정",
-        "class": str(getattr(student, "class_number", "") or "미정") if student else "미정",
-        "number": str(getattr(student, "student_number", "") or "미정") if student else "미정",
+        "grade": str(g) if g is not None else "미정",
+        "class": str(c) if c is not None else "미정",
+        "class2": _zero_pad(c, 2) if c is not None else "미정",
+        "number": str(n) if n is not None else "미정",
+        "number2": _zero_pad(n, 2) if n is not None else "미정",
         "name": _safe_segment(getattr(student, "name", "") or "이름없음") if student else "이름없음",
         "original": _safe_segment(orig_name),
         "ext": orig_ext,
     }
-    # student_number는 fallback으로 number 사용
+    # student_number는 number와 동일 fallback
     values["student_number"] = values["number"]
+    # 한국 학교 표준 5자리 학번
+    values["snum5"] = _korean_snum5(student)
 
     # extra 변수 (assignment_title, club_name 등)
     for k, v in extra.items():
@@ -141,7 +190,8 @@ def render(
             return values[key]
         return m.group(0)  # 그대로
 
-    rendered = re.sub(r"\{([a-z_]+)\}", _replace_var, pattern_with_date)
+    # 변수명: 영문자로 시작 + 영문자/숫자/언더스코어 (snum5, class2, number2 같은 패턴 지원)
+    rendered = re.sub(r"\{([a-z][a-z0-9_]*)\}", _replace_var, pattern_with_date)
 
     # 결과에 ext 없으면 자동 추가
     if orig_ext and not rendered.endswith(orig_ext):

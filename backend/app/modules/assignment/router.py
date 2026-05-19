@@ -44,10 +44,15 @@ async def filename_preview(
         "preview": sample,
         "supported_variables": sorted(SUPPORTED_VARS),
         "examples": [
-            "{grade}-{class}_{number}_{name}_{original}",
-            "{date}_{grade}-{class}_{number}_{name}",
-            "[{assignment_title}]_{name}_{original}",
-            "{date:YYYY-MM-DD}_{name}_{original}",
+            # 한국 학교 표준 5자리 학번 (예: 20315)
+            "{snum5}_{name}_{original}",
+            "{snum5}_{name}",
+            # zero-pad 조합 (학년+반2자리+번호2자리)
+            "{grade}{class2}{number2}_{name}_{original}",
+            # 날짜 prefix
+            "{date}_{snum5}_{name}",
+            # 과제명 포함
+            "[{assignment_title}]_{snum5}_{name}",
         ],
     }
 

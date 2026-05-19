@@ -103,11 +103,12 @@ const EMPTY_FORM: AssignmentFormData = {
   filename_template: "",
 };
 
+// 한국 학교 표준 5자리 학번 (예: 20315 = 2학년 3반 15번) 중심 추천 패턴
 const FILENAME_PATTERN_EXAMPLES = [
-  { label: "학년-반_번호_이름_원본", value: "{grade}-{class}_{number}_{name}_{original}" },
-  { label: "날짜_학년반_이름", value: "{date}_{grade}-{class}_{name}" },
-  { label: "[과제명]_이름", value: "[{assignment_title}]_{name}_{original}" },
-  { label: "YYYY-MM-DD_이름_원본", value: "{date:YYYY-MM-DD}_{name}_{original}" },
+  { label: "학번_이름_원본 (20315_홍길동_보고서)", value: "{snum5}_{name}_{original}" },
+  { label: "학번_이름 (20315_홍길동)", value: "{snum5}_{name}" },
+  { label: "날짜_학번_이름 (20260519_20315_홍길동)", value: "{date}_{snum5}_{name}" },
+  { label: "[과제명]_학번_이름", value: "[{assignment_title}]_{snum5}_{name}" },
 ];
 
 export default function AssignmentPage() {
@@ -524,13 +525,16 @@ function FilenameTemplateField({
 }
 
 // 클라이언트 단 간단 시뮬레이터 (서버와 동일 결과 보장은 아니지만 실시간 피드백)
+// 가상 학생: 홍길동 (2학년 3반 15번 → 학번 20315)
 function renderPreviewClient(pattern: string, assignmentTitle: string): string {
   if (!pattern) return "원본파일.pdf";
   const today = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const dateStr = `${today.getFullYear()}${pad(today.getMonth() + 1)}${pad(today.getDate())}`;
   const vars: Record<string, string> = {
-    grade: "2", class: "3", number: "15", student_number: "15",
+    grade: "2", class: "3", class2: "03",
+    number: "15", number2: "15", student_number: "15",
+    snum5: "20315",  // 2학년 3반 15번
     name: "홍길동", original: "원본파일", ext: ".pdf",
     assignment_title: assignmentTitle || "과제명",
   };
@@ -544,8 +548,8 @@ function renderPreviewClient(pattern: string, assignmentTitle: string): string {
     out = out.replace(/DD/g, pad(today.getDate()));
     return out;
   });
-  // 일반 변수
-  result = result.replace(/\{([a-z_]+)\}/g, (m, k) => vars[k] ?? m);
+  // 일반 변수 (snum5 같은 숫자 변수도 매칭하도록 [a-z0-9_]+)
+  result = result.replace(/\{([a-z][a-z0-9_]*)\}/g, (m, k) => vars[k] ?? m);
   // ext 자동 추가
   if (!result.endsWith(".pdf")) result = result + ".pdf";
   return result;
