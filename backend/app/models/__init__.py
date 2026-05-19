@@ -88,6 +88,9 @@ from app.models.classroom_docs import ClassroomDocument, DocumentMember, Documen
 # ── Classroom Surveys (Google Forms 식 설문지) ──
 from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse, SurveyAnswer
 
+# ── Classroom Short Links (설문·문서 공유용 단축 URL + QR) ──
+from app.models.classroom_links import ShortLink
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -139,4 +142,6 @@ __all__ = [
     "ClassroomDocument", "DocumentMember", "DocumentRevision",
     # Classroom Surveys
     "Survey", "SurveyQuestion", "SurveyResponse", "SurveyAnswer",
+    # Classroom Short Links
+    "ShortLink",
 ]
