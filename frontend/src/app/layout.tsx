@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/lib/auth-context";
 import { MenuProvider } from "@/lib/menu-context";
+import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
@@ -38,7 +39,9 @@ export default function RootLayout({
     <html lang="ko">
       <body>
         <AuthProvider>
-          <MenuProvider>{children}</MenuProvider>
+          <MenuProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </MenuProvider>
         </AuthProvider>
       </body>
     </html>

@@ -23,6 +23,7 @@ import { PostComposer, type PostType } from "@/components/classroom/PostComposer
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { AssignmentModal, type CreateKind } from "@/components/classroom/AssignmentModal";
 import { getCourseTone } from "@/components/classroom/_color";
+import { useToast } from "@/components/ui/Toast";
 
 interface Student {
   id: number;
@@ -77,6 +78,7 @@ export default function CourseDetailAdminPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const toast = useToast();
   const cid = Number(params.cid);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -136,6 +138,7 @@ export default function CourseDetailAdminPage() {
     try {
       await api.delete(`/api/classroom/posts/${pid}`);
       await load();
+      toast.show("삭제됨", "success");
     } catch (e: any) {
       alert(e?.detail || "실패");
     }
@@ -310,7 +313,13 @@ export default function CourseDetailAdminPage() {
           studentCount={course.students.length}
           existingTopics={Array.from(new Set(posts.map((p) => p.topic).filter(Boolean) as string[]))}
           onClose={() => setModalKind(null)}
-          onSaved={() => { setModalKind(null); setActiveTab("coursework"); load(); }}
+          onSaved={() => {
+            const label = modalKind === "assignment" ? "과제가 생성됨" : "자료가 게시됨";
+            setModalKind(null);
+            setActiveTab("coursework");
+            load();
+            toast.show(label, "success");
+          }}
         />
       )}
     </div>

@@ -15,6 +15,14 @@ import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { getCourseTone } from "@/components/classroom/_color";
 
+interface Attachment {
+  type: "link" | "file" | "doc" | "survey";
+  title: string;
+  url?: string;
+  file_url?: string;
+  file_name?: string;
+}
+
 interface Post {
   id: number;
   post_type: string;
@@ -22,6 +30,10 @@ interface Post {
   content: string;
   is_pinned: boolean;
   author_name?: string;
+  due_date: string | null;
+  max_score: number | null;
+  topic: string | null;
+  attachments?: Attachment[];
   created_at: string | null;
 }
 
@@ -129,27 +141,9 @@ export default function StudentCourseDetailPage() {
         </div>
       )}
 
-      {/* ── 수업 과제 ── */}
+      {/* ── 수업 과제 (주제별 그룹) ── */}
       {activeTab === "coursework" && (
-        materials.length === 0 ? (
-          <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center text-caption text-text-tertiary">
-            <ClipboardList size={28} className="mx-auto mb-2 opacity-30" />
-            <div className="text-body mb-1">아직 과제·자료가 없습니다</div>
-            선생님이 자료를 올리면 여기에 표시됩니다
-          </div>
-        ) : (
-          <div className="bg-bg-primary border border-border-default rounded-lg divide-y divide-border-default">
-            {materials.map((p) => (
-              <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary">
-                <div className="text-body font-medium">{p.title}</div>
-                <div className="text-caption text-text-tertiary mt-0.5">
-                  {p.post_type === "material" ? "자료" : "과제"}
-                  {p.created_at && ` · ${p.created_at.slice(0, 10)}`}
-                </div>
-              </div>
-            ))}
-          </div>
-        )
+        <StudentCourseworkList posts={materials} />
       )}
 
       {/* ── 사용자 ── */}
@@ -194,6 +188,77 @@ export default function StudentCourseDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ─── 학생용 수업 과제 list — Google Classroom 식 주제별 그룹 ───
+function StudentCourseworkList({ posts }: { posts: Post[] }) {
+  const groups: Record<string, Post[]> = {};
+  for (const p of posts) {
+    const key = p.topic || "주제 없음";
+    groups[key] = groups[key] || [];
+    groups[key].push(p);
+  }
+  const topicOrder = Object.keys(groups).sort((a, b) => {
+    if (a === "주제 없음") return 1;
+    if (b === "주제 없음") return -1;
+    return a.localeCompare(b, "ko");
+  });
+
+  if (posts.length === 0) {
+    return (
+      <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center text-caption text-text-tertiary">
+        <ClipboardList size={28} className="mx-auto mb-2 opacity-30" />
+        <div className="text-body mb-1">아직 과제·자료가 없습니다</div>
+        선생님이 자료를 올리면 여기에 표시됩니다
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {topicOrder.map((topicKey) => (
+        <div key={topicKey} className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
+          <div className="px-5 py-3 border-b border-border-default text-body font-semibold text-accent">
+            {topicKey}
+          </div>
+          <div className="divide-y divide-border-default">
+            {groups[topicKey].map((p) => {
+              const isAssignment = p.post_type === "assignment_ref";
+              return (
+                <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{
+                      backgroundColor: isAssignment ? "#fef3c7" : "#dcfce7",
+                      color: isAssignment ? "#a16207" : "#15803d",
+                    }}
+                  >
+                    <ClipboardList size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-body font-medium text-text-primary truncate">{p.title}</div>
+                    {p.due_date && (
+                      <div className="text-[11.5px] text-status-error mt-0.5">
+                        기한 {new Date(p.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
+                        {p.max_score != null && ` · ${p.max_score}점`}
+                      </div>
+                    )}
+                    {!p.due_date && p.max_score != null && (
+                      <div className="text-[11.5px] text-text-tertiary mt-0.5">{p.max_score}점</div>
+                    )}
+                  </div>
+                  <div className="text-caption text-text-tertiary whitespace-nowrap">
+                    게시일: {p.created_at && new Date(p.created_at).toLocaleString("ko-KR", { hour: "numeric", minute: "2-digit" })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
