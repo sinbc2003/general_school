@@ -11,10 +11,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { Plus, GraduationCap, Users, Wand2, X, Save } from "lucide-react";
+import { Plus, GraduationCap, Wand2, X, Save } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+import { CourseCard } from "@/components/classroom/CourseCard";
 
 interface Course {
   id: number;
@@ -122,35 +122,20 @@ export default function ClassroomAdminPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {courses.map((c) => (
-            <Link
+            <CourseCard
               key={c.id}
-              href={`/classroom/${c.id}`}
-              className="bg-bg-primary border border-border-default rounded-lg p-4 hover:border-accent transition-colors"
-            >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="text-body font-semibold text-text-primary truncate">
-                  {c.name}
-                </div>
-                {!c.is_active && (
-                  <span className="px-1.5 py-0.5 text-[10px] bg-bg-secondary text-text-tertiary rounded">
-                    비활성
-                  </span>
-                )}
-              </div>
-              <div className="text-caption text-text-secondary mb-2">
-                {c.subject} {c.class_name && `· ${c.class_name}`}
-              </div>
-              <div className="flex items-center justify-between text-caption text-text-tertiary">
-                <span className="flex items-center gap-1">
-                  <Users size={12} /> {c.student_count}명
-                </span>
-                {isAdmin && c.teacher_name && (
-                  <span>담당: {c.teacher_name}</span>
-                )}
-              </div>
-            </Link>
+              id={c.id}
+              name={c.name}
+              subject={c.subject}
+              class_name={c.class_name}
+              teacher_name={c.teacher_name}
+              is_active={c.is_active}
+              student_count={c.student_count}
+              baseHref="/classroom"
+              showTeacher={isAdmin}
+            />
           ))}
         </div>
       )}

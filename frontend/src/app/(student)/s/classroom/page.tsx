@@ -7,9 +7,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { GraduationCap, Users } from "lucide-react";
+import { GraduationCap } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { CourseCard } from "@/components/classroom/CourseCard";
 
 interface Course {
   id: number;
@@ -17,6 +17,7 @@ interface Course {
   class_name: string | null;
   name: string;
   description: string | null;
+  is_active: boolean;
   student_count: number;
 }
 
@@ -58,28 +59,18 @@ export default function StudentClassroomPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {courses.map((c) => (
-            <Link
+            <CourseCard
               key={c.id}
-              href={`/s/classroom/${c.id}`}
-              className="bg-bg-primary border border-border-default rounded-lg p-4 hover:border-accent transition-colors"
-            >
-              <div className="text-body font-semibold text-text-primary mb-2 truncate">
-                {c.name}
-              </div>
-              <div className="text-caption text-text-secondary mb-2">
-                {c.subject} {c.class_name && `· ${c.class_name}`}
-              </div>
-              {c.description && (
-                <div className="text-caption text-text-tertiary line-clamp-2 mb-2">
-                  {c.description}
-                </div>
-              )}
-              <div className="text-caption text-text-tertiary flex items-center gap-1">
-                <Users size={12} /> {c.student_count}명 수강
-              </div>
-            </Link>
+              id={c.id}
+              name={c.name}
+              subject={c.subject}
+              class_name={c.class_name}
+              is_active={c.is_active !== false}
+              student_count={c.student_count}
+              baseHref="/s/classroom"
+            />
           ))}
         </div>
       )}
