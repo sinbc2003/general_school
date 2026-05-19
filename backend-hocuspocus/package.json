@@ -1,0 +1,29 @@
+{
+  "name": "general-school-hocuspocus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hocuspocus WebSocket server for classroom collaborative docs (Yjs CRDT sync).",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "serve": "node dist/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "^2.13.5",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "yjs": "^13.6.18"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
