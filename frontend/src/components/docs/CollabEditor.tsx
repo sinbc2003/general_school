@@ -25,7 +25,7 @@ import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
-import { TextStyle } from "@tiptap/extension-text-style";
+import { TextStyleWithSize } from "./FontSizeExtension";
 import FontFamily from "@tiptap/extension-font-family";
 import { Color } from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
@@ -161,8 +161,8 @@ export default function CollabEditor({
         HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" },
       }),
       Image.configure({ inline: false, allowBase64: true }),
-      // 텍스트 스타일 (color/font-family) 적용을 위해 TextStyle mark 필요
-      TextStyle,
+      // 텍스트 스타일 — TextStyle base에 fontSize attr 추가 확장
+      TextStyleWithSize,
       FontFamily,
       Color,
       Highlight.configure({ multicolor: true }),

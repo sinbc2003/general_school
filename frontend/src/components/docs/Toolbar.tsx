@@ -29,6 +29,19 @@ const FONT_OPTIONS: { label: string; value: string }[] = [
   { label: "모노스페이스", value: "ui-monospace, 'Cascadia Mono', monospace" },
 ];
 
+const SIZE_OPTIONS: { label: string; value: string }[] = [
+  { label: "기본", value: "" },
+  { label: "10", value: "10px" },
+  { label: "12", value: "12px" },
+  { label: "14", value: "14px" },
+  { label: "16", value: "16px" },
+  { label: "18", value: "18px" },
+  { label: "20", value: "20px" },
+  { label: "24", value: "24px" },
+  { label: "32", value: "32px" },
+  { label: "48", value: "48px" },
+];
+
 const PALETTE = [
   "#000000", "#374151", "#6b7280", "#9ca3af",
   "#dc2626", "#ea580c", "#ca8a04", "#16a34a",
@@ -112,6 +125,20 @@ export function Toolbar({ editor }: ToolbarProps) {
       >
         {FONT_OPTIONS.map((f) => (
           <option key={f.label} value={f.value}>{f.label}</option>
+        ))}
+      </select>
+      <select
+        value={(editor.getAttributes("textStyle").fontSize as string) || ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) editor.chain().focus().setFontSize(v).run();
+          else editor.chain().focus().unsetFontSize().run();
+        }}
+        title="글자 크기"
+        className="text-caption border border-border-default rounded px-1.5 py-0.5 bg-bg-primary"
+      >
+        {SIZE_OPTIONS.map((s) => (
+          <option key={s.label} value={s.value}>{s.label}</option>
         ))}
       </select>
       <Sep />
