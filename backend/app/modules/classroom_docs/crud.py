@@ -83,10 +83,16 @@ async def create_doc(
         course = await db.get(Course, body.course_id)
         if not course:
             raise HTTPException(404, "강좌 없음")
+        # 정책: 강좌 안 문서는 강좌 교사 또는 admin만 (학생은 단독만 허용)
         if not is_admin(user) and course.teacher_id != user.id:
-            raise HTTPException(403, "본인 강좌만 문서 생성 가능")
+            raise HTTPException(403, "본인 강좌만 문서 생성 가능 (학생은 단독 문서만)")
         # Phase F: archived 강좌는 새 문서 생성 차단
         assert_active_course_or_403(course)
+    else:
+        # 단독 문서 (course_id=None) — 모든 인증 사용자(학생 포함) 본인 명의 생성 OK
+        # access_mode는 link_public 또는 specific_users만 의미 — course_members는
+        # 강좌 없으니 무효 (생성 후에도 멤버 누구도 자동 접근 안 됨, owner만)
+        pass
 
     d = ClassroomDocument(
         course_id=body.course_id,

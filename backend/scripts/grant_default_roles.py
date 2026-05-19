@@ -95,6 +95,10 @@ STUDENT_KEYS = {
     "classroom.course.view", "classroom.post.view",
     # 학생: 협업 문서 조회/편집 (Google Docs 식 동시 편집 — 강좌 멤버 자동 부여)
     "classroom.doc.view", "classroom.doc.edit",
+    # 학생: 본인 단독(course_id=null) 문서 생성 — 강좌 안 문서는 라우터에서 교사만 가드
+    "classroom.doc.create",
+    # 학생: 본인 owner 문서의 멤버·access 변경 (협업 문서 공유 다이얼로그)
+    "classroom.doc.share",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
 }
