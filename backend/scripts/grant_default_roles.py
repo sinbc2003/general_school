@@ -63,8 +63,9 @@ STAFF_KEYS = {
     "announcement.post.edit", "announcement.post.delete",
     # 클래스룸 조회만 (강좌 관리는 본인 강좌만 — 라우터에서 자동 가드)
     "classroom.course.view", "classroom.post.view",
-    # 협업 문서: 직원도 강좌 멤버로 부여받을 수 있음
+    # 협업 문서·프리젠테이션: 직원도 강좌 멤버로 부여받을 수 있음
     "classroom.doc.view", "classroom.doc.edit",
+    "classroom.deck.view", "classroom.deck.edit",
     # 설문 응답
     "classroom.survey.respond",
 }
@@ -99,6 +100,9 @@ STUDENT_KEYS = {
     "classroom.doc.create",
     # 학생: 본인 owner 문서의 멤버·access 변경 (협업 문서 공유 다이얼로그)
     "classroom.doc.share",
+    # 학생: 프리젠테이션 view/edit + 본인 단독 생성/공유
+    "classroom.deck.view", "classroom.deck.edit",
+    "classroom.deck.create", "classroom.deck.share",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
 }

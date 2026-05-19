@@ -85,6 +85,11 @@ from app.models.classroom import Course, CourseStudent, CoursePost
 # ── Classroom Docs (협업 문서 — Yjs CRDT) ──
 from app.models.classroom_docs import ClassroomDocument, DocumentMember, DocumentRevision
 
+# ── Classroom Slides (협업 프리젠테이션 — Yjs CRDT, Google Slides 식) ──
+from app.models.classroom_slides import (
+    ClassroomPresentation, ClassroomSlide, PresentationMember,
+)
+
 # ── Classroom Surveys (Google Forms 식 설문지) ──
 from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse, SurveyAnswer
 
@@ -140,6 +145,8 @@ __all__ = [
     "Course", "CourseStudent", "CoursePost",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",
+    # Classroom Slides
+    "ClassroomPresentation", "ClassroomSlide", "PresentationMember",
     # Classroom Surveys
     "Survey", "SurveyQuestion", "SurveyResponse", "SurveyAnswer",
     # Classroom Short Links

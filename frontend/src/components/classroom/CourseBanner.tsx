@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { ArrowLeft, Archive, FileText, ClipboardList } from "lucide-react";
+import { ArrowLeft, Archive, FileText, ClipboardList, Presentation } from "lucide-react";
 import type { CourseTone } from "./_color";
 
 interface CourseBannerProps {
@@ -54,6 +54,13 @@ export function CourseBanner({
           title="협업 문서"
         >
           <FileText size={11} /> 협업 문서
+        </Link>
+        <Link
+          href={`${baseHref}/${cid}/decks`}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] rounded bg-white/20 hover:bg-white/30 backdrop-blur-sm"
+          title="프리젠테이션"
+        >
+          <Presentation size={11} /> 프리젠테이션
         </Link>
         <Link
           href={`${baseHref}/${cid}/surveys`}

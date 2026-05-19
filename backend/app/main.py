@@ -140,6 +140,7 @@ from app.modules.announcement.router import router as announcement_router
 from app.modules.files.router import router as files_router
 from app.modules.classroom.router import router as classroom_router
 from app.modules.classroom_docs.router import router as classroom_docs_router
+from app.modules.classroom_slides.router import router as classroom_slides_router
 from app.modules.classroom_surveys.router import router as classroom_surveys_router
 from app.modules.classroom_links.router import (
     router as classroom_links_router,
@@ -172,6 +173,7 @@ app.include_router(announcement_router)
 app.include_router(files_router)
 app.include_router(classroom_router)
 app.include_router(classroom_docs_router)
+app.include_router(classroom_slides_router)
 app.include_router(classroom_surveys_router)
 app.include_router(classroom_links_router)
 app.include_router(classroom_links_public_router)
