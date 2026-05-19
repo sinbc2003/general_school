@@ -15,6 +15,7 @@ import { Plus, GraduationCap, Wand2, X, Save } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { CourseCard } from "@/components/classroom/CourseCard";
+import { useToast } from "@/components/ui/Toast";
 
 interface Course {
   id: number;
@@ -32,6 +33,7 @@ interface Course {
 
 export default function ClassroomAdminPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const isAdmin = user?.role === "super_admin" || user?.role === "designated_admin";
 
   const [courses, setCourses] = useState<Course[]>([]);
@@ -62,10 +64,13 @@ export default function ClassroomAdminPage() {
         "/api/classroom/courses/_auto-generate",
         { auto_enroll_students: true },
       );
-      alert(`자동 생성 완료\n- 새 강좌: ${res.created}개\n- 학생 자동 등록: ${res.enrolled_students}건\n- 중복 skip: ${res.skipped_existing}`);
+      toast.show(
+        `자동 생성: 새 ${res.created} · 학생 ${res.enrolled_students}건 · 중복 ${res.skipped_existing}`,
+        "success",
+      );
       await load();
     } catch (e: any) {
-      alert(e?.detail || "자동 생성 실패");
+      toast.show(e?.detail || "자동 생성 실패", "error");
     } finally {
       setGenerating(false);
     }
@@ -158,6 +163,7 @@ function CourseCreateModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
 
   // class_name 변경 시 name 자동 채우기
   useEffect(() => {
@@ -170,7 +176,7 @@ function CourseCreateModal({
 
   const save = async () => {
     if (!subject.trim() || !name.trim() || !teacherId) {
-      alert("교사·과목·이름은 필수입니다");
+      toast.show("교사·과목·이름은 필수입니다", "error");
       return;
     }
     setSaving(true);
@@ -182,10 +188,11 @@ function CourseCreateModal({
         name: name.trim(),
         description: description.trim() || null,
       });
+      toast.show(`강좌 "${name.trim()}" 생성됨`, "success");
       onSaved();
       onClose();
     } catch (e: any) {
-      alert(e?.detail || "생성 실패");
+      toast.show(e?.detail || "생성 실패", "error");
     } finally {
       setSaving(false);
     }

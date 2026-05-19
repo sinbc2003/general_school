@@ -117,8 +117,9 @@ export default function CourseDetailAdminPage() {
     try {
       await api.delete(`/api/classroom/courses/${cid}/students/${sid}`);
       await load();
+      toast.show(`${name} 학생 제외됨`, "success");
     } catch (e: any) {
-      alert(e?.detail || "실패");
+      toast.show(e?.detail || "실패", "error");
     }
   };
 
@@ -194,6 +195,7 @@ export default function CourseDetailAdminPage() {
                   await api.post(`/api/classroom/courses/${cid}/posts`, body);
                   setPostFormInitType("notice");
                   await load();
+                  toast.show("게시됨", "success");
                 }}
               />
             )}
@@ -597,6 +599,7 @@ function PostCard({ post, onDelete, canEdit }: { post: Post; onDelete: () => voi
 function BulkAddModal({ cid, onClose, onSaved }: { cid: number; onClose: () => void; onSaved: () => void }) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
 
   const save = async () => {
     const numbers = text
@@ -605,17 +608,24 @@ function BulkAddModal({ cid, onClose, onSaved }: { cid: number; onClose: () => v
       .filter(Boolean)
       .map(Number)
       .filter((n) => !isNaN(n));
-    if (numbers.length === 0) return alert("학번을 입력하세요");
+    if (numbers.length === 0) {
+      toast.show("학번을 입력하세요", "error");
+      return;
+    }
     setSaving(true);
     try {
       const res = await api.post<{ added: number; skipped: number; reactivated: number; errors?: string[] }>(
         `/api/classroom/courses/${cid}/students/bulk`,
         { student_numbers: numbers },
       );
-      alert(`등록 완료\n- 추가: ${res.added}\n- 재활성화: ${res.reactivated}\n- 중복 skip: ${res.skipped}${res.errors?.length ? "\n- 오류: " + res.errors.join(", ") : ""}`);
+      const parts: string[] = [];
+      if (res.added) parts.push(`추가 ${res.added}`);
+      if (res.reactivated) parts.push(`재활성화 ${res.reactivated}`);
+      if (res.skipped) parts.push(`중복 ${res.skipped}`);
+      toast.show(`학생 등록: ${parts.join(" · ") || "변경 없음"}`, "success");
       onSaved();
     } catch (e: any) {
-      alert(e?.detail || "실패");
+      toast.show(e?.detail || "실패", "error");
     } finally {
       setSaving(false);
     }
