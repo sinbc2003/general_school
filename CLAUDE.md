@@ -591,3 +591,32 @@ cd frontend && npm run build && npm start
 - 새 모듈: `files/` (인증된 파일 서빙), `ai_developer/permissions.py`
 - 새 기능: 피드백→AI 통합, CLAUDE.md 컨텍스트 자동 주입, 자동 회귀+rollback
 - 안전망: 보안·확장 invariant 모두 CI에서 자동 검증
+
+### 추가 작업 (2026-05-19 마감 직전)
+
+**파일명 정규화** (`app/core/filename_normalize.py`):
+- 한국 학교 표준 `{snum5}=10101` 변수 (학년1+반2+번호2)
+- `{class2}`, `{number2}` zero-pad 변수
+- Assignment에 `filename_template` 컬럼 — 학생 업로드 시 자동 적용
+- 실시간 미리보기 (frontend + backend)
+
+**클래스룸 MVP** (`app/modules/classroom/`):
+- 모델: Course / CourseStudent / CoursePost
+- 핵심: 학기 enrollment의 `teaching_classes × teaching_subjects` 자동 강좌 생성
+- 학급 단위 강좌는 학생 자동 등록, 선택과목은 학번 일괄 입력 (한국 5자리)
+- 권한 4개: `classroom.course.manage/view`, `classroom.post.write/view`
+- frontend 4 페이지: admin 목록/상세, student 목록/상세
+
+**📄 인수인계 문서**: `HANDOFF_CLASSROOM_TOOLS.md`
+- 다음 단계 계획 — 협업 문서 (Yjs+TipTap+Hocuspocus) + 설문지 + 단축 링크 + QR 코드
+- Phase A~F 단계별 작업 카드, 의존성, 안전망 체크리스트
+- **새 세션이 self-contained로 작업 시작 가능** (CLAUDE.md + HANDOFF만 읽으면 OK)
+- 결정 사항: 스택 선택 이유, 데이터 모델, 권한 매트릭스, Hocuspocus 운영 절차
+
+### 통계 (전체 세션 마감)
+- Commit: 40개
+- 테스트: 121/121 (filename_normalize +26, 기존 95)
+- 새 모듈: files, ai_developer 강화, classroom, **인수인계 문서**
+- 새 핵심 헬퍼: filename_normalize (render/preview/ensure_unique), downloadSecure
+- 자동화: convention invariants 5종, AI 회귀 테스트+rollback
+- alembic migrations: 2개 추가 (assignment.filename_template, classroom 3 테이블)

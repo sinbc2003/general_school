@@ -1,0 +1,589 @@
+# 클래스룸 도구 — 인수인계 (Handoff)
+
+> **새 세션이 이 문서 하나만 읽고 작업 시작할 수 있도록 self-contained.**
+> 작성: 2026-05-19 / 작성자: 신병철 + Claude
+> 진행 시: CLAUDE.md (프로젝트 가이드)와 본 문서를 함께 읽고 시작.
+
+---
+
+## 0. 목표
+
+[`/classroom` 모듈](backend/app/modules/classroom/) (MVP 완료) 위에 **Google Classroom 식 도구 2종** 추가:
+
+1. **협업 문서** (Google Docs 식 동시 편집) — Yjs + TipTap + Hocuspocus
+2. **설문지** (Google Forms 식) + **단축 링크** + **QR 코드** — 자체 구현
+
+학교에서 즉시 활용:
+- 교사가 강좌별로 협업 문서 만들어 학생들이 동시 편집 (조별 발표 자료, 토론 정리 등)
+- 수업 중 설문 즉시 만들어 단축 링크 또는 QR로 학생들에게 배포 (이해도 체크, 의견 수렴, 평가)
+
+---
+
+## 1. 의사 결정 (확정)
+
+### 협업 문서 — Yjs 스택
+
+| 도구 | 역할 | 위치 |
+|---|---|---|
+| **Yjs** | CRDT 협업 알고리즘 (충돌 없는 동시 편집) | npm — frontend |
+| **TipTap** | React 에디터 (글자 굵게·기울임·헤딩 등 UI) | npm — frontend |
+| **Hocuspocus** | Yjs 동기화 서버 | **Node.js sidecar** (별도 process) |
+
+**왜 이 스택**:
+- Notion / Linear / GitBook 등이 사용. 사실상 표준.
+- 학교 LAN 80명 동시 편집 무리없음.
+- Yjs는 오프라인 편집 후 sync 가능 (CRDT 특성).
+- 우리 Next.js + React 스택과 자연 통합.
+
+**대안 검토 후 기각**:
+- Etherpad: iframe 통합 어려움, 디자인 일관성 깨짐
+- OnlyOffice: 4GB+ RAM 필요, 학교 환경 과함
+- 자체 OT: 안정성 risk, 동시 편집 시 충돌
+
+### 설문지 — 자체 구현
+
+- 단답형 / 장문 / 객관식(라디오) / 체크박스 / 평점(1-5) / 날짜
+- 단축 링크: `/q/{slug}` (6자리 base62)
+- QR 코드: server-side 생성 (`qrcode` 패키지 → PNG bytes)
+
+**왜 자체 구현**:
+- SurveyJS 같은 라이브러리는 디자인·권한 통합 부담 큼
+- 단순한 모델로 학교 시나리오 충분 (단답형~체크박스 정도)
+- 단축 링크·QR이 핵심이라 외부 솔루션은 어차피 wrapper 필요
+
+---
+
+## 2. 아키텍처 개요
+
+### Backend
+
+```
+backend/app/modules/
+  classroom/          # 기존 — Course/CourseStudent/CoursePost
+  classroom_docs/     # 신규 — Document, DocumentRevision
+  classroom_surveys/  # 신규 — Survey, Question, Response, Answer
+  classroom_links/    # 신규 — ShortLink (설문·문서 공유용)
+```
+
+### Hocuspocus 서버 (sidecar)
+
+```
+backend-hocuspocus/    # 신규 Node.js 프로젝트
+  package.json
+  server.ts            # Hocuspocus 메인
+  auth.ts              # FastAPI JWT 검증
+  storage.ts           # 주기적 snapshot → backend API POST
+```
+
+**운영**: systemd service 또는 `npm run` (개발). 학교 환경에서는 PM2 권장.
+**포트**: `1234` (Hocuspocus 기본), nginx/Caddy로 `/yjs` path proxy.
+
+### Frontend
+
+```
+frontend/src/
+  app/(admin)/classroom/[cid]/
+    docs/page.tsx          # 강좌 협업 문서 목록
+    docs/[did]/page.tsx    # 협업 문서 편집기
+    surveys/page.tsx       # 설문 목록
+    surveys/[sid]/page.tsx # 설문 편집/응답 수집
+    surveys/[sid]/results/page.tsx  # 응답 결과 차트
+  app/(student)/s/classroom/[cid]/
+    docs/[did]/page.tsx    # 학생 협업 편집
+    surveys/[sid]/page.tsx # 학생 응답 폼
+  app/q/[slug]/page.tsx    # 단축 링크 (익명 OK, 권한 가드는 내부)
+  components/docs/
+    CollabEditor.tsx       # TipTap + Yjs provider 통합
+  components/surveys/
+    SurveyForm.tsx         # 응답자용
+    SurveyBuilder.tsx      # 작성자용 (드래그·드롭 X, 단순 list)
+    SurveyResults.tsx      # 결과 차트
+```
+
+---
+
+## 3. 데이터 모델
+
+### 협업 문서
+
+```python
+# backend/app/models/classroom_docs.py
+
+class Document(Base):
+    """협업 문서. 강좌 또는 단독 (course_id null)."""
+    __tablename__ = "classroom_docs"
+    id: Mapped[int]
+    course_id: Mapped[int | None]  # FK to classroom_courses (null이면 personal)
+    owner_id: Mapped[int]  # FK to users (작성자, 항상 편집 가능)
+    title: Mapped[str]  # String(255)
+    # Yjs 이진 상태 (Y.Doc.encodeStateAsUpdate). bytea 또는 base64 text.
+    yjs_state: Mapped[bytes | None]  # 또는 LargeBinary
+    # 사람이 읽을 수 있는 fallback (검색용, 주기적으로 yjs → text 변환 저장)
+    plain_text: Mapped[str | None]  # Text, 색인 가능
+    # 권한 모드
+    access_mode: Mapped[str]  # "course_members" | "specific_users" | "link_public"
+    is_archived: Mapped[bool]
+    created_at, updated_at: Mapped[datetime]
+
+class DocumentMember(Base):
+    """access_mode='specific_users'일 때 사용. course_members면 자동으로 강좌 멤버."""
+    __tablename__ = "classroom_doc_members"
+    id, document_id, user_id, role  # role: "editor" | "viewer"
+
+class DocumentRevision(Base):
+    """주기적 snapshot (롤백·복원·감사). Hocuspocus가 hook으로 저장."""
+    __tablename__ = "classroom_doc_revisions"
+    id, document_id, yjs_state, plain_text, created_at, created_by_id
+```
+
+### 설문지
+
+```python
+# backend/app/models/classroom_surveys.py
+
+class Survey(Base):
+    __tablename__ = "classroom_surveys"
+    id: Mapped[int]
+    course_id: Mapped[int | None]  # FK to classroom_courses
+    author_id: Mapped[int]
+    title: Mapped[str]
+    description: Mapped[str | None]
+    status: Mapped[str]  # "draft" | "active" | "closed"
+    is_anonymous: Mapped[bool]  # True면 응답자 신원 안 저장
+    allow_multiple_responses: Mapped[bool]
+    open_at, close_at: Mapped[datetime | None]
+    # access_mode: "course_members" | "link_public" | "specific_users"
+    access_mode: Mapped[str]
+    created_at, updated_at: Mapped[datetime]
+
+class SurveyQuestion(Base):
+    __tablename__ = "classroom_survey_questions"
+    id, survey_id, order: int
+    question_text: Mapped[str]
+    question_type: Mapped[str]  # short_text | long_text | single_choice | multi_choice | rating | date
+    is_required: Mapped[bool]
+    options: Mapped[list | None]  # JSON list (객관식·체크박스용)
+    rating_max: Mapped[int]  # 평점 최댓값 (기본 5)
+
+class SurveyResponse(Base):
+    __tablename__ = "classroom_survey_responses"
+    id, survey_id
+    respondent_id: Mapped[int | None]  # 익명이면 null
+    submitted_at: Mapped[datetime]
+    # IP / user agent는 익명 시 응답 추적 방지를 위해 hash만 저장 (중복 방지)
+    response_hash: Mapped[str | None]
+
+class SurveyAnswer(Base):
+    __tablename__ = "classroom_survey_answers"
+    id, response_id, question_id
+    text_value: Mapped[str | None]  # short/long_text/date
+    choice_values: Mapped[list | None]  # JSON list (single은 1개, multi는 N개)
+    rating_value: Mapped[int | None]
+```
+
+### 단축 링크
+
+```python
+# backend/app/models/classroom_links.py
+
+class ShortLink(Base):
+    __tablename__ = "classroom_shortlinks"
+    id, slug: Mapped[str]  # 6자리 base62 — String(16), unique
+    target_type: Mapped[str]  # "survey" | "document"
+    target_id: Mapped[int]
+    created_by_id, created_at
+    expires_at: Mapped[datetime | None]
+    click_count: Mapped[int]
+    # slug 자동 생성: 6자리 → 충돌 시 7, 8자리 재시도
+```
+
+---
+
+## 4. 단계별 작업 카드
+
+> 각 단계는 **commit 1회로 끝나는 단위**. 의존성 명시. 안전망 체크리스트.
+
+### Phase A — 협업 문서 모델 + 단독 편집기 (Yjs 없이)
+
+**산출물**:
+- 모델 3개 (Document, DocumentMember, DocumentRevision) + alembic migration
+- `app/models/__init__.py` import 등록
+- 권한 키 4개: `classroom.doc.create / edit / view / share`
+- `app/modules/classroom_docs/` 모듈 (router, schemas, permissions)
+- API: 생성 / 편집 (단일 사용자) / 조회 / 삭제 / 공유 모드 변경
+- frontend `(admin)/classroom/[cid]/docs/page.tsx` + `[did]/page.tsx`
+- TipTap 단독 사용 (Yjs 없이)
+- 권한 가드: 강좌 멤버 정책 + DocumentMember 조회
+
+**npm 패키지 추가** (frontend):
+```bash
+npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-placeholder
+```
+
+**의존성**: Phase A는 다른 단계와 독립. 가장 먼저.
+
+**완료 조건**:
+- 교사가 강좌에서 문서 생성 → 편집 → 저장
+- 학생이 read-only로 조회 (access_mode에 따라 편집 가능)
+- pytest convention invariants 통과
+- 90+ 테스트 모두 통과
+
+---
+
+### Phase B — Yjs + Hocuspocus 실시간 협업
+
+**산출물**:
+- `backend-hocuspocus/` Node.js 프로젝트 신규
+  - `package.json`: hocuspocus, ws, jsonwebtoken
+  - `server.ts`: WebSocket 서버 (포트 1234)
+  - `auth.ts`: 클라이언트 보낸 JWT 검증 (우리 JWT_SECRET 공유)
+  - `storage.ts`: 1분마다 Yjs state → FastAPI에 POST (Document.yjs_state 갱신)
+  - `permissions.ts`: 문서 권한 가드 (FastAPI에 권한 조회 API 호출)
+- backend 신규 endpoint:
+  - `GET /api/classroom/docs/{did}/yjs-snapshot` — Hocuspocus 로딩 시
+  - `POST /api/classroom/docs/{did}/yjs-snapshot` — 주기 저장 (Hocuspocus only, 내부 토큰 인증)
+- frontend `CollabEditor.tsx`:
+  - `@tiptap/extension-collaboration` + `@tiptap/extension-collaboration-cursor`
+  - `y-websocket` provider → `ws://localhost:1234/?doc={did}`
+- 사용자 presence (커서 + 이름 + 색깔)
+- 운영 문서: `backend-hocuspocus/README.md` (시작 명령, systemd 예시)
+
+**npm 패키지 추가** (frontend):
+```bash
+npm install yjs y-websocket @tiptap/extension-collaboration @tiptap/extension-collaboration-cursor
+```
+
+**npm 패키지** (backend-hocuspocus):
+```bash
+npm install @hocuspocus/server @hocuspocus/extension-database axios jsonwebtoken
+```
+
+**의존성**: Phase A 완료 후.
+
+**완료 조건**:
+- 두 브라우저 탭에서 같은 문서 동시 편집 → 충돌 없이 sync
+- 다른 사람 커서 보임 (presence)
+- 권한 없는 사용자가 WS 접속 시 즉시 disconnect (auth fail)
+- backend 재시작해도 Hocuspocus의 in-memory 상태가 DB snapshot에서 복원
+- SETUP.md 보강 (Hocuspocus 시작 절차)
+
+**운영 critical**:
+- Hocuspocus 서버가 죽으면 협업 불가. systemd auto-restart 설정.
+- 학교 LAN 환경: 외부 노출 X (학교 내부 WS만)
+- 백업: Yjs state는 `Base.metadata.sorted_tables`로 자동 백업됨 (LargeBinary 컬럼)
+
+---
+
+### Phase C — 강좌 통합 (협업 문서 ↔ Course)
+
+**산출물**:
+- 강좌 상세 페이지에 "협업 문서" 탭 추가
+- `course_id`로 문서 자동 필터링
+- 새 문서 만들 때 강좌 자동 연결 + access_mode="course_members" 기본값
+- 강좌 학생 자동으로 viewer/editor 권한
+- backend는 access_mode="course_members"일 때 CourseStudent 조회로 가드
+
+**의존성**: Phase A + Phase B (B 없으면 single-user mode로 작동).
+
+**완료 조건**:
+- 교사가 강좌에서 "협업 문서" 탭 → 문서 생성
+- 강좌 학생이 들어가면 자동 편집 권한
+- 강좌 dropped 학생은 접근 차단
+
+---
+
+### Phase D — 설문지 기본 (응답 수집)
+
+**산출물**:
+- 모델 4개 (Survey, SurveyQuestion, SurveyResponse, SurveyAnswer) + alembic
+- 권한 키 4개: `classroom.survey.create / edit / respond / view_results`
+- `app/modules/classroom_surveys/` 모듈
+- API:
+  - Survey CRUD (작성자만)
+  - Question 관리 (Survey 내부)
+  - Response 제출 (응답자)
+  - Results 조회 (작성자만 — Survey.is_anonymous 적용)
+- frontend `(admin)/classroom/[cid]/surveys/page.tsx`:
+  - Survey 목록 + 신규 작성
+- `surveys/[sid]/page.tsx`: SurveyBuilder
+  - Question type 선택 → 옵션 입력 → 미리보기
+- `(student)/s/classroom/[cid]/surveys/[sid]/page.tsx`: 학생 응답 폼
+  - 질문 type별 입력 UI
+  - 중복 응답 방지 (allow_multiple_responses=False면)
+- 응답 결과: `surveys/[sid]/results/page.tsx`
+  - Question별 답 분포 (객관식·체크박스·평점은 차트, 단답형은 list)
+  - CSV export 버튼
+
+**의존성**: 독립 (Phase A/B와 무관). Phase D 단독으로 commit 가능.
+
+**완료 조건**:
+- 교사가 설문 생성 → 질문 추가 → 활성화
+- 학생이 응답 (단답형, 객관식, 체크박스, 평점, 날짜 모두 작동)
+- 익명/실명 옵션 동작
+- 결과 페이지에서 차트 + CSV 다운로드
+
+---
+
+### Phase E — 단축 링크 + QR 코드
+
+**산출물**:
+- 모델 1개 (ShortLink) + alembic
+- 권한 키 1개: `classroom.link.create` (admin/teacher)
+- `app/modules/classroom_links/` 모듈
+- API:
+  - `POST /api/classroom/links` — 단축 링크 생성 (target_type + target_id)
+  - `GET /api/classroom/links/{slug}/qr.png` — QR 코드 PNG (인증 필요, 작성자만)
+  - `GET /api/classroom/links/{slug}/qr.svg` — SVG 버전
+- frontend `app/q/[slug]/page.tsx`:
+  - 익명 OK (slug → target lookup)
+  - Survey/Document로 redirect (권한은 target 내부에서 가드)
+- 설문 페이지 우상단 "공유" 버튼 → 모달:
+  - 단축 URL (`{도메인}/q/abc123`) + 복사 버튼
+  - QR 코드 미리보기 + PNG 다운로드 버튼
+
+**Python 패키지 추가**:
+```bash
+pip install qrcode[pil]
+```
+
+**의존성**: Phase D 완료 후 (Survey가 일차 target).
+
+**완료 조건**:
+- 설문 만들고 "공유" → 단축 링크 + QR 표시
+- QR 스캔하면 모바일에서 응답 폼 열림 (학생 로그인 후)
+- 단축 링크가 학교 외부에 노출되어도, 응답 권한이 없는 외부인은 access 차단
+
+**보안 critical**:
+- 단축 링크 slug 자체는 공개 OK (의도된 동작 — QR로 배포)
+- 단 그 link로 가서 응답하려면 인증 + access_mode 가드 통과 必
+- `link_public` mode 설문은 익명 응답 허용 (학교 LAN 내 한정 같은 시나리오)
+
+---
+
+### Phase F — 폴리시 + 안전망
+
+**산출물**:
+- 학기 보관 정책: 강좌 inactive → 문서·설문 read-only
+- 응답 수정 정책: 제출 후 N분 내만 수정 가능
+- 운영 문서:
+  - `docs/CLASSROOM_TOOLS_OPS.md` — Hocuspocus 시작·재시작·로그·문제 해결
+  - SETUP.md 보강 (Node 16+ 설치, Hocuspocus 서비스 등록)
+- `test_convention_invariants.py` 확장:
+  - `Document.yjs_state` 같은 새 컬럼은 backup_test로 자동 검증
+  - 새 권한 키 자동 부여 (default_roles)
+- frontend `Bot.tsx` 같은 새 컴포넌트가 visibility 가드 적용 검증
+
+**의존성**: A~E 다 완료 후 정리 단계.
+
+---
+
+## 5. 권한 매트릭스 (요약)
+
+| 키 | 카테고리 | 부여 default |
+|---|---|---|
+| `classroom.doc.create` | 수업 | teacher (prefix) |
+| `classroom.doc.edit` | 수업 | teacher |
+| `classroom.doc.view` | 수업 | teacher, student |
+| `classroom.doc.share` | 수업 | teacher |
+| `classroom.survey.create` | 수업 | teacher |
+| `classroom.survey.edit` | 수업 | teacher |
+| `classroom.survey.respond` | 수업 | teacher, student |
+| `classroom.survey.view_results` | 수업 | teacher (작성자만 추가 가드) |
+| `classroom.link.create` | 수업 | teacher |
+
+`grant_default_roles.py`의 `TEACHER_EXCLUDE_PREFIXES`에 `classroom.` 없으므로 자동 부여됨.
+학생 `STUDENT_KEYS`에 `classroom.doc.view`, `classroom.survey.respond` 명시 추가.
+
+---
+
+## 6. 보안 체크리스트 (각 단계 적용)
+
+- [ ] 새 모델 → `app/models/__init__.py` import 등록 (백업 자동 포함)
+- [ ] 새 storage 경로 → `app/modules/files/router.py:_GUARDS`에 가드 등록 (Document에 파일 첨부 시 `classroom_docs` 추가)
+- [ ] 새 권한 키 → 모듈 `permissions.py` + `require_permission` 호출
+- [ ] frontend 파일 다운로드 → `downloadSecure()` 헬퍼만
+- [ ] `assert_can_view_student` 호출 (학생 응답 조회 시)
+- [ ] `validate_upload(file, POLICY_X)` (Document에 이미지 첨부 시)
+- [ ] alembic revision 생성 + dev DB upgrade 확인
+- [ ] pytest convention invariants 통과
+- [ ] CI fail 0 확인
+
+---
+
+## 7. 운영 — Hocuspocus 서버
+
+### 개발 환경 (사용자 본인 노트북)
+
+```bash
+# 첫 1회
+cd backend-hocuspocus
+npm install
+npm run dev   # tsx 또는 ts-node-dev로 자동 reload
+
+# Hocuspocus는 포트 1234에서 실행됨
+```
+
+### 학교 운영 환경
+
+**옵션 1: systemd (Linux)**
+```ini
+# /etc/systemd/system/hocuspocus.service
+[Unit]
+Description=Hocuspocus collaboration server
+After=network.target
+
+[Service]
+Type=simple
+User=schooladmin
+WorkingDirectory=/opt/general_school/backend-hocuspocus
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+Environment=PORT=1234
+Environment=JWT_SECRET=...  # backend와 동일
+Environment=FASTAPI_URL=http://localhost:8002
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**옵션 2: PM2 (Windows·Linux 공통)**
+```bash
+npm install -g pm2
+pm2 start dist/server.js --name hocuspocus
+pm2 startup  # 부팅 시 자동 시작
+pm2 save
+```
+
+**옵션 3: Docker (가장 권장)**
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+COPY dist ./dist
+EXPOSE 1234
+CMD ["node", "dist/server.js"]
+```
+
+### 인증 — JWT 공유
+
+Hocuspocus 서버는 우리 FastAPI와 같은 `JWT_SECRET`을 환경변수로 받음.
+클라이언트가 WS 연결할 때 query param 또는 first message로 token 전달 → 서버가 검증 → 권한 OK면 doc 접근 허용.
+
+```ts
+// frontend
+const provider = new HocuspocusProvider({
+  url: 'ws://localhost:1234',
+  name: `doc-${docId}`,
+  token: localStorage.getItem('access_token'),
+});
+
+// backend-hocuspocus
+import { Server } from '@hocuspocus/server';
+import jwt from 'jsonwebtoken';
+
+const server = Server.configure({
+  port: 1234,
+  async onAuthenticate({ token, documentName }) {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // FastAPI에 권한 조회: GET /api/classroom/docs/{docId}/permission
+    const docId = documentName.replace('doc-', '');
+    const res = await axios.get(
+      `${process.env.FASTAPI_URL}/api/classroom/docs/${docId}/permission`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.data.can_read) throw new Error('Forbidden');
+    return { user: decoded, canWrite: res.data.can_write };
+  },
+});
+```
+
+### Storage — Yjs state 주기 저장
+
+Hocuspocus `onChange` hook으로 변경 누적 → 1분 debounce 후 FastAPI에 POST:
+```ts
+async onChange({ documentName, document }) {
+  const docId = documentName.replace('doc-', '');
+  const state = Y.encodeStateAsUpdate(document);  // Uint8Array
+  await axios.post(
+    `${process.env.FASTAPI_URL}/api/classroom/docs/${docId}/yjs-snapshot`,
+    { state_base64: Buffer.from(state).toString('base64') },
+    { headers: { 'X-Internal-Token': process.env.INTERNAL_TOKEN } },
+  );
+}
+```
+
+FastAPI는 `X-Internal-Token` 검증해서 Hocuspocus만 호출 가능하게.
+
+---
+
+## 8. 학교 환경 고려사항
+
+- **80명 동시 접속**: TipTap + Yjs는 무리없음. Hocuspocus single instance 충분.
+- **메모리**: Hocuspocus는 활성 문서 in-memory. 평균 20KB/doc × 100 docs ≈ 2MB → 무시할 수준.
+- **네트워크**: WebSocket 평균 1KB/s/user. 80명 × 1KB = 80KB/s. LAN 충분.
+- **백업**: Yjs state는 LargeBinary 컬럼 → `Base.metadata.sorted_tables`로 자동 export.
+- **장비 이관**: backup 복원 후 Hocuspocus 재시작 시 in-memory 비우고 DB snapshot에서 다시 로드.
+
+---
+
+## 9. 우선순위 (새 세션 시작 시)
+
+권장 순서 (commit 단위):
+
+1. **Phase A** — Document 모델 + 단독 편집기 (Yjs 없이, single-user)
+   - 가장 빠르게 사용자 가치 전달
+   - Yjs 통합 실패해도 기능은 작동
+2. **Phase D** — 설문지 (독립적)
+3. **Phase E** — 단축 링크 + QR (D 활용)
+4. **Phase C** — 강좌 통합 (UI 정리)
+5. **Phase B** — Hocuspocus 실시간 협업 (가장 복잡, 마지막)
+6. **Phase F** — 안전망 정리
+
+이 순서면:
+- 단계 A,D,E 끝나면 학교에서 즉시 활용 가능 (수업 설문, 단축 링크, QR)
+- 단계 B는 가장 큰 작업이지만 A의 single-user 모드로 fallback 가능
+
+---
+
+## 10. 트러블슈팅 예상
+
+### Yjs state 충돌
+
+여러 클라이언트의 update가 누락되면 문서 분기. 해결:
+- Hocuspocus는 자동으로 모든 update를 merge (CRDT 특성)
+- 단 backend snapshot 저장 시 in-flight update 손실 가능 → snapshot은 최종 결정권 X (Hocuspocus가 진실의 원천)
+
+### Hocuspocus 죽었을 때
+
+- 클라이언트는 자동 재연결 시도 (y-websocket provider 기본)
+- 그 사이 편집 내용은 클라이언트 in-memory에 누적 → 재연결 시 sync
+- 죽은 동안 새로 들어온 사용자는 마지막 DB snapshot 보임 (약간 stale)
+
+### 학교 내부망 → 외부 접근 차단
+
+설문 단축 링크가 학교 외부에 노출되어도:
+- `link_public` 모드가 아니면 access_mode 가드로 차단
+- `link_public` 모드면 익명 응답 허용되지만 권한 없는 데이터엔 접근 X
+
+---
+
+## 11. 새 세션 시작 시 첫 액션
+
+1. `git pull` (이 문서 + CLAUDE.md 최신 확인)
+2. backend 부팅 확인: `python -m pytest tests/ -q` → 121+ 통과
+3. 본 문서 § 4 Phase A부터 시작
+4. 의문점 있으면 사용자(신병철)에게 확인 후 진행
+
+---
+
+## 12. 참고
+
+- Yjs: <https://docs.yjs.dev/>
+- TipTap collaboration: <https://tiptap.dev/docs/editor/extensions/functionality/collaboration>
+- Hocuspocus: <https://tiptap.dev/docs/hocuspocus/getting-started>
+- qrcode (Python): <https://github.com/lincolnloop/python-qrcode>
+
+---
+
+**작성 후 수정 금지** — 진행 중 변경사항은 이 문서 끝에 `## 추가 결정 (날짜)` 섹션으로 누적.
