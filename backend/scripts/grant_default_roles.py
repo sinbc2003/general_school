@@ -65,6 +65,8 @@ STAFF_KEYS = {
     "classroom.course.view", "classroom.post.view",
     # 협업 문서: 직원도 강좌 멤버로 부여받을 수 있음
     "classroom.doc.view", "classroom.doc.edit",
+    # 설문 응답
+    "classroom.survey.respond",
 }
 
 STUDENT_KEYS = {
@@ -93,6 +95,8 @@ STUDENT_KEYS = {
     "classroom.course.view", "classroom.post.view",
     # 학생: 협업 문서 조회/편집 (Google Docs 식 동시 편집 — 강좌 멤버 자동 부여)
     "classroom.doc.view", "classroom.doc.edit",
+    # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
+    "classroom.survey.respond",
 }
 
 

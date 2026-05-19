@@ -85,6 +85,9 @@ from app.models.classroom import Course, CourseStudent, CoursePost
 # ── Classroom Docs (협업 문서 — Yjs CRDT) ──
 from app.models.classroom_docs import ClassroomDocument, DocumentMember, DocumentRevision
 
+# ── Classroom Surveys (Google Forms 식 설문지) ──
+from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse, SurveyAnswer
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -134,4 +137,6 @@ __all__ = [
     "Course", "CourseStudent", "CoursePost",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",
+    # Classroom Surveys
+    "Survey", "SurveyQuestion", "SurveyResponse", "SurveyAnswer",
 ]
