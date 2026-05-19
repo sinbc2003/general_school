@@ -660,3 +660,73 @@ Phase A+B는 큰 단계라 sub-commit으로 나눠 진행:
 - 학교 규모별 RAM/CPU 추정치 명시
 - 진짜 부담은 운영 복잡도 (Node 프로세스 1개 + systemd 관리)
 - 학교 PC 16GB면 충분히 감당
+
+---
+
+## 진행 상황 (2026-05-19)
+
+### Phase A+B (협업 문서) — 완료 ✅
+
+5개 sub-commit으로 분할 진행. main 직접 push.
+
+**A+B-1: 모델·라우터·권한 + 빈 페이지** (commit 75cb6b3)
+- `app/models/classroom_docs.py` : ClassroomDocument / DocumentMember / DocumentRevision (yjs_state LargeBinary)
+- `app/modules/classroom_docs/` : CRUD + 멤버 + permission/snapshot endpoint
+- 권한 4개 (`classroom.doc.{create,edit,view,share}`) 시드 + role auto-grant
+- alembic migration `4f4e265df128`
+- frontend `/classroom/[cid]/docs(/[did])` + `/s/classroom/[cid]/docs(/[did])` (placeholder)
+- 강좌 상세에 "협업 문서" 진입 버튼 (admin·student)
+- 검증: 보안+convention invariant 42/42 통과
+
+**A+B-2: Hocuspocus Node.js 사이드카** (commit e48c0f2)
+- `backend-hocuspocus/` Node TypeScript 프로젝트 (포트 1234)
+- `src/server.ts` — onAuthenticate / onLoadDocument / onChange (debounce) / onDisconnect
+- `src/auth.ts` — JWT HS256 검증 + FastAPI permission API 호출
+- `src/storage.ts` — Yjs state load/store (base64), plain_text 추출
+- `src/config.ts` — env 기반 (PORT/JWT_SECRET/FASTAPI_URL/INTERNAL_TOKEN/debounce_ms)
+- 검증: npm install + tsc + 부팅 확인
+
+**A+B-3: read-only 강제 + 보안 테스트** (commit 4e0416c)
+- Hocuspocus: `connection.readOnly = true` (can_write=false 사용자) → 변경 message 자동 거부
+- backend: `HOCUSPOCUS_INTERNAL_TOKEN`을 settings에 명시 (pydantic-settings extra_forbidden 회피)
+- `tests/test_classroom_docs.py` (security mark) 11건:
+  · snapshot POST 토큰 가드 (401/503/200 + revision 저장)
+  · 강좌 비멤버 GET 403, 멤버 read+write OK, owner full
+  · archived → can_write=false 강제 (permission endpoint)
+  · 학생 doc.create / doc.share 권한 없음 시 403
+- 검증: security 마킹 101/101 통과 (이전 90 + 신규 11)
+
+**A+B-4: CollabEditor (TipTap + Yjs)** (commit 28e667d)
+- `components/docs/CollabEditor.tsx` — TipTap + Collaboration + CollaborationCaret + HocuspocusProvider
+  · StarterKit `undoRedo: false` (Yjs collaboration이 자체 제공)
+  · localStorage access_token 전달, onAuthenticationFailed 알림
+  · 상태 배지 (Wifi/WifiOff/Loader2), 툴바 (Bold/Italic/H/List/Quote/Undo/Redo)
+  · 사용자 ID 기반 HSL 커서 색상 (presence)
+- admin/student docs/[did]/page.tsx: placeholder → CollabEditor
+  · `canWrite = doc.permission.can_write && !doc.is_archived`
+- deps: @tiptap/{react,starter-kit,extension-placeholder,extension-collaboration,extension-collaboration-caret}, @hocuspocus/provider, yjs
+- TipTap v3은 `extension-collaboration-caret` (v2 cursor에서 이름 변경)
+- 검증: npx tsc --noEmit 통과
+
+**A+B-5: SETUP.md 보강 + 운영 문서** (이 commit)
+- SETUP.md § 3 (env) : HOCUSPOCUS_INTERNAL_TOKEN 생성 명령 추가
+- SETUP.md § 5.5 : 협업 문서 서버 셋업 절차 신설
+- SETUP.md § 6 : 터미널 ③ (hocuspocus dev) 추가
+- SETUP.md § 10.3.5 : production systemd `school-hocuspocus.service`
+- SETUP.md § 10.4 : Caddyfile `/yjs/*` reverse-proxy 추가
+- SETUP.md § 10.8 : 운영 점검 체크리스트에 school-hocuspocus 추가
+- .env.example : HOCUSPOCUS_INTERNAL_TOKEN + NEXT_PUBLIC_HOCUSPOCUS_URL 가이드
+- backend-hocuspocus/README.md (이미 A+B-2에서 작성)
+
+### 검증 결과
+- backend lifespan (PERM 검증) 통과
+- alembic upgrade head 성공
+- pytest security 101/101 통과
+- npx tsc --noEmit (frontend) 통과
+- Hocuspocus 부팅 OK + WS listen
+
+### 다음 권장 단계 (HANDOFF § 9)
+- **Phase D**: 설문지 (독립적, A+B 무관)
+- **Phase E**: 단축 링크 + QR 코드 (D 활용)
+- **Phase C**: 강좌 통합 (UI 정리)
+- **Phase F**: 안전망 + 운영 문서 정리

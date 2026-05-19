@@ -83,9 +83,10 @@ git config --global credential.helper store
 ```bash
 cp .env.example .env
 
-# 강한 랜덤 키 2개 생성해서 .env에 채움
+# 강한 랜덤 키 3개 생성해서 .env에 채움
 python3 -c "import secrets; print('JWT_SECRET=' + secrets.token_urlsafe(32))"
 python3 -c "import secrets; print('ENCRYPTION_MASTER_KEY=' + secrets.token_urlsafe(32))"
+python3 -c "import secrets; print('HOCUSPOCUS_INTERNAL_TOKEN=' + secrets.token_urlsafe(32))"
 # 출력된 값을 .env 파일에서 해당 줄에 붙여넣기
 
 nano .env   # 또는 vim/code
@@ -95,9 +96,12 @@ nano .env   # 또는 vim/code
 ```env
 JWT_SECRET=<위 명령으로 생성한 32바이트 랜덤>
 ENCRYPTION_MASTER_KEY=<위 명령으로 생성한 32바이트 랜덤>
+HOCUSPOCUS_INTERNAL_TOKEN=<위 명령으로 생성한 32바이트 랜덤>  # 협업 문서 서버 ↔ backend 인증
 SCHOOL_NAME=실제 학교 이름
 DEFAULT_USER_PASSWORD=강한_초기_비밀번호  # 사용자 일괄 등록 시 기본값
 ```
+
+**참고**: `HOCUSPOCUS_INTERNAL_TOKEN`은 협업 문서를 안 쓸 거면 비워두 OK (snapshot endpoint가 503으로 비활성화됨). 협업 문서 기능을 쓰려면 다음 단계(5.5)에서 같은 값을 양쪽 .env에 동기화.
 
 **주의**: `.env`는 `.gitignore`에 들어 있어 GitHub에 절대 안 올라감. 각 컴퓨터마다 따로 만들어야 함.
 
@@ -129,9 +133,60 @@ npm install        # 1~2분, ~550MB
 
 ---
 
+## 5.5 협업 문서 서버 셋업 (Hocuspocus, 선택 — 협업 문서 기능 쓸 때만)
+
+**클래스룸 → 협업 문서** (Google Docs 식 실시간 동시 편집)를 사용하려면 backend·frontend 외에 Hocuspocus 사이드카(WebSocket 서버, 포트 1234)도 띄워야 한다.
+
+### 5.5.1 의존성 설치
+
+```bash
+cd ~/general_school/backend-hocuspocus
+npm install   # 30초~1분
+```
+
+### 5.5.2 환경변수 동기화
+
+backend `.env`와 Hocuspocus `.env`는 `JWT_SECRET`과 `HOCUSPOCUS_INTERNAL_TOKEN`이 정확히 일치해야 한다.
+
+```bash
+cp backend-hocuspocus/.env.example backend-hocuspocus/.env
+nano backend-hocuspocus/.env
+```
+
+`backend-hocuspocus/.env`:
+```env
+PORT=1234
+JWT_SECRET=<루트 .env의 JWT_SECRET과 동일>
+JWT_ALGORITHM=HS256
+FASTAPI_URL=http://localhost:8002
+HOCUSPOCUS_INTERNAL_TOKEN=<루트 .env의 HOCUSPOCUS_INTERNAL_TOKEN과 동일>
+SNAPSHOT_DEBOUNCE_MS=60000
+ENV=dev
+```
+
+**일치 검증**: 두 파일의 두 값(특히 `HOCUSPOCUS_INTERNAL_TOKEN`)을 줄 단위로 비교해서 똑같은지 확인.
+
+### 5.5.3 빌드 + 실행
+
+```bash
+cd ~/general_school/backend-hocuspocus
+npm run build    # TypeScript → dist/ (production용)
+npm run dev      # tsx watch — dev 모드 (코드 수정 시 자동 재시작)
+```
+
+성공 시:
+```
+Hocuspocus v2.x running at:
+  > HTTP: http://0.0.0.0:1234
+  > WebSocket: ws://0.0.0.0:1234
+[hocuspocus] 협업 문서 서버 시작 — port 1234, fastapi=http://localhost:8002, snapshot=60000ms
+```
+
+---
+
 ## 6. 실행 (개발 모드)
 
-**터미널 2개 필요** (또는 `tmux`/`screen`).
+**터미널 2개 (협업 문서 기능 끄면) 또는 3개 (협업 문서까지 띄울 때)** 필요. `tmux`/`screen` 권장.
 
 ### 터미널 ① — 백엔드 (포트 8002)
 ```bash
@@ -147,6 +202,14 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
 cd ~/general_school/frontend
 npm run dev
 ```
+
+### 터미널 ③ — Hocuspocus 협업 문서 서버 (포트 1234, 선택)
+```bash
+cd ~/general_school/backend-hocuspocus
+npm run dev
+```
+
+협업 문서 기능 안 쓰면 ③번 생략. 다만 `/classroom/{cid}/docs/{did}` 페이지에서 편집기가 "연결 중..." 상태로 멈춤. 메뉴에 노출되지 않게 하려면 frontend env에서 추후 토글 (현재는 미구현).
 
 브라우저: **http://localhost:3000**
 
@@ -413,6 +476,48 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now school-frontend
 ```
 
+### 10.3.5 Hocuspocus 협업 문서 서버 (production, 협업 문서 사용 시)
+
+```bash
+cd ~/general_school/backend-hocuspocus
+npm install
+npm run build    # dist/ 생성
+```
+
+`/etc/systemd/system/school-hocuspocus.service`:
+```ini
+[Unit]
+Description=General School Hocuspocus (Yjs sidecar)
+After=network.target school-backend.service
+Requires=school-backend.service
+
+[Service]
+Type=simple
+User=sinbc
+WorkingDirectory=/home/sinbc/general_school/backend-hocuspocus
+EnvironmentFile=/home/sinbc/general_school/backend-hocuspocus/.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now school-hocuspocus
+sudo systemctl status school-hocuspocus
+journalctl -u school-hocuspocus -f
+```
+
+**Caddyfile 추가** (다음 10.4 절의 Caddy 설정에 WebSocket 라우트):
+```
+reverse_proxy /yjs/* localhost:1234
+```
+
+frontend production 환경변수에 `NEXT_PUBLIC_HOCUSPOCUS_URL=wss://school.example.com/yjs` 설정.
+
 ### 10.4 HTTPS + Reverse Proxy (Caddy 권장 — 자동 인증서)
 
 ```bash
@@ -434,12 +539,29 @@ school.example.com {
 }
 ```
 
+`school.example.com` 도메인 운영 시 협업 문서까지 통합 :
+```
+school.example.com {
+    encode gzip
+
+    # Frontend (Next.js)
+    reverse_proxy /api/* localhost:8002
+    reverse_proxy /storage/* localhost:8002
+
+    # Hocuspocus 협업 문서 WebSocket (협업 문서 기능 쓸 때)
+    reverse_proxy /yjs/* localhost:1234
+
+    reverse_proxy localhost:3000
+}
+```
+
 학교 LAN 내부 IP만 (도메인 없을 때):
 ```
 :443 {
     tls internal  # 자체 서명 인증서
     reverse_proxy /api/* localhost:8002
     reverse_proxy /storage/* localhost:8002
+    reverse_proxy /yjs/* localhost:1234
     reverse_proxy localhost:3000
 }
 ```
@@ -555,8 +677,9 @@ crontab -e
 
 ### 10.8 운영 점검 체크리스트
 
-- [ ] `sudo systemctl status school-backend school-frontend postgresql caddy` — 모두 active
+- [ ] `sudo systemctl status school-backend school-frontend school-hocuspocus postgresql caddy` — 모두 active (협업 문서 안 쓰면 school-hocuspocus 생략)
 - [ ] `journalctl -u school-backend --since '1 hour ago' | grep -i error` — 에러 0건
+- [ ] `journalctl -u school-hocuspocus --since '1 hour ago' | grep -i error` — 협업 문서 사용 시 에러 0건
 - [ ] `df -h` — 디스크 여유 확인
 - [ ] 백업 디렉터리 자동 생성 확인
 - [ ] HTTPS 접속 확인 (브라우저 자물쇠 아이콘)
