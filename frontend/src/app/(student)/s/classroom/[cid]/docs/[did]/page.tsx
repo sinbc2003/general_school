@@ -13,6 +13,7 @@ import { ArrowLeft, Share2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
+import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 
 interface Permission {
   can_read: boolean;
@@ -42,6 +43,7 @@ export default function StudentDocEditorPage() {
 
   const [doc, setDoc] = useState<DocDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showShare, setShowShare] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,9 +86,13 @@ export default function StudentDocEditorPage() {
         <span>
           만든이 <b>{doc.owner_name || `#${doc.owner_id}`}</b>
         </span>
-        <span className="inline-flex items-center gap-1">
+        <button
+          onClick={() => setShowShare(true)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-secondary"
+          title="공유 정보"
+        >
           <Share2 size={11} /> {accessLabel[doc.access_mode] || doc.access_mode}
-        </span>
+        </button>
         <span>수정 {doc.updated_at?.slice(0, 16).replace("T", " ")}</span>
         <span className="ml-auto">
           내 권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
@@ -106,6 +112,18 @@ export default function StudentDocEditorPage() {
         <div className="border border-border-default rounded-lg p-8 text-center text-text-tertiary">
           사용자 정보 로딩 중...
         </div>
+      )}
+
+      {showShare && (
+        <ShareDocModal
+          docId={did}
+          docTitle={doc.title}
+          ownerId={doc.owner_id}
+          canShare={doc.permission.can_share}
+          currentAccessMode={doc.access_mode as any}
+          onClose={() => setShowShare(false)}
+          onChanged={load}
+        />
       )}
     </div>
   );

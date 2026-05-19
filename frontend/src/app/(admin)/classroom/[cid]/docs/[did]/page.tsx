@@ -14,7 +14,7 @@ import { ArrowLeft, Save, Share2, Archive, Trash2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
-import ShareLinkModal from "@/components/classroom/ShareLinkModal";
+import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 
 interface Permission {
   can_read: boolean;
@@ -188,11 +188,14 @@ export default function CourseDocEditorPage() {
       )}
 
       {showShare && (
-        <ShareLinkModal
-          targetType="document"
-          targetId={did}
-          targetTitle={doc.title}
+        <ShareDocModal
+          docId={did}
+          docTitle={doc.title}
+          ownerId={doc.owner_id}
+          canShare={doc.permission.can_share}
+          currentAccessMode={doc.access_mode as any}
           onClose={() => setShowShare(false)}
+          onChanged={load}
         />
       )}
     </div>
