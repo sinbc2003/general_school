@@ -12,7 +12,7 @@ from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse
 from app.models.user import User
 from app.modules.classroom_surveys._helpers import (
     assert_active_course_or_403, can_manage, can_respond, is_admin,
-    question_to_dict, survey_to_dict,
+    question_to_dict, response_editable_until, survey_to_dict,
 )
 from app.modules.classroom_surveys.router import router
 from app.modules.classroom_surveys.schemas import SurveyCreate, SurveyUpdate
@@ -138,9 +138,11 @@ async def get_survey(
             ).order_by(desc(SurveyResponse.submitted_at)).limit(1)
         )).scalar_one_or_none()
         if mr:
+            editable_until = response_editable_until(s, mr.submitted_at)
             my_response = {
                 "id": mr.id,
                 "submitted_at": mr.submitted_at.isoformat() if mr.submitted_at else None,
+                "editable_until": editable_until.isoformat() if editable_until else None,
             }
 
     author = await db.get(User, s.author_id)

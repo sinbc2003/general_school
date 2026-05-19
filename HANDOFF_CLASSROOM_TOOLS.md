@@ -789,7 +789,39 @@ Phase A+B는 큰 단계라 sub-commit으로 나눠 진행:
 
 검증: pytest security 123/123 (이전 120 + archived 3), npx tsc --noEmit 통과.
 
-### 다음 권장 단계 (남음)
-- (있다면) link.create를 student에게도 부여하고 익명 응답 시나리오 확장
-- frontend SurveyBuilder/Builder 페이지 추가 분할 (현재 ~470줄, 정책상 200줄 기준 분리 검토)
-- 시간 기반 응답 수정 정책 (제출 후 N분 내만 수정 가능)
+### Builder 분할 + 응답 수정 정책 (이 commit)
+
+**SurveyBuilder 분할** (frontend 200줄 기준):
+- `/classroom/[cid]/surveys/[sid]/page.tsx` 469 → 263
+- `_components/_types.ts` (32): QType / Question / TYPE_LABELS 공유
+- `_components/QuestionPreview.tsx` (54): 유형별 응답 UI 모방
+- `_components/QuestionCard.tsx` (43): 빌더 카드
+- `_components/AddQuestionModal.tsx` (147): 질문 추가 모달
+- Next.js `_` prefix → 라우트 노출 안 됨
+
+**응답 수정 정책**:
+- 모델: `Survey.response_edit_minutes` (기본 0=수정 불가, 0~10080=최대 1주)
+- 헬퍼: `response_editable_until(survey, submitted_at)` / `can_edit_response(...)`
+- 라우터: `PUT /api/classroom/surveys/responses/{rid}`
+  · 본인 응답만 (`respondent_id == user.id`)
+  · 익명 응답(`respondent_id=null`)은 식별 불가 → 403
+  · 활성 상태 + 시한 내만. 시한 외 → 409
+  · 단순 strategy: 기존 답변 모두 삭제 후 새로 생성
+- API 응답: `my_response.editable_until` 노출 (frontend가 사용)
+- alembic migration `dd2545140022` — server_default='0' backfill 안전 처리
+- 회귀 테스트 5건 (security mark):
+  · 기본(0)이면 PUT 409
+  · 시한 내 PUT 200 + 답 교체 검증
+  · submitted_at 백데이트로 시한 외 → 409
+  · 다른 사용자 PUT → 403
+  · 익명 응답 PUT → 403
+
+**Frontend UI**:
+- Admin Builder: "응답 후 수정 허용 (분)" input 추가 — 작성자만, 모든 상태에서 동적 변경 가능
+- 학생 응답 화면: 이미 응답 + `editable_until > now`이면 "응답 수정" 버튼
+  · 수정 모드 진입 → 같은 폼이지만 PUT 호출. 수정 중 배지 + 안내 박스.
+
+검증:
+- pytest security 128/128 통과 (123 + 응답수정 5)
+- npx tsc --noEmit 통과
+- backend alembic head 일치 (dd2545140022)

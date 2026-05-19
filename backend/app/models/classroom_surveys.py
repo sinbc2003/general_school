@@ -53,6 +53,9 @@ class Survey(Base):
     )
     open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 응답 수정 허용 시간(분). 0이면 제출 후 수정 불가. >0이면 그 분만큼 본인 응답 수정 가능.
+    # 작성자가 동적으로 변경 가능 — 이미 제출된 응답은 동일 정책 즉시 적용 (submitted_at 기준 재계산).
+    response_edit_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

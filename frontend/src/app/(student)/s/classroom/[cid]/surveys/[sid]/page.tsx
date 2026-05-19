@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Send, CheckCircle, Lock } from "lucide-react";
+import { ArrowLeft, Send, CheckCircle, Lock, Pencil, Clock } from "lucide-react";
 import { api } from "@/lib/api/client";
 
 type QType = "short_text" | "long_text" | "single_choice" | "multi_choice" | "rating" | "date";
@@ -34,10 +34,15 @@ interface SurveyDetail {
   status: string;
   is_anonymous: boolean;
   allow_multiple_responses: boolean;
+  response_edit_minutes: number;
   questions: Question[];
   is_author: boolean;
   can_respond: boolean;
-  my_response: { id: number; submitted_at: string | null } | null;
+  my_response: {
+    id: number;
+    submitted_at: string | null;
+    editable_until: string | null;
+  } | null;
 }
 
 interface AnswerDraft {
@@ -58,6 +63,8 @@ export default function StudentSurveyResponsePage() {
   const [answers, setAnswers] = useState<Record<number, AnswerDraft>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // 응답 수정 모드 — PUT으로 보냄
+  const [editMode, setEditMode] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,7 +117,14 @@ export default function StudentSurveyResponsePage() {
             (a.rating_value !== undefined && a.rating_value !== null),
         ),
       };
-      await api.post(`/api/classroom/surveys/${sid}/responses`, payload);
+      if (editMode && survey.my_response) {
+        await api.put(
+          `/api/classroom/surveys/responses/${survey.my_response.id}`,
+          payload,
+        );
+      } else {
+        await api.post(`/api/classroom/surveys/${sid}/responses`, payload);
+      }
       setSubmitted(true);
     } catch (e: any) {
       alert(e?.detail || "제출 실패");
@@ -141,8 +155,13 @@ export default function StudentSurveyResponsePage() {
     );
   }
 
-  // 응답 불가 (이미 답했거나 마감)
-  if (!survey.can_respond) {
+  // 응답 불가 (이미 답했거나 마감) — 단, my_response.editable_until > now면 수정 가능
+  const canEditExisting = !!(
+    survey.my_response?.editable_until &&
+    Date.parse(survey.my_response.editable_until) > Date.now()
+  );
+
+  if (!survey.can_respond && !editMode) {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="mb-3">
@@ -159,9 +178,25 @@ export default function StudentSurveyResponsePage() {
           {survey.my_response ? (
             <>
               <div className="text-body font-medium mb-1">이미 응답하셨습니다</div>
-              <div className="text-caption text-text-tertiary">
+              <div className="text-caption text-text-tertiary mb-3">
                 제출 시각: {survey.my_response.submitted_at?.slice(0, 16).replace("T", " ")}
               </div>
+              {canEditExisting && (
+                <>
+                  <div className="text-caption text-text-secondary mb-3 inline-flex items-center gap-1 bg-bg-primary px-2 py-1 rounded border border-border-default">
+                    <Clock size={11} />
+                    수정 가능 시한: {survey.my_response.editable_until!.slice(0, 16).replace("T", " ")}
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => setEditMode(true)}
+                      className="inline-flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+                    >
+                      <Pencil size={12} /> 응답 수정
+                    </button>
+                  </div>
+                </>
+              )}
             </>
           ) : survey.status !== "active" ? (
             <div className="text-body font-medium">응답 기간이 아닙니다 (마감 또는 미시작)</div>
@@ -184,13 +219,25 @@ export default function StudentSurveyResponsePage() {
           <ArrowLeft size={12} /> 설문 목록
         </Link>
       </div>
-      <h1 className="text-title font-semibold mb-2">{survey.title}</h1>
+      <h1 className="text-title font-semibold mb-2 flex items-center gap-2">
+        {survey.title}
+        {editMode && (
+          <span className="text-caption px-2 py-0.5 bg-amber-100 text-amber-700 rounded inline-flex items-center gap-1 font-normal">
+            <Pencil size={11} /> 수정 중
+          </span>
+        )}
+      </h1>
       {survey.description && (
         <p className="text-body text-text-secondary mb-3">{survey.description}</p>
       )}
       {survey.is_anonymous && (
         <div className="text-caption text-text-secondary mb-4 inline-flex items-center gap-1 bg-cream-100 border border-cream-300 px-2 py-1 rounded">
           <Lock size={11} /> 익명 응답 — 응답자 정보가 기록되지 않습니다
+        </div>
+      )}
+      {editMode && (
+        <div className="text-caption text-text-secondary mb-4 inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-1 rounded">
+          <Clock size={11} /> 기존 응답을 새 답으로 대체합니다. 비워두면 답이 사라집니다.
         </div>
       )}
 

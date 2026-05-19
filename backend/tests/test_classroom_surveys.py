@@ -259,6 +259,149 @@ async def test_active_survey_blocks_question_changes(
 
 
 @pytest.mark.asyncio
+async def test_response_edit_disabled_by_default(
+    app_client, active_survey, student_user, enrolled_student, auth_headers,
+):
+    """response_edit_minutes=0 (기본)이면 응답 후 PUT → 409."""
+    sid = active_survey["survey"].id
+    h = auth_headers(student_user)
+    sub = await app_client.post(
+        f"/api/classroom/surveys/{sid}/responses",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["보통"]}]},
+        headers=h,
+    )
+    rid = sub.json()["response_id"]
+    res = await app_client.put(
+        f"/api/classroom/surveys/responses/{rid}",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["매우 잘"]}]},
+        headers=h,
+    )
+    assert res.status_code == 409, "수정 비활성 시 409 필요"
+
+
+@pytest.mark.asyncio
+async def test_response_edit_within_window_succeeds(
+    app_client, db_session, active_survey, student_user, enrolled_student, auth_headers,
+):
+    """response_edit_minutes > 0이고 시한 내면 본인 응답 수정 OK."""
+    s = active_survey["survey"]
+    s.response_edit_minutes = 30
+    await db_session.flush()
+
+    sid = s.id
+    h = auth_headers(student_user)
+    sub = await app_client.post(
+        f"/api/classroom/surveys/{sid}/responses",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["보통"]}]},
+        headers=h,
+    )
+    rid = sub.json()["response_id"]
+    res = await app_client.put(
+        f"/api/classroom/surveys/responses/{rid}",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["매우 잘"]}]},
+        headers=h,
+    )
+    assert res.status_code == 200, res.text
+
+    # 검증: 답이 바뀌었는지
+    from sqlalchemy import select
+    answers = (await db_session.execute(
+        select(SurveyAnswer).where(SurveyAnswer.response_id == rid)
+    )).scalars().all()
+    assert len(answers) == 1
+    assert answers[0].choice_values == ["매우 잘"]
+
+
+@pytest.mark.asyncio
+async def test_response_edit_after_window_rejected(
+    app_client, db_session, active_survey, student_user, enrolled_student, auth_headers,
+):
+    """시한 지나면 PUT → 409. submitted_at을 과거로 백데이트해 시뮬레이션."""
+    from datetime import datetime, timedelta, timezone
+
+    s = active_survey["survey"]
+    s.response_edit_minutes = 10
+    await db_session.flush()
+
+    sid = s.id
+    h = auth_headers(student_user)
+    sub = await app_client.post(
+        f"/api/classroom/surveys/{sid}/responses",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["보통"]}]},
+        headers=h,
+    )
+    rid = sub.json()["response_id"]
+
+    # 응답 submitted_at을 1시간 전으로 백데이트
+    from sqlalchemy import select
+    resp = (await db_session.execute(
+        select(SurveyResponse).where(SurveyResponse.id == rid)
+    )).scalar_one()
+    resp.submitted_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    await db_session.flush()
+
+    res = await app_client.put(
+        f"/api/classroom/surveys/responses/{rid}",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["매우 잘"]}]},
+        headers=h,
+    )
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_other_user_cannot_edit_someone_response(
+    app_client, db_session, active_survey, student_user, enrolled_student,
+    other_student, auth_headers,
+):
+    """다른 사용자가 남의 응답 수정 시도 → 403."""
+    s = active_survey["survey"]
+    s.response_edit_minutes = 30
+    await db_session.flush()
+
+    sid = s.id
+    sub = await app_client.post(
+        f"/api/classroom/surveys/{sid}/responses",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["보통"]}]},
+        headers=auth_headers(student_user),
+    )
+    rid = sub.json()["response_id"]
+
+    res = await app_client.put(
+        f"/api/classroom/surveys/responses/{rid}",
+        json={"answers": [{"question_id": active_survey["q1"].id, "choice_values": ["매우 잘"]}]},
+        headers=auth_headers(other_student),
+    )
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_anonymous_response_cannot_be_edited(
+    app_client, db_session, draft_survey, student_user, enrolled_student, auth_headers,
+):
+    """익명 응답은 본인 식별 불가 → 수정 차단 (respondent_id=null)."""
+    s = draft_survey["survey"]
+    s.is_anonymous = True
+    s.status = "active"
+    s.response_edit_minutes = 30
+    await db_session.flush()
+
+    sid = s.id
+    sub = await app_client.post(
+        f"/api/classroom/surveys/{sid}/responses",
+        json={"answers": [{"question_id": draft_survey["q1"].id, "choice_values": ["보통"]}]},
+        headers=auth_headers(student_user),
+    )
+    rid = sub.json()["response_id"]
+
+    res = await app_client.put(
+        f"/api/classroom/surveys/responses/{rid}",
+        json={"answers": [{"question_id": draft_survey["q1"].id, "choice_values": ["매우 잘"]}]},
+        headers=auth_headers(student_user),
+    )
+    assert res.status_code == 403, "익명 응답 (respondent_id=null) 은 수정 불가"
+
+
+@pytest.mark.asyncio
 async def test_results_csv_export_works(
     app_client, db_session, active_survey, student_user, enrolled_student,
     teacher_user, auth_headers,

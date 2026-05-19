@@ -21,6 +21,7 @@ class SurveyCreate(BaseModel):
     is_anonymous: bool = False
     allow_multiple_responses: bool = False
     access_mode: AccessMode = "course_members"
+    response_edit_minutes: int = Field(0, ge=0, le=10080)  # 최대 1주(=10080분)
 
 
 class SurveyUpdate(BaseModel):
@@ -33,6 +34,7 @@ class SurveyUpdate(BaseModel):
     access_mode: AccessMode | None = None
     open_at: datetime | None = None
     close_at: datetime | None = None
+    response_edit_minutes: int | None = Field(None, ge=0, le=10080)
 
 
 class QuestionCreate(BaseModel):

@@ -35,11 +35,34 @@ def survey_to_dict(s: Survey, *, author_name: str | None = None) -> dict:
         "is_anonymous": s.is_anonymous,
         "allow_multiple_responses": s.allow_multiple_responses,
         "access_mode": s.access_mode,
+        "response_edit_minutes": s.response_edit_minutes,
         "open_at": s.open_at.isoformat() if s.open_at else None,
         "close_at": s.close_at.isoformat() if s.close_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+
+
+def response_editable_until(survey: Survey, submitted_at: datetime) -> datetime | None:
+    """응답 수정 가능 시한 (제출시각 + N분). N=0이면 None.
+
+    매번 동적 계산 — Survey.response_edit_minutes 변경 시 기존 응답에도 즉시 반영.
+    """
+    if survey.response_edit_minutes <= 0:
+        return None
+    from datetime import timedelta
+    sub = submitted_at
+    if sub.tzinfo is None:
+        sub = sub.replace(tzinfo=timezone.utc)
+    return sub + timedelta(minutes=survey.response_edit_minutes)
+
+
+def can_edit_response(survey: Survey, submitted_at: datetime) -> bool:
+    """응답 수정 가능 여부."""
+    until = response_editable_until(survey, submitted_at)
+    if until is None:
+        return False
+    return datetime.now(timezone.utc) < until
 
 
 def question_to_dict(q: SurveyQuestion) -> dict:

@@ -1,34 +1,32 @@
 "use client";
 
 /**
- * 설문 빌더 + 상태 토글 + 결과 페이지로 이동.
+ * 설문 빌더 + 상태 토글 + 결과 페이지 이동.
  *
  * - status=draft: 질문 추가/편집/삭제 + 메타 편집 + Active 토글
- * - status=active: 질문 변경 잠금. 결과 페이지로 이동 가능. Close 토글.
+ * - status=active: 질문 변경 잠금. 결과/공유 액션. Close 토글.
  * - status=closed: 결과 조회 + Draft로 되돌리기
+ *
+ * 분할 (_components/):
+ *   - _types.ts: QType / Question / TYPE_LABELS
+ *   - QuestionCard.tsx: 빌더 카드
+ *   - QuestionPreview.tsx: 유형별 미리보기
+ *   - AddQuestionModal.tsx: 질문 추가 모달
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, ClipboardList, Plus, Trash2, BarChart3, Lock, Unlock, Archive,
-  Pencil, Save, X, GripVertical, Lock as LockIcon, Share2,
+  ArrowLeft, Plus, Trash2, BarChart3, Lock, Unlock, Archive, Pencil,
+  Share2, Lock as LockIcon, Clock,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import ShareLinkModal from "@/components/classroom/ShareLinkModal";
+import { QuestionCard } from "./_components/QuestionCard";
+import { AddQuestionModal } from "./_components/AddQuestionModal";
+import type { Question } from "./_components/_types";
 
-type QType = "short_text" | "long_text" | "single_choice" | "multi_choice" | "rating" | "date";
-
-interface Question {
-  id: number;
-  order: number;
-  question_text: string;
-  question_type: QType;
-  is_required: boolean;
-  options: string[];
-  rating_max: number;
-}
 
 interface SurveyDetail {
   id: number;
@@ -41,18 +39,11 @@ interface SurveyDetail {
   is_anonymous: boolean;
   allow_multiple_responses: boolean;
   access_mode: string;
+  response_edit_minutes: number;
   questions: Question[];
   is_author: boolean;
 }
 
-const TYPE_LABELS: Record<QType, string> = {
-  short_text: "단답형",
-  long_text: "장문형",
-  single_choice: "객관식 (한 개)",
-  multi_choice: "체크박스 (여러 개)",
-  rating: "평점",
-  date: "날짜",
-};
 
 export default function SurveyBuilderPage() {
   const params = useParams();
@@ -135,7 +126,6 @@ export default function SurveyBuilderPage() {
         </Link>
       </div>
 
-      {/* 상태 + 액션 */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className={`text-caption px-2 py-0.5 rounded ${
           isDraft ? "bg-cream-200 text-text-secondary"
@@ -207,7 +197,6 @@ export default function SurveyBuilderPage() {
         )}
       </div>
 
-      {/* 제목 */}
       <input
         type="text"
         value={titleDraft}
@@ -221,7 +210,28 @@ export default function SurveyBuilderPage() {
         <p className="text-body text-text-secondary mb-4 px-2">{survey.description}</p>
       )}
 
-      {/* 질문 목록 */}
+      {/* 응답 수정 허용 시간 — 작성자만, 모든 상태에서 동적 변경 가능 */}
+      {survey.is_author && (
+        <div className="flex items-center gap-2 text-caption text-text-secondary mb-4 px-2">
+          <Clock size={11} />
+          <span>응답 후 수정 허용:</span>
+          <input
+            type="number"
+            min={0}
+            max={10080}
+            defaultValue={survey.response_edit_minutes}
+            onBlur={(e) => {
+              const v = Math.max(0, Math.min(10080, Number(e.target.value) || 0));
+              if (v !== survey.response_edit_minutes) {
+                updateMeta({ response_edit_minutes: v });
+              }
+            }}
+            className="w-20 px-2 py-1 border border-border-default rounded bg-bg-primary"
+          />
+          <span className="text-text-tertiary">분 (0 = 수정 불가)</span>
+        </div>
+      )}
+
       <div className="space-y-3 mb-4">
         {survey.questions.length === 0 ? (
           <div className="text-caption text-text-tertiary py-12 text-center border border-dashed border-border-default rounded">
@@ -235,7 +245,6 @@ export default function SurveyBuilderPage() {
               index={idx}
               canEdit={canEdit}
               onDelete={() => deleteQuestion(q.id)}
-              onReload={load}
             />
           ))
         )}
@@ -272,198 +281,6 @@ export default function SurveyBuilderPage() {
           onClose={() => setShowShare(false)}
         />
       )}
-    </div>
-  );
-}
-
-
-function QuestionCard({
-  q, index, canEdit, onDelete, onReload,
-}: {
-  q: Question;
-  index: number;
-  canEdit: boolean;
-  onDelete: () => void;
-  onReload: () => void;
-}) {
-  return (
-    <div className="border border-border-default rounded-lg p-4 bg-bg-primary">
-      <div className="flex items-center gap-2 mb-2">
-        {canEdit && <GripVertical size={12} className="text-text-tertiary" />}
-        <span className="text-caption text-text-tertiary">Q{index + 1}.</span>
-        <span className="text-[10px] px-1.5 py-0.5 bg-cream-200 text-text-secondary rounded">
-          {TYPE_LABELS[q.question_type]}
-        </span>
-        {q.is_required && <span className="text-status-error text-caption">*</span>}
-        <div className="flex-1" />
-        {canEdit && (
-          <button onClick={onDelete} className="text-text-tertiary hover:text-status-error">
-            <Trash2 size={12} />
-          </button>
-        )}
-      </div>
-      <div className="text-body text-text-primary mb-2 whitespace-pre-wrap">
-        {q.question_text}
-      </div>
-      {/* 미리보기 (응답 UI 모방) */}
-      <QuestionPreview q={q} />
-    </div>
-  );
-}
-
-
-function QuestionPreview({ q }: { q: Question }) {
-  const cls = "text-caption text-text-tertiary border border-border-default rounded px-2 py-1 bg-bg-secondary";
-
-  if (q.question_type === "short_text") {
-    return <div className={cls}>단답 입력란</div>;
-  }
-  if (q.question_type === "long_text") {
-    return <div className={cls + " min-h-[60px]"}>장문 입력란</div>;
-  }
-  if (q.question_type === "date") {
-    return <div className={cls + " w-32"}>날짜 선택</div>;
-  }
-  if (q.question_type === "rating") {
-    return (
-      <div className="flex gap-1">
-        {Array.from({ length: q.rating_max }, (_, i) => (
-          <span key={i} className="w-7 h-7 border border-border-default rounded text-caption flex items-center justify-center bg-bg-secondary text-text-tertiary">
-            {i + 1}
-          </span>
-        ))}
-      </div>
-    );
-  }
-  if (q.question_type === "single_choice" || q.question_type === "multi_choice") {
-    return (
-      <div className="space-y-1">
-        {q.options.map((opt, i) => (
-          <div key={i} className="flex items-center gap-2 text-caption">
-            <span className={`w-3 h-3 border border-border-default ${
-              q.question_type === "single_choice" ? "rounded-full" : "rounded-sm"
-            }`} />
-            <span>{opt}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return null;
-}
-
-
-function AddQuestionModal({
-  sid, onClose, onSaved,
-}: { sid: number; onClose: () => void; onSaved: () => void }) {
-  const [questionText, setQuestionText] = useState("");
-  const [type, setType] = useState<QType>("short_text");
-  const [isRequired, setIsRequired] = useState(false);
-  const [optionsText, setOptionsText] = useState("");  // 줄바꿈 구분
-  const [ratingMax, setRatingMax] = useState(5);
-  const [saving, setSaving] = useState(false);
-
-  const needsOptions = type === "single_choice" || type === "multi_choice";
-  const needsRating = type === "rating";
-
-  const save = async () => {
-    if (!questionText.trim()) return alert("질문 내용을 입력하세요");
-    const opts = optionsText.split("\n").map((s) => s.trim()).filter(Boolean);
-    if (needsOptions && opts.length < 2) {
-      return alert("객관식·체크박스는 옵션 2개 이상 필요");
-    }
-    setSaving(true);
-    try {
-      await api.post(`/api/classroom/surveys/${sid}/questions`, {
-        question_text: questionText.trim(),
-        question_type: type,
-        is_required: isRequired,
-        options: needsOptions ? opts : null,
-        rating_max: needsRating ? ratingMax : 5,
-      });
-      onSaved();
-    } catch (e: any) {
-      alert(e?.detail || "추가 실패");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-4 border-b border-border-default">
-          <h2 className="text-body font-semibold">질문 추가</h2>
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-        <div className="p-5 space-y-3">
-          <div>
-            <label className="text-caption text-text-secondary block mb-1">유형</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as QType)}
-              className="w-full px-2 py-1.5 text-body border border-border-default rounded bg-bg-primary"
-            >
-              {(Object.keys(TYPE_LABELS) as QType[]).map((t) => (
-                <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-caption text-text-secondary block mb-1">질문 *</label>
-            <textarea
-              value={questionText}
-              onChange={(e) => setQuestionText(e.target.value)}
-              rows={2}
-              placeholder="예: 오늘 수업이 얼마나 이해되었나요?"
-              className="w-full px-2 py-1.5 text-body border border-border-default rounded bg-bg-primary resize-y"
-            />
-          </div>
-          {needsOptions && (
-            <div>
-              <label className="text-caption text-text-secondary block mb-1">
-                옵션 (줄바꿈 구분, 2개 이상)
-              </label>
-              <textarea
-                value={optionsText}
-                onChange={(e) => setOptionsText(e.target.value)}
-                rows={4}
-                placeholder="옵션 1&#10;옵션 2&#10;옵션 3"
-                className="w-full px-2 py-1.5 text-body border border-border-default rounded bg-bg-primary resize-y font-mono text-caption"
-              />
-            </div>
-          )}
-          {needsRating && (
-            <div>
-              <label className="text-caption text-text-secondary block mb-1">
-                평점 최댓값 (1 ~ {ratingMax})
-              </label>
-              <input
-                type="number"
-                min={2}
-                max={10}
-                value={ratingMax}
-                onChange={(e) => setRatingMax(Math.max(2, Math.min(10, Number(e.target.value))))}
-                className="w-20 px-2 py-1.5 text-body border border-border-default rounded bg-bg-primary"
-              />
-            </div>
-          )}
-          <label className="flex items-center gap-2 text-caption cursor-pointer">
-            <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
-            필수 답변
-          </label>
-        </div>
-        <div className="flex justify-end gap-2 p-4 border-t border-border-default">
-          <button onClick={onClose} className="px-4 py-1.5 text-caption border border-border-default rounded">취소</button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded disabled:opacity-50"
-          >
-            <Save size={12} /> {saving ? "추가 중..." : "추가"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
