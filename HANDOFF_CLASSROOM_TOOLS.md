@@ -519,30 +519,85 @@ FastAPI는 `X-Internal-Token` 검증해서 Hocuspocus만 호출 가능하게.
 
 ## 8. 학교 환경 고려사항
 
-- **80명 동시 접속**: TipTap + Yjs는 무리없음. Hocuspocus single instance 충분.
-- **메모리**: Hocuspocus는 활성 문서 in-memory. 평균 20KB/doc × 100 docs ≈ 2MB → 무시할 수준.
-- **네트워크**: WebSocket 평균 1KB/s/user. 80명 × 1KB = 80KB/s. LAN 충분.
+### 부하 산정 — 학교 규모별
+
+**소규모 (학생 100, 교사 10)**:
+
+| 항목 | 부담 |
+|---|---|
+| Hocuspocus Node 프로세스 | RAM 80~150MB |
+| 활성 협업 문서 100개 in-memory | RAM +5MB (20KB/doc) |
+| WebSocket 80명 keep-alive | CPU <0.5%, 네트워크 80KB/s |
+| 설문 동시 80건 응답 | DB write 1초 미만 |
+| **합계 추가** | **RAM ~150MB, CPU 1%** |
+
+**중규모 (학생 500, 교사 30)**:
+- 동시 협업 50~80명, RAM +30MB, CPU 2~3%
+- mac mini 16GB 충분
+
+**대규모 (학생 1500, 교사 60)**:
+- 동시 협업 100~200명 (조별 활동), RAM +100MB, CPU 5~10%
+- mini PC 16GB 여전히 OK
+
+**현재 시스템 비교**:
+- FastAPI uvicorn: ~80MB
+- Next.js: ~300MB
+- PostgreSQL: ~150MB
+- + Hocuspocus 100MB → 총 700MB. 학교 PC 8GB+면 여유.
+
+### 성능 외 부담 (운영 복잡도)
+
+| 항목 | 영향 |
+|---|---|
+| Node 16+ 설치 | 학교 환경 설치 1단계 추가 |
+| 프로세스 2개 관리 | systemd/PM2/Docker 선택 |
+| 재시작 시 in-memory 손실 | DB snapshot에서 복원 (1분 stale OK) |
+| 백업 크기 증가 | LargeBinary 100MB/100docs |
+| 모니터링 포인트 | FastAPI + Hocuspocus 둘 다 watchdog |
+
+→ **성능 문제 X, 운영 복잡도가 약간 ↑.** SETUP.md 보강으로 흡수.
+
+### 기타
+
 - **백업**: Yjs state는 LargeBinary 컬럼 → `Base.metadata.sorted_tables`로 자동 export.
 - **장비 이관**: backup 복원 후 Hocuspocus 재시작 시 in-memory 비우고 DB snapshot에서 다시 로드.
+- **외부 노출 차단**: 학교 LAN 내부만, nginx/Caddy로 외부 WebSocket 차단.
 
 ---
 
-## 9. 우선순위 (새 세션 시작 시)
+## 9. 우선순위 (새 세션 시작 시) — 결정 반영
 
-권장 순서 (commit 단위):
+**사용자 결정 (2026-05-19)**: "할 거면 B(Hocuspocus 실시간 협업)를 해야 한다."
+→ single-user fallback은 의미 없음. **Phase B를 처음부터 통합**.
 
-1. **Phase A** — Document 모델 + 단독 편집기 (Yjs 없이, single-user)
-   - 가장 빠르게 사용자 가치 전달
-   - Yjs 통합 실패해도 기능은 작동
-2. **Phase D** — 설문지 (독립적)
+### 새 권장 순서
+
+1. **Phase A+B 통합** — Document 모델 + Yjs + Hocuspocus 처음부터
+   - Yjs 통합을 첫 단계로 (single-user → 협업 migration 부담 회피)
+   - 가장 큰 단계지만 한 번에 끝내는 게 효율적
+   - 산출물:
+     · Document 모델 (yjs_state LargeBinary 포함)
+     · backend-hocuspocus Node 프로젝트 (server.ts + auth.ts + storage.ts)
+     · frontend CollabEditor.tsx (TipTap + Yjs + HocuspocusProvider)
+     · backend snapshot endpoint
+     · SETUP.md 보강 (Node 설치 + Hocuspocus 시작)
+   - 완료 조건: 두 브라우저 탭 동시 편집 → 충돌 없이 sync + 사용자 커서 보임
+
+2. **Phase D** — 설문지 (독립적, A+B 무관하게 가능)
 3. **Phase E** — 단축 링크 + QR (D 활용)
 4. **Phase C** — 강좌 통합 (UI 정리)
-5. **Phase B** — Hocuspocus 실시간 협업 (가장 복잡, 마지막)
-6. **Phase F** — 안전망 정리
+5. **Phase F** — 안전망 정리 + 운영 문서 보강
 
-이 순서면:
-- 단계 A,D,E 끝나면 학교에서 즉시 활용 가능 (수업 설문, 단축 링크, QR)
-- 단계 B는 가장 큰 작업이지만 A의 single-user 모드로 fallback 가능
+### 작업 분할 팁
+
+Phase A+B는 큰 단계라 sub-commit으로 나눠 진행:
+- A+B-1: Document 모델 + alembic + 권한 등록 + 빈 페이지
+- A+B-2: backend-hocuspocus 프로젝트 생성 + auth + 기본 server
+- A+B-3: backend snapshot endpoint + 권한 가드
+- A+B-4: frontend CollabEditor 통합 + presence
+- A+B-5: 학교 운영 절차 문서화 (SETUP.md, systemd unit)
+
+각 sub-commit은 독립적으로 작동 검증 가능.
 
 ---
 
@@ -572,8 +627,9 @@ FastAPI는 `X-Internal-Token` 검증해서 Hocuspocus만 호출 가능하게.
 
 1. `git pull` (이 문서 + CLAUDE.md 최신 확인)
 2. backend 부팅 확인: `python -m pytest tests/ -q` → 121+ 통과
-3. 본 문서 § 4 Phase A부터 시작
-4. 의문점 있으면 사용자(신병철)에게 확인 후 진행
+3. 본 문서 § 9의 **Phase A+B 통합**부터 시작 (사용자 결정 반영)
+4. sub-commit 단위 (A+B-1 → A+B-2 → ...)로 진행, 각 단계 작동 확인 후 push
+5. 의문점 있으면 사용자(신병철)에게 확인 후 진행
 
 ---
 
@@ -587,3 +643,20 @@ FastAPI는 `X-Internal-Token` 검증해서 Hocuspocus만 호출 가능하게.
 ---
 
 **작성 후 수정 금지** — 진행 중 변경사항은 이 문서 끝에 `## 추가 결정 (날짜)` 섹션으로 누적.
+
+---
+
+## 추가 결정 (2026-05-19)
+
+### Phase A·B를 합쳐서 통합 진행
+
+- 이전 권장: Phase A (single-user) → 나중에 B (Yjs 통합)
+- 변경: **A+B 한 번에**. single-user 단계 skip.
+- 이유: 사용자(신병철) "할 거면 B하는게 맞음" — Google Docs 식 동시 편집이 목표
+- 트레이드오프: 첫 commit이 더 크지만, single→collab migration 부담 회피 + 운영 단순화
+
+### 부하 산정 추가 (§8)
+
+- 학교 규모별 RAM/CPU 추정치 명시
+- 진짜 부담은 운영 복잡도 (Node 프로세스 1개 + systemd 관리)
+- 학교 PC 16GB면 충분히 감당
