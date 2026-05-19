@@ -9,7 +9,10 @@ const BACKEND_PROXY = process.env.BACKEND_PROXY_URL || "http://localhost:8002";
 
 const nextConfig = {
   output: "standalone",
-  reactStrictMode: true,
+  // dev에서 false — Yjs/Hocuspocus 인스턴스가 useMemo 두 번째 실행으로 분기되어
+  // editor↔yDoc binding이 깨지는 문제 회피. 코드 패턴 자체를 useEffect+ref로 정리하기
+  // 전까지 임시 OFF. production 빌드와는 무관 (dev only 영향).
+  reactStrictMode: false,
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${BACKEND_PROXY}/api/:path*` },
