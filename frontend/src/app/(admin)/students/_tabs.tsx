@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { DataTable } from "@/components/ui/DataTable";
+import { downloadSecure } from "@/lib/api/download";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -731,10 +732,12 @@ export function ArtifactsTab({ studentId }: { studentId: number }) {
               )}
               <div className="flex gap-2 pt-2 border-t border-border-default">
                 {a.file_url && (
-                  <a href={`${API_URL}${a.file_url}`} target="_blank" rel="noopener"
-                     className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light">
+                  <button
+                    onClick={() => downloadSecure(a.file_url, a.file_name)}
+                    className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light"
+                  >
                     <FileText size={12} /> 파일
-                  </a>
+                  </button>
                 )}
                 {a.external_link && (
                   <a href={a.external_link} target="_blank" rel="noopener"

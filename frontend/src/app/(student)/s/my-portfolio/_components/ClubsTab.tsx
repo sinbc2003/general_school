@@ -9,8 +9,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Edit3, FileText, Trash2 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { downloadSecure } from "@/lib/api/download";
 import type { ClubSubmission } from "../_shared";
-import { API_URL, EmptyState } from "../_shared";
+import { EmptyState } from "../_shared";
 
 
 export function ClubsTab() {
@@ -103,10 +104,12 @@ export function ClubsTab() {
                 )}
               </div>
               {c.file_path && (
-                <a href={`${API_URL}${c.file_path}`} target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 text-caption bg-bg-secondary rounded">
+                <button
+                  onClick={() => downloadSecure(c.file_path!)}
+                  className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 text-caption bg-bg-secondary rounded"
+                >
                   <FileText size={12} /> 파일 열기
-                </a>
+                </button>
               )}
             </div>
           ))}

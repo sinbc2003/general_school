@@ -104,10 +104,17 @@ app.add_middleware(
 )
 
 # ── Static Files ──
+# 보안: /storage 전체 노출 금지. 학생 산출물·과제 제출물·백업 ZIP이
+# 익명으로 다운로드되는 사고 방지. 인증·visibility 가드 통과한 endpoint
+# (예: /api/storage/artifacts/{aid}/download)만 파일 서빙.
+#
+# 예외: /storage/branding/* 는 layout SSR에서 익명 favicon 호출이 필요.
 import os
 storage_path = os.path.join(os.path.dirname(__file__), "..", "storage")
-os.makedirs(storage_path, exist_ok=True)  # 없으면 생성 (브랜딩 favicon 등에 필수)
-app.mount("/storage", StaticFiles(directory=storage_path), name="storage")
+os.makedirs(storage_path, exist_ok=True)
+branding_path = os.path.join(storage_path, "branding")
+os.makedirs(branding_path, exist_ok=True)
+app.mount("/storage/branding", StaticFiles(directory=branding_path), name="branding")
 
 # ── 라우터 등록 ──
 from app.modules.auth.router import router as auth_router
@@ -130,6 +137,7 @@ from app.modules.ai_developer.router import router as ai_developer_router
 from app.modules.chatbot.router import router as chatbot_router
 from app.modules.student_self.router import router as student_self_router
 from app.modules.announcement.router import router as announcement_router
+from app.modules.files.router import router as files_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -154,6 +162,7 @@ app.include_router(ai_developer_router)
 app.include_router(chatbot_router)
 app.include_router(student_self_router)
 app.include_router(announcement_router)
+app.include_router(files_router)
 
 
 @app.get("/api/health")

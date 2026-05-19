@@ -13,8 +13,8 @@ import {
   Image as ImageIcon, Plus, Save, Trash2, X,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { downloadSecure } from "@/lib/api/download";
 import type { Artifact } from "../_shared";
-import { API_URL } from "../_shared";
 
 
 const CATEGORIES = [
@@ -279,10 +279,12 @@ function ArtifactCard({
 
       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border-default">
         {a.file_url && (
-          <a href={`${API_URL}${a.file_url}`} target="_blank" rel="noopener noreferrer"
-             className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light">
+          <button
+            onClick={() => downloadSecure(a.file_url!, a.file_name || undefined)}
+            className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light"
+          >
             <FileText size={12} /> 파일 ({((a.file_size || 0)/1024/1024).toFixed(2)}MB)
-          </a>
+          </button>
         )}
         {a.external_link && (
           <a href={a.external_link} target="_blank" rel="noopener noreferrer"

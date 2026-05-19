@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Briefcase, FileText, ExternalLink, Search, Filter } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { downloadSecure } from "@/lib/api/download";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -125,10 +126,12 @@ export default function ArtifactsGalleryPage() {
               )}
               <div className="flex gap-2 pt-2 border-t border-border-default">
                 {a.file_url && (
-                  <a href={`${API_URL}${a.file_url}`} target="_blank" rel="noopener noreferrer"
-                     className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light">
+                  <button
+                    onClick={() => downloadSecure(a.file_url!)}
+                    className="flex items-center gap-1 px-2 py-1 text-caption bg-bg-secondary rounded hover:bg-accent-light"
+                  >
                     <FileText size={12} /> 파일
-                  </a>
+                  </button>
                 )}
                 {a.external_link && (
                   <a href={a.external_link} target="_blank" rel="noopener noreferrer"
