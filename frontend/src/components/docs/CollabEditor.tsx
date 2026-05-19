@@ -17,18 +17,28 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import Underline from "@tiptap/extension-underline";
+import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
+import { TextStyle } from "@tiptap/extension-text-style";
+import FontFamily from "@tiptap/extension-font-family";
+import { Color } from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
+import TextAlign from "@tiptap/extension-text-align";
+import { Table } from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
-import {
-  Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote,
-  Undo, Redo, Wifi, WifiOff, Loader2,
-} from "lucide-react";
+import { Wifi, WifiOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { Toolbar } from "./Toolbar";
 import "./collab-editor.css";
 
 interface CollabEditorProps {
@@ -142,13 +152,30 @@ export default function CollabEditor({
   const editor = useEditor({
     extensions: [
       // StarterKit의 undoRedo는 Yjs와 충돌 → 비활성화 (Yjs collaboration이 자체 undo 제공)
+      // link/underline은 별도 extension으로 제공 (StarterKit는 v3에서 분리)
       StarterKit.configure({ undoRedo: false }),
+      Underline,
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" },
+      }),
+      Image.configure({ inline: false, allowBase64: true }),
+      // 텍스트 스타일 (color/font-family) 적용을 위해 TextStyle mark 필요
+      TextStyle,
+      FontFamily,
+      Color,
+      Highlight.configure({ multicolor: true }),
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      // 표
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Placeholder.configure({
         placeholder: "여기에 함께 작성해보세요...",
       }),
-      // v3: Collaboration extension은 document + provider 둘 다 받아야
-      // editor↔yDoc binding이 완성됨. provider 없으면 editor 변경이 yDoc으로
-      // propagate 안 되어 다른 client에게 broadcast 안 됨 (실제 검증 결과).
+      // v3: Collaboration은 document + provider 둘 다 받아야 양방향 sync 완성
       Collaboration.configure({
         document: doc,
         provider,
@@ -159,13 +186,8 @@ export default function CollabEditor({
           name: userName,
           color: userColor(userId),
         },
-        // selection range는 시각화 안 함 (Google Docs 스타일).
-        // 기본 builder는 background-color로 빈 줄까지 highlight되어 과한 느낌 → 끔.
-        // 다른 사용자 위치는 caret(1.5px 수직선) + 이름 라벨로 표현.
-        selectionRender: () => ({
-          style: "",
-          class: "",
-        }),
+        // selection range 시각화 OFF (Google Docs 스타일 — caret + 라벨만)
+        selectionRender: () => ({ style: "", class: "" }),
       }),
     ],
     editable: canWrite,
@@ -204,14 +226,14 @@ export default function CollabEditor({
 
   return (
     <div className="border border-border-default rounded-lg bg-bg-primary overflow-hidden">
-      {/* 상태 표시 + 툴바 */}
-      <div className="border-b border-border-default px-3 py-2 flex items-center gap-2 bg-bg-secondary">
+      {/* 상태 + 툴바 */}
+      <div className="border-b border-border-default px-3 py-1.5 flex items-center gap-3 bg-bg-secondary">
         <StatusBadge status={status} />
-        <div className="w-px h-4 bg-border-default" />
-        {canWrite && editor ? <Toolbar editor={editor} /> : (
+        {!canWrite && (
           <span className="text-caption text-text-tertiary">읽기 전용</span>
         )}
       </div>
+      {canWrite && <Toolbar editor={editor} />}
       <EditorContent editor={editor} />
     </div>
   );
@@ -241,71 +263,4 @@ function StatusBadge({ status }: { status: WebSocketStatus }) {
 }
 
 
-function Toolbar({ editor }: { editor: Editor }) {
-  const Btn = ({
-    onClick, active, title, children,
-  }: { onClick: () => void; active?: boolean; title: string; children: React.ReactNode }) => (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`p-1 rounded hover:bg-bg-primary transition ${
-        active ? "bg-accent-light text-accent" : "text-text-secondary"
-      }`}
-    >
-      {children}
-    </button>
-  );
-
-  return (
-    <div className="flex items-center gap-0.5 flex-1">
-      <Btn
-        onClick={() => editor.chain().focus().toggleBold().run()}
-        active={editor.isActive("bold")}
-        title="굵게 (Ctrl+B)"
-      ><Bold size={14} /></Btn>
-      <Btn
-        onClick={() => editor.chain().focus().toggleItalic().run()}
-        active={editor.isActive("italic")}
-        title="기울임 (Ctrl+I)"
-      ><Italic size={14} /></Btn>
-      <div className="w-px h-4 bg-border-default mx-1" />
-      <Btn
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-        active={editor.isActive("heading", { level: 1 })}
-        title="제목 1"
-      ><Heading1 size={14} /></Btn>
-      <Btn
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        active={editor.isActive("heading", { level: 2 })}
-        title="제목 2"
-      ><Heading2 size={14} /></Btn>
-      <div className="w-px h-4 bg-border-default mx-1" />
-      <Btn
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
-        active={editor.isActive("bulletList")}
-        title="글머리 기호 목록"
-      ><List size={14} /></Btn>
-      <Btn
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        active={editor.isActive("orderedList")}
-        title="번호 매기기 목록"
-      ><ListOrdered size={14} /></Btn>
-      <Btn
-        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        active={editor.isActive("blockquote")}
-        title="인용"
-      ><Quote size={14} /></Btn>
-      {/* Yjs collaboration이 자체 undo/redo 제공 */}
-      <div className="ml-auto flex items-center gap-0.5">
-        <Btn
-          onClick={() => editor.chain().focus().undo().run()}
-          title="실행 취소 (Ctrl+Z)"
-        ><Undo size={14} /></Btn>
-        <Btn
-          onClick={() => editor.chain().focus().redo().run()}
-          title="다시 실행 (Ctrl+Shift+Z)"
-        ><Redo size={14} /></Btn>
-      </div>
-    </div>
-  );
-}
+// Toolbar는 ./Toolbar.tsx에서 임포트 — Google Docs 스타일 그룹화 버전.
