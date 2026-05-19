@@ -550,3 +550,44 @@ cd frontend && npm run build && npm start
 - backend `app/` 약 18000줄 동일 (refactor 위주, 신규 코드 적음)
 - frontend production build OK, backend boot OK (289 endpoint)
 - alembic schema ↔ 모델 일치
+
+### AI 개발자 모듈 강화 (2026-05-19 후반)
+
+기존 `ai_developer` 모듈을 "코딩 모르는 관리자도 사용 가능"하게 확장.
+
+**워크플로우** (피드백 → 코드 적용):
+1. 사용자가 우측 하단 버튼 → 건의/오류 보고 (`/api/feedback`)
+2. 관리자가 `/system/feedback`에서 "🤖 AI 개발 요청" 클릭
+3. → `POST /api/feedback/{fid}/ai-request` (page_url + 작업지시 자동 prompt 생성, 멱등)
+4. → `/system/ai-developer` 페이지로 자동 이동 (DevRequest 자동 채워짐)
+5. 관리자가 "AI 생성" 클릭 → Claude API 호출 (CLAUDE.md + 관련 모듈 코드 자동 첨부)
+6. AI 응답: 변경할 파일 목록 + diff 미리보기
+7. 관리자가 "승인" → backup → apply → 자동 회귀 테스트 → fail 시 자동 rollback
+
+**핵심 안전망**:
+- `BLOCKED_FILES` — auth/permissions/core 등 인증·권한 모듈 + CLAUDE.md 자기 자신 (AI가 자기 규칙 못 바꿈)
+- `BLOCKED_PREFIXES` — alembic/, .env, .github/, .claude/
+- `ALLOWED_DIRS` 화이트리스트 — frontend/src/app/, components/, lib/, backend/app/modules/, models/
+- 적용 후 자동 회귀 테스트: pytest 보안 마킹 + smoke + convention invariants (120초 timeout)
+- 회귀 발생 시 자동 rollback (create→delete, modify→restore from in-memory backup)
+- 모든 적용/거부/실패 audit_log (is_sensitive=True)
+
+**권한 확장**:
+- 이전: `require_super_admin()` 만
+- 변경: `require_permission("system.ai_developer.use")` (requires_2fa, is_sensitive)
+- super_admin은 자동 pass, 지정관리자(개발 담당)도 권한 부여 시 사용 가능
+
+**AI 컨텍스트 자동 주입**:
+- `_load_project_guide()` — CLAUDE.md 전문(최대 80KB) 자동 첨부
+- `extract_referenced_files()` — prompt에 "X 모듈" 키워드 자동 매칭 (21개 알려진 모듈)
+  → 매칭 시 router.py/schemas.py/permissions.py 자동 첨부 (최대 15개 파일)
+- AI가 학교 코드의 컨벤션·보안 규칙·확장 패턴 모두 알고 작업
+
+**모델 선택**: 기본 `claude-sonnet-4-20250514`. `/api/ai-developer/models` 로 사용 가능 모델 목록 조회.
+
+### 통계 (2026-05-19 후반)
+- Commit 약 35개 (전체 세션)
+- 테스트: 37 → 95 (+58) — convention invariants 5개 추가
+- 새 모듈: `files/` (인증된 파일 서빙), `ai_developer/permissions.py`
+- 새 기능: 피드백→AI 통합, CLAUDE.md 컨텍스트 자동 주입, 자동 회귀+rollback
+- 안전망: 보안·확장 invariant 모두 CI에서 자동 검증
