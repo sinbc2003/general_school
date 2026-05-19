@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText,
+  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText, ClipboardList,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -121,13 +121,22 @@ export default function CourseDetailAdminPage() {
               <p className="text-body text-text-secondary mt-2">{course.description}</p>
             )}
           </div>
-          <Link
-            href={`/classroom/${cid}/docs`}
-            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
-            title="강좌 협업 문서 (Google Docs 식 실시간 편집)"
-          >
-            <FileText size={13} /> 협업 문서
-          </Link>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link
+              href={`/classroom/${cid}/docs`}
+              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
+              title="강좌 협업 문서 (Google Docs 식 실시간 편집)"
+            >
+              <FileText size={13} /> 협업 문서
+            </Link>
+            <Link
+              href={`/classroom/${cid}/surveys`}
+              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
+              title="설문지 (Google Forms 식 응답 수집)"
+            >
+              <ClipboardList size={13} /> 설문지
+            </Link>
+          </div>
         </div>
       </div>
 
