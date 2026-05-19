@@ -8,10 +8,14 @@
 라우팅:
   GET /api/files/storage/{path:path}
     - path traversal 차단 (.., 절대경로)
-    - section(첫 segment) 기반 권한 가드:
+    - section(첫 segment) 기반 권한 가드 (각 모듈 ownership 검증):
       · artifacts: owner OR is_public OR admin OR teacher+visibility
-      · 기타(assignments/research/documents): 인증만 (TODO: 모듈별 가드 강화)
-    - branding/* 는 main.py에서 별도 익명 mount → 본 라우트 안 거침
+      · assignments: owner submission OR review 권한 교사 OR admin
+      · research: project member/advisor OR admin
+      · documents: archive.document.view 권한 (인증 시 모두)
+      · club: submission author OR club advisor/member OR admin
+      · auto-backups: super_admin 전용
+    - branding/* 은 main.py에서 별도 익명 mount → 본 라우트 안 거침
 
 Frontend는 `<a href={/storage/...}>` 대신 fetch + blob 패턴 사용:
   lib/api/download.ts의 downloadSecure() 헬퍼.
@@ -27,12 +31,167 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.core.visibility import assert_can_view_student
+from app.models.assignment import Assignment, AssignmentSubmission
+from app.models.archive import Document
+from app.models.club import Club, ClubSubmission
+from app.models.research import ResearchProject, ResearchSubmission
 from app.models.student_self import StudentArtifact
 from app.models.user import User
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage"
+
+
+# ── section별 가드 ─────────────────────────────────────────
+
+
+async def _guard_artifact(db: AsyncSession, user: User, path: str) -> None:
+    """artifacts: owner OR is_public OR admin OR teacher+visibility."""
+    file_url = f"/storage/{path}"
+    artifact = (await db.execute(
+        select(StudentArtifact).where(StudentArtifact.file_url == file_url)
+    )).scalar_one_or_none()
+    if not artifact:
+        raise HTTPException(404)
+
+    if artifact.student_id == user.id:
+        return
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    if artifact.is_public:
+        return
+    if user.role in ("teacher", "staff"):
+        await assert_can_view_student(db, user, artifact.student_id)
+        return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_assignment(db: AsyncSession, user: User, path: str) -> None:
+    """assignments: owner submission OR review 권한 교사 OR admin."""
+    stored_path = f"storage/{path}"
+    sub = (await db.execute(
+        select(AssignmentSubmission).where(AssignmentSubmission.stored_path == stored_path)
+    )).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404)
+
+    if sub.user_id == user.id:
+        return  # 본인 제출물
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    if user.role in ("teacher", "staff"):
+        # 교사: 학생 visibility + assignment 권한 (review 권한 가진 교사)
+        # 단순화: visibility 가드 통과한 학생의 제출물이면 OK
+        await assert_can_view_student(db, user, sub.user_id)
+        return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_research(db: AsyncSession, user: User, path: str) -> None:
+    """research: 프로젝트 advisor/member/submitter OR admin."""
+    stored_path = f"storage/{path}"
+    sub = (await db.execute(
+        select(ResearchSubmission).where(ResearchSubmission.stored_path == stored_path)
+    )).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404)
+
+    if sub.submitted_by_id == user.id:
+        return
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    # advisor / project member
+    project = (await db.execute(
+        select(ResearchProject).where(ResearchProject.id == sub.project_id)
+    )).scalar_one_or_none()
+    if project:
+        if project.advisor_id == user.id:
+            return
+        # members JSON list: 학생 이름 또는 user_id list. 두 가지 모두 체크.
+        members = project.members or []
+        if user.id in members:
+            return
+        if user.name in members:
+            return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_archive_document(db: AsyncSession, user: User, path: str) -> None:
+    """documents: archive.document.view 권한 (모든 인증 사용자 가능).
+
+    실제로는 archive.document.view 권한이 default_roles에 부여되어 학생에게도 허용됨.
+    민감 문서는 별도 권한·라벨링으로 통제 (현재 구현 안 됨).
+    """
+    stored_path = f"storage/{path}"
+    doc = (await db.execute(
+        select(Document).where(Document.stored_path == stored_path)
+    )).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404)
+
+    if user.role in ("super_admin", "designated_admin", "teacher", "staff"):
+        return
+    # 학생: archive.document.view 권한이 있어야 (default_roles로 부여됨)
+    from app.core.permissions import resolve_permissions
+    perms = await resolve_permissions(db, user)
+    if "archive.document.view" in perms:
+        return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_club(db: AsyncSession, user: User, path: str) -> None:
+    """club: submission author OR club advisor/member OR admin.
+
+    ClubSubmission.file_path 형식은 사용자가 입력. /storage/...로 시작하면 매칭.
+    """
+    candidates = [f"/storage/{path}", f"storage/{path}"]
+    sub = None
+    for cand in candidates:
+        sub = (await db.execute(
+            select(ClubSubmission).where(ClubSubmission.file_path == cand)
+        )).scalar_one_or_none()
+        if sub:
+            break
+    if not sub:
+        raise HTTPException(404)
+
+    if sub.author_id == user.id:
+        return
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    # 동아리 advisor / member
+    club = (await db.execute(
+        select(Club).where(Club.id == sub.club_id)
+    )).scalar_one_or_none()
+    if club:
+        if club.advisor_id == user.id:
+            return
+        members = club.members or []
+        if user.id in members or user.name in members:
+            return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_auto_backups(db: AsyncSession, user: User, path: str) -> None:
+    """auto-backups: super_admin 전용. 직접 다운로드는 별도 endpoint 권장하나
+    file_url 추측 차단을 위해 가드.
+    """
+    if user.role != "super_admin":
+        raise HTTPException(403, "최고관리자 전용")
+
+
+# ── dispatcher ────────────────────────────────────────────
+
+
+_GUARDS = {
+    "artifacts": _guard_artifact,
+    "assignments": _guard_assignment,
+    "research": _guard_research,
+    "documents": _guard_archive_document,
+    "club": _guard_club,
+    "auto-backups": _guard_auto_backups,
+}
 
 
 @router.get("/storage/{path:path}")
@@ -57,42 +216,16 @@ async def serve_storage(
         raise HTTPException(404, "파일 없음")
 
     # section별 권한 가드
-    parts = path.split("/", 2)
+    parts = path.split("/", 1)
     section = parts[0] if parts else ""
 
-    if section == "artifacts":
-        # /storage/artifacts/{user_id}/{filename}
-        # DB lookup으로 권한 검증
-        file_url = f"/storage/{path}"
-        artifact = (await db.execute(
-            select(StudentArtifact).where(StudentArtifact.file_url == file_url)
-        )).scalar_one_or_none()
-        if not artifact:
-            # DB에 없는 orphan 파일 → 404 (file_url 추측 차단)
-            raise HTTPException(404)
-
-        if artifact.student_id == user.id:
-            pass  # 본인
-        elif user.role in ("super_admin", "designated_admin"):
-            pass  # 관리자 무제한
-        elif artifact.is_public:
-            pass  # 공개 산출물 — 모든 인증 사용자 OK
-        elif user.role in ("teacher", "staff"):
-            # 비공개 + 교사: visibility 가드 (담임/수업 학년 학생만)
-            await assert_can_view_student(db, user, artifact.student_id)
-        else:
-            raise HTTPException(403, "권한 없음")
-    elif section == "branding":
+    if section == "branding":
         # branding은 main.py에서 별도 익명 mount. 여기 와도 인증만 강제.
         pass
-    elif section in ("assignments", "research", "documents", "auto-backups", "club"):
-        # 인증된 사용자만 접근. 모듈별 세밀 가드는 향후 강화.
-        # (현재) 학생 → 다른 학생의 file_url 추측 시 인증 통과하면 다운로드 가능.
-        #        그러나 file_url에 timestamp + 원본명 들어가 무차별 어려움.
-        # (TODO) 모듈별 ownership/권한 가드 추가.
-        pass
+    elif section in _GUARDS:
+        await _GUARDS[section](db, user, path)
     else:
-        # 알 수 없는 section
-        raise HTTPException(403)
+        # 알 수 없는 section → 차단 (새 storage 디렉토리 만들었는데 가드 안 만들면 차단됨)
+        raise HTTPException(403, f"알 수 없는 storage section: {section}")
 
     return FileResponse(str(full))

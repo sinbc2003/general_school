@@ -226,3 +226,399 @@ async def test_absolute_path_blocked(app_client, student_user, auth_headers):
         headers=auth_headers(student_user),
     )
     assert r.status_code in (400, 404)
+
+
+@pytest.mark.asyncio
+async def test_unknown_section_blocked(
+    app_client, student_user, auth_headers,
+):
+    """가드 없는 새 section은 403 (안전한 기본값 — 새 storage 디렉토리 만들면 명시적 가드 필요)."""
+    full = _write_storage_file("ghost_section/test.txt", "x")
+    try:
+        r = await app_client.get(
+            "/api/files/storage/ghost_section/test.txt",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(full)
+
+
+# ── assignment ownership ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_assignment_owner_can_download(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """본인 제출 과제는 다운로드 OK."""
+    from app.models.assignment import Assignment, AssignmentSubmission, SubmissionStatus
+
+    from datetime import datetime
+    from app.models.timetable import Semester
+    from datetime import date
+    sem = (await db_session.execute(
+        __import__("sqlalchemy").select(Semester).limit(1)
+    )).scalar_one_or_none()
+    if sem is None:
+        sem = Semester(year=2026, semester=1, name="2026-1",
+                       start_date=date(2026, 3, 1), end_date=date(2026, 7, 31),
+                       is_current=True)
+        db_session.add(sem)
+        await db_session.flush()
+    a = Assignment(semester_id=sem.id, title="t", subject="수학",
+                   target_grades=[2], due_date=datetime(2026, 12, 31),
+                   created_by_id=student_user.id)
+    db_session.add(a)
+    await db_session.flush()
+    full = _write_storage_file("assignments/test1.pdf", "내 답안")
+    sub = AssignmentSubmission(
+        assignment_id=a.id, user_id=student_user.id,
+        filename="test1.pdf", stored_path="storage/assignments/test1.pdf",
+        file_size=4, status=SubmissionStatus.SUBMITTED,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/assignments/test1.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+@pytest.mark.asyncio
+async def test_assignment_other_student_blocked_by_visibility(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """다른 학생 제출물 → 403."""
+    from tests.conftest import _create_user
+    from app.models.assignment import Assignment, AssignmentSubmission, SubmissionStatus
+
+    from datetime import datetime, date
+    from app.models.timetable import Semester
+    from sqlalchemy import select as _select
+    other = await _create_user(
+        db_session, email="oth@t.local", name="Other", role="student",
+    )
+    sem = (await db_session.execute(_select(Semester).limit(1))).scalar_one_or_none()
+    if sem is None:
+        sem = Semester(year=2026, semester=1, name="2026-1",
+                       start_date=date(2026, 3, 1), end_date=date(2026, 7, 31),
+                       is_current=True)
+        db_session.add(sem)
+        await db_session.flush()
+    a = Assignment(semester_id=sem.id, title="t", subject="수학",
+                   target_grades=[2], due_date=datetime(2026, 12, 31),
+                   created_by_id=other.id)
+    db_session.add(a)
+    await db_session.flush()
+    full = _write_storage_file("assignments/secret.pdf", "남의 답안")
+    sub = AssignmentSubmission(
+        assignment_id=a.id, user_id=other.id,
+        filename="secret.pdf", stored_path="storage/assignments/secret.pdf",
+        file_size=4, status=SubmissionStatus.SUBMITTED,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/assignments/secret.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(full)
+
+
+# ── research ownership ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_research_submitter_can_download(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """연구 산출물 본인 submitter는 OK."""
+    from app.models.research import ResearchProject, ResearchSubmission
+
+    project = ResearchProject(
+        title="proj", research_type="individual", year=2026,
+        members=[student_user.id], created_by_id=student_user.id,
+    )
+    db_session.add(project)
+    await db_session.flush()
+    full = _write_storage_file("research/abc.pdf", "내 논문")
+    sub = ResearchSubmission(
+        project_id=project.id, title="제출", submission_type="report",
+        filename="abc.pdf", stored_path="storage/research/abc.pdf",
+        file_size=4, submitted_by_id=student_user.id,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/research/abc.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+@pytest.mark.asyncio
+async def test_research_outsider_blocked(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """프로젝트 무관 학생 → 403."""
+    from tests.conftest import _create_user
+    from app.models.research import ResearchProject, ResearchSubmission
+
+    other = await _create_user(
+        db_session, email="r2@t.local", name="R2", role="student",
+    )
+    project = ResearchProject(
+        title="other_proj", research_type="individual", year=2026,
+        members=[other.id], created_by_id=other.id,
+    )
+    db_session.add(project)
+    await db_session.flush()
+    full = _write_storage_file("research/xyz.pdf", "남의 논문")
+    sub = ResearchSubmission(
+        project_id=project.id, title="제출", submission_type="report",
+        filename="xyz.pdf", stored_path="storage/research/xyz.pdf",
+        file_size=4, submitted_by_id=other.id,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/research/xyz.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(full)
+
+
+@pytest.mark.asyncio
+async def test_research_advisor_can_download(
+    app_client, db_session, teacher_user, auth_headers, seed_perms,
+):
+    """프로젝트 advisor 교사는 OK."""
+    from tests.conftest import _create_user
+    from app.models.research import ResearchProject, ResearchSubmission
+
+    student = await _create_user(
+        db_session, email="s_r@t.local", name="SR", role="student",
+    )
+    project = ResearchProject(
+        title="adv_proj", research_type="individual", year=2026,
+        advisor_id=teacher_user.id, members=[student.id],
+        created_by_id=student.id,
+    )
+    db_session.add(project)
+    await db_session.flush()
+    full = _write_storage_file("research/adv.pdf", "학생 논문")
+    sub = ResearchSubmission(
+        project_id=project.id, title="제출", submission_type="report",
+        filename="adv.pdf", stored_path="storage/research/adv.pdf",
+        file_size=4, submitted_by_id=student.id,
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/research/adv.pdf",
+            headers=auth_headers(teacher_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+# ── archive document ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_archive_document_authenticated_ok(
+    app_client, db_session, teacher_user, auth_headers, seed_perms,
+):
+    """교사: 자료실 문서 다운로드 OK."""
+    from app.models.archive import Document, DocumentStatus
+
+    full = _write_storage_file("documents/manual.pdf", "수업자료")
+    doc = Document(
+        title="manual", doc_type="textbook", subject="수학",
+        original_filename="manual.pdf", stored_path="storage/documents/manual.pdf",
+        file_size=4, status=DocumentStatus.COMPLETED,
+        uploaded_by_id=teacher_user.id,
+    )
+    db_session.add(doc)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/documents/manual.pdf",
+            headers=auth_headers(teacher_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+# ── club ownership ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_club_author_can_download(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """동아리 산출물 본인 author는 OK."""
+    from datetime import date
+    from app.models.timetable import Semester
+    from app.models.club import Club, ClubSubmission
+
+    sem = Semester(year=2026, semester=1, name="2026-1",
+                   start_date=date(2026, 3, 1), end_date=date(2026, 7, 31),
+                   is_current=True)
+    db_session.add(sem)
+    await db_session.flush()
+    club = Club(semester_id=sem.id, name="컴퓨터", year=2026,
+                members=[student_user.id])
+    db_session.add(club)
+    await db_session.flush()
+    full = _write_storage_file("club/result.pdf", "동아리 결과")
+    sub = ClubSubmission(
+        club_id=club.id, author_id=student_user.id, title="결과",
+        submission_type="report",
+        file_path="/storage/club/result.pdf",
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/club/result.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+@pytest.mark.asyncio
+async def test_club_advisor_can_download(
+    app_client, db_session, teacher_user, auth_headers, seed_perms,
+):
+    """동아리 advisor 교사 OK."""
+    from datetime import date
+    from tests.conftest import _create_user
+    from app.models.timetable import Semester
+    from app.models.club import Club, ClubSubmission
+
+    sem = Semester(year=2026, semester=1, name="2026-1",
+                   start_date=date(2026, 3, 1), end_date=date(2026, 7, 31),
+                   is_current=True)
+    db_session.add(sem)
+    await db_session.flush()
+    student = await _create_user(
+        db_session, email="sc@t.local", name="SC", role="student",
+    )
+    club = Club(semester_id=sem.id, name="과학", year=2026,
+                advisor_id=teacher_user.id, members=[student.id])
+    db_session.add(club)
+    await db_session.flush()
+    full = _write_storage_file("club/sci.pdf", "과학 결과")
+    sub = ClubSubmission(
+        club_id=club.id, author_id=student.id, title="결과",
+        submission_type="report",
+        file_path="/storage/club/sci.pdf",
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/club/sci.pdf",
+            headers=auth_headers(teacher_user),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
+
+
+@pytest.mark.asyncio
+async def test_club_outsider_blocked(
+    app_client, db_session, student_user, auth_headers, seed_perms,
+):
+    """동아리 무관 학생 → 403."""
+    from datetime import date
+    from tests.conftest import _create_user
+    from app.models.timetable import Semester
+    from app.models.club import Club, ClubSubmission
+
+    sem = Semester(year=2026, semester=1, name="2026-1",
+                   start_date=date(2026, 3, 1), end_date=date(2026, 7, 31),
+                   is_current=True)
+    db_session.add(sem)
+    await db_session.flush()
+    other = await _create_user(
+        db_session, email="co@t.local", name="CO", role="student",
+    )
+    club = Club(semester_id=sem.id, name="외부", year=2026,
+                members=[other.id])
+    db_session.add(club)
+    await db_session.flush()
+    full = _write_storage_file("club/exclusive.pdf", "남 동아리")
+    sub = ClubSubmission(
+        club_id=club.id, author_id=other.id, title="결과",
+        submission_type="report",
+        file_path="/storage/club/exclusive.pdf",
+    )
+    db_session.add(sub)
+    await db_session.commit()
+
+    try:
+        r = await app_client.get(
+            "/api/files/storage/club/exclusive.pdf",
+            headers=auth_headers(student_user),
+        )
+        assert r.status_code == 403
+    finally:
+        _cleanup(full)
+
+
+# ── auto-backups ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_auto_backups_only_super_admin(
+    app_client, db_session, teacher_user, super_admin, auth_headers, seed_perms,
+):
+    """auto-backups 디렉토리 — super_admin만 OK, 교사·학생 → 403."""
+    # fixture에서 add한 사용자는 flush만 됨 — 다른 session에서 보려면 commit 필요
+    await db_session.commit()
+    full = _write_storage_file("auto-backups/backup_2026.zip", "secret backup")
+    try:
+        # 교사 차단
+        r = await app_client.get(
+            "/api/files/storage/auto-backups/backup_2026.zip",
+            headers=auth_headers(teacher_user),
+        )
+        assert r.status_code == 403
+
+        # super_admin OK
+        r = await app_client.get(
+            "/api/files/storage/auto-backups/backup_2026.zip",
+            headers=auth_headers(super_admin),
+        )
+        assert r.status_code == 200
+    finally:
+        _cleanup(full)
