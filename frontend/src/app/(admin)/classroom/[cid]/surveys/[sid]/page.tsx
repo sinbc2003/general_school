@@ -13,9 +13,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, ClipboardList, Plus, Trash2, BarChart3, Lock, Unlock, Archive,
-  Pencil, Save, X, GripVertical, Lock as LockIcon,
+  Pencil, Save, X, GripVertical, Lock as LockIcon, Share2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import ShareLinkModal from "@/components/classroom/ShareLinkModal";
 
 type QType = "short_text" | "long_text" | "single_choice" | "multi_choice" | "rating" | "date";
 
@@ -63,6 +64,7 @@ export default function SurveyBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [showAddQ, setShowAddQ] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [showShare, setShowShare] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,6 +179,15 @@ export default function SurveyBuilderPage() {
                 <Pencil size={12} /> 초안으로
               </button>
             )}
+            {isActive && (
+              <button
+                onClick={() => setShowShare(true)}
+                className="flex items-center gap-1 px-2 py-1 text-caption border border-accent text-accent rounded hover:bg-accent-light"
+                title="단축 링크 + QR 공유"
+              >
+                <Share2 size={12} /> 공유
+              </button>
+            )}
             {(isActive || isClosed) && (
               <Link
                 href={`/classroom/${cid}/surveys/${sid}/results`}
@@ -250,6 +261,15 @@ export default function SurveyBuilderPage() {
           sid={sid}
           onClose={() => setShowAddQ(false)}
           onSaved={() => { setShowAddQ(false); load(); }}
+        />
+      )}
+
+      {showShare && (
+        <ShareLinkModal
+          targetType="survey"
+          targetId={sid}
+          targetTitle={survey.title}
+          onClose={() => setShowShare(false)}
         />
       )}
     </div>

@@ -14,6 +14,7 @@ import { ArrowLeft, Save, Share2, Archive, Trash2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
+import ShareLinkModal from "@/components/classroom/ShareLinkModal";
 
 interface Permission {
   can_read: boolean;
@@ -46,6 +47,7 @@ export default function CourseDocEditorPage() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -131,22 +133,29 @@ export default function CourseDocEditorPage() {
         />
         {savingTitle && <Save size={14} className="text-text-tertiary animate-pulse" />}
         {doc.permission.can_share && (
-          <button
-            onClick={toggleArchive}
-            title={doc.is_archived ? "보관 해제" : "보관 처리"}
-            className="p-1.5 text-text-tertiary hover:text-accent rounded"
-          >
-            <Archive size={16} />
-          </button>
-        )}
-        {doc.owner_id && doc.permission.can_share && (
-          <button
-            onClick={deleteDoc}
-            title="삭제"
-            className="p-1.5 text-text-tertiary hover:text-status-error rounded"
-          >
-            <Trash2 size={16} />
-          </button>
+          <>
+            <button
+              onClick={() => setShowShare(true)}
+              title="단축 링크 + QR 공유"
+              className="p-1.5 text-text-tertiary hover:text-accent rounded"
+            >
+              <Share2 size={16} />
+            </button>
+            <button
+              onClick={toggleArchive}
+              title={doc.is_archived ? "보관 해제" : "보관 처리"}
+              className="p-1.5 text-text-tertiary hover:text-accent rounded"
+            >
+              <Archive size={16} />
+            </button>
+            <button
+              onClick={deleteDoc}
+              title="삭제"
+              className="p-1.5 text-text-tertiary hover:text-status-error rounded"
+            >
+              <Trash2 size={16} />
+            </button>
+          </>
         )}
       </div>
 
@@ -176,6 +185,15 @@ export default function CourseDocEditorPage() {
         <div className="border border-border-default rounded-lg p-8 text-center text-text-tertiary">
           사용자 정보 로딩 중...
         </div>
+      )}
+
+      {showShare && (
+        <ShareLinkModal
+          targetType="document"
+          targetId={did}
+          targetTitle={doc.title}
+          onClose={() => setShowShare(false)}
+        />
       )}
     </div>
   );

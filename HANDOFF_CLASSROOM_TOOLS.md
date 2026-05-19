@@ -725,8 +725,51 @@ Phase A+B는 큰 단계라 sub-commit으로 나눠 진행:
 - npx tsc --noEmit (frontend) 통과
 - Hocuspocus 부팅 OK + WS listen
 
-### 다음 권장 단계 (HANDOFF § 9)
-- **Phase D**: 설문지 (독립적, A+B 무관)
-- **Phase E**: 단축 링크 + QR 코드 (D 활용)
-- **Phase C**: 강좌 통합 (UI 정리)
-- **Phase F**: 안전망 + 운영 문서 정리
+### Phase D (설문지) — 완료 ✅
+
+**D-1 backend** (0b3548d)
+- 모델 4개 (Survey/Question/Response/Answer) + alembic c7d1710fc06d
+- 모듈 `classroom_surveys`: CRUD + 질문 관리 + 응답 + 결과 집계 + CSV
+- 권한 4개 (survey.{create,edit,respond,view_results}). 학생/직원은 respond만.
+- 정책: draft에서만 질문 변경. 익명 모드는 respondent_id=null 저장.
+- 보안 테스트 10건 — security 111/111 통과
+
+**D-2 frontend** (6728177)
+- admin 목록 + 새 설문 모달
+- SurveyBuilder: 제목 인라인 편집, 상태 토글, 질문 추가 모달 (6 type), 미리보기
+- 학생 목록 (draft 숨김) + 응답 폼 (type별 컨트롤, 필수 검증)
+- 강좌 상세에 "설문지" 진입 버튼
+
+**D-3 frontend** (32c7a75)
+- 결과 페이지: ChoiceBars / RatingDistribution / TextAnswerList
+- CSV 다운로드 (fetch + blob)
+- 차트 라이브러리 없이 div + width % 로 horizontal bar
+
+### Phase E (단축 링크 + QR) — 완료 ✅
+
+**E-1 backend** (0649405)
+- 모델 ShortLink (slug base62 6~16자, target_type/id, expires_at, click_count)
+- 모듈 `classroom_links`:
+  - POST /api/classroom/links (멱등 — 같은 target 본인 링크 재사용)
+  - GET  /api/classroom/links/by-target
+  - GET  /api/classroom/links/{slug}/qr.{png,svg} — qrcode + PIL/Svg factory
+  - GET  /q/{slug}/resolve — 익명 OK, click_count 증가, 만료 시 410
+- 권한 `classroom.link.create` — teacher 기본
+- alembic e58ebf1bfb9f
+- naive↔aware datetime 안전 처리 (SQLite vs PG)
+- 테스트 9건 — security 120/120 통과
+
+**E-2 frontend** (이 commit)
+- `/q/[slug]` 페이지 — resolve → 사용자 role에 따라 redirect
+  - 미로그인: `/auth/login?next=...`
+  - survey → /classroom/{cid}/surveys/{sid} (teacher) 또는 /s/... (student)
+  - document → /classroom/{cid}/docs/{did}
+- `components/classroom/ShareLinkModal.tsx`:
+  - POST /links (멱등) → short_url + 복사 (clipboard + execCommand fallback)
+  - QR PNG fetch + blob → <img> 미리보기 + 다운로드
+- SurveyBuilder active 상태에 "공유" 버튼 + 모달
+- 협업 문서 편집기 (작성자/admin) 에도 "공유" 버튼 추가
+
+### 다음 권장 단계
+- **Phase C**: 강좌 통합 UI 정리 (현재 진입 버튼은 있지만 깊이 매끄럽게)
+- **Phase F**: 안전망·운영 문서 마무리 (convention invariants 확장, 학기 보관 정책)
