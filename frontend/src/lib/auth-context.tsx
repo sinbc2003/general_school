@@ -38,7 +38,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
+// verify-email은 비밀번호 통과 후 코드 입력 단계 — user 객체는 아직 setUser X (token 발급 전).
+// 비로그인 상태로 접근해야 정상이므로 public 경로에 포함.
+const PUBLIC_PATHS = ["/auth/login", "/auth/register", "/auth/verify-email"];
 const PASSWORD_CHANGE_PATH = "/auth/change-password";
 const ONBOARDING_PATH = "/auth/teacher-onboarding";
 const TWOFA_SETUP_PATH = "/auth/2fa-setup";
