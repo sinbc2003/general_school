@@ -61,9 +61,30 @@ SQLAlchemy `Base.metadata.sorted_tables`를 기반으로 모든 테이블을 동
 - `app/services/backup.py` — 백업 형식 깨면 과거 백업 호환성 잃음
 - `app/core/visibility.py` — 학생 데이터 접근 정책 (보안 critical)
 - `app/core/permission_registry.py` — 권한 일관성 검증 (부팅 안전망)
+- `app/modules/files/router.py` — 파일 다운로드 권한 가드 (보안 critical, 깨지면 학생 개인정보 노출)
+- `app/main.py`의 `/storage/branding` mount — favicon 익명 접근 유일 예외 (다른 경로 추가 금지)
 - `alembic/versions/` — 과거 마이그레이션 절대 수정 X (새 revision만 추가)
 - `app/models/__init__.py` — 모델 등록 (백업 일관성 보장)
 - `frontend/src/components/ui/*` — 6개 페이지가 공유, 시그니처 변경 신중
+- `frontend/src/lib/api/download.ts` — 모든 파일 다운로드 헬퍼 (직접 `<a href="/storage/...">` 사용 금지)
+
+### 6. 파일 저장·다운로드 규칙 (보안 critical)
+
+**절대 금지**:
+- `app.mount("/storage", StaticFiles(...))` 추가 (전체 디렉토리 익명 노출)
+- DB에 file 메타 row 없이 `storage/` 하위에 파일만 저장 (가드 통과 불가)
+- frontend에서 `<a href={\`${API_URL}${file_url}\`}>` 직접 사용 (인증 우회)
+
+**올바른 패턴**:
+- 파일 저장 시 반드시 DB row 생성 (stored_path 또는 file_url 컬럼 채움)
+- 새 storage section 추가 시 `app/modules/files/router.py`의 `_GUARDS`에 가드 함수 등록
+  (등록 안 하면 403 — 안전한 기본값)
+- frontend는 `downloadSecure()` 헬퍼만 사용:
+  ```ts
+  import { downloadSecure } from "@/lib/api/download";
+  <button onClick={() => downloadSecure(file_url, file_name)}>다운로드</button>
+  ```
+- favicon 같은 익명 접근은 `/storage/branding/`만 허용 (main.py에 명시)
 
 ## 기술 스택
 - **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
@@ -393,3 +414,91 @@ cd frontend && npm run build && npm start
 - Commit 약 30개
 - 새 파일: announcement (모델·라우터·페이지), 학기 복사, 동아리 CSV, 진로 학기별, 시간표 개인일정 등
 - 삭제 파일: community/meeting/papers 일부 (1500줄+ 정리)
+
+---
+
+## 2026-05-19 세션 — 인프라 강화 + 보안 critical fix
+
+### Pydantic schema 마이그레이션 완료
+- 모든 dict body endpoint를 Pydantic schema로 변경 (총 64개)
+- 12개 모듈에 `schemas.py` 추가 또는 확장: portfolio, student_self, admissions, contest, challenge, research, announcement, feedback, pipeline, chatbot, auth, users
+- 의도적 dict 유지 2건: portfolio `_generic_update` 팩토리, chatbot config (CONFIG_KEYS 화이트리스트)
+- OpenAPI 문서 자동 풍부화 + 입력 검증 강화
+
+### 큰 파일 분할 — sub-router 패턴
+**Backend** (분할 전 → 분할 후):
+- `portfolio/router.py` 698 → router 23 + crud 351 + analytics 126 + io 94 + pdf_report 84 + teacher_views 109
+- `student_self/router.py` 669 → router 22 + _helpers 44 + artifacts 167 + career_plans 166 + discovery 103 + submissions 259
+- `auth/router.py` 587 → router 24 + _helpers 43 + registration 113 + login_flow 341 + session 129 + 기존 two_factor 111 + devices 98
+- `users/router.py` 630 → router 24 + _helpers 60 + crud 233 + sessions 121 + bulk 170 + cohort 112
+- `system/router.py` 574 → router 31 + audit 132 + menu 135 + branding 116 + backup 226
+- `chatbot/admin.py` 471 → admin_providers 111 + admin_models 132 + admin_prompts 114 + admin_config 65 + admin_usage 114
+
+**Frontend**:
+- `(student)/s/my-portfolio/page.tsx` 705 → 61 + _shared 92 + 4개 탭 컴포넌트
+- `components/chat/ChatInterface.tsx` 700 → 495 + 3개 sub-component + _chat-styles
+- `(admin)/system/backup/page.tsx` 584 → 272 + BackupSchedule 327
+- `(admin)/archive/problems/page.tsx` 512 → 263 + _shared 84 + ProblemFormModal 217
+- `(admin)/users/page.tsx` 482 → 322 + CsvBulkImportModal 174
+
+**보류 (정책상 분할 안 함)**:
+- `(admin)/students/_tabs.tsx` 833줄 — 파일 헤더 명시 정책("탭당 200줄 이상일 때만 분리"). 9개 탭 모두 ~100줄 준수.
+- `services/report_pdf.py` 476줄 — 단일 `generate_student_pdf` 함수 + 섹션별 헬퍼 (이미 분리). 더 쪼개도 큰 이점 없음.
+
+### 프론트엔드 공유 타입
+- `frontend/src/types/index.ts` 신규 — Semester, UserItem, UserInfo, Enrollment, Role 등 6개 공통 타입
+- 5+ 페이지에서 중복 선언된 인터페이스 통합
+
+### 테스트 인프라 강화 (37 → 90)
+신규 테스트 파일:
+- `test_student_visibility.py` (11) — `assert_can_view_student` 매트릭스: admin 무제한, 학생 본인만, 교사 scope=all/scoped, homeroom·teaching_grades 매칭
+- `test_backup_roundtrip.py` (6) — export ↔ restore 라운드트립, RestoreError 케이스, Base.metadata 자동 포함 보장
+- `test_cohort_lifecycle.py` (15) — 진급/졸업 + 마지막 super_admin 보호 (`_count_active_super_admins`, `_ensure_not_last_super_admin`)
+- `test_storage_security.py` (21) — `/storage` 익명 노출 차단 + 모듈별 ownership 가드
+
+모두 `pytest.mark.security` 마킹 → CI 보안 게이트.
+
+### 🚨 보안 critical fix — `/storage` 익명 노출 차단
+
+**발견된 취약점** (231ddc3 이전):
+- `app.mount("/storage", StaticFiles(...))`로 인해 학생 비공개 산출물·과제 제출물·연구 자료·백업 ZIP까지 익명 GET 200 OK
+- 외부인이 file_url 추측만 하면 학생 개인정보 전체 노출 가능
+- 실제 익명 다운로드 확인됨
+
+**수정**:
+- `/storage` 전체 mount 제거. `/storage/branding/*` 만 익명 mount (favicon SSR 필요)
+- 신규 `app/modules/files/router.py`: `/api/files/storage/{path:path}` 인증 + section별 가드
+  - `artifacts`: owner OR is_public OR admin OR teacher+visibility
+  - `assignments`: AssignmentSubmission.user_id 본인 OR visibility 통과 교사 OR admin
+  - `research`: project advisor/member/submitter OR admin
+  - `documents`: archive.document.view 권한
+  - `club`: ClubSubmission.author_id 본인 OR Club advisor/member OR admin
+  - `auto-backups`: super_admin 전용
+  - 알 수 없는 section: 403 (안전한 기본값)
+  - DB lookup으로 file_url 매칭 없으면 404 (path 추측 차단)
+- Path traversal 다중 방어 (`..`, 절대경로, 정규화 후 storage 외부 차단)
+
+**Frontend**:
+- `lib/api/download.ts` 신규 — `downloadSecure(file_url, filename)` 헬퍼
+  - `/storage/x` → `/api/files/storage/x` 자동 변환
+  - Authorization 헤더 자동 주입, fetch + blob + a.click() 패턴
+- 4개 페이지의 `<a href>` → `<button onClick={downloadSecure(...)}>`:
+  - `(student)/s/my-portfolio/_components/ArtifactsTab` (학생 본인 자유 산출물)
+  - `(student)/s/my-portfolio/_components/ClubsTab` (학생 본인 동아리 산출물)
+  - `(admin)/students/_tabs` (교사가 학생 산출물 보기)
+  - `(admin)/students/artifacts-gallery` (공개 갤러리)
+
+### 보안 점검 결과 (모두 OK)
+- IDOR: 학생 → 다른 학생/admin endpoint 모두 403 가드 작동
+- 챗봇 세션 isolation: DB 가드 작동 (다른 사용자 세션 메시지 주입 차단)
+- Path traversal (업로드): basename + 확장자 화이트리스트
+- SQL injection: ORM 전용, raw SQL 0
+- CORS: 환경변수 화이트리스트
+- CSRF: HttpOnly + SameSite=Lax cookie
+
+### 통계 (2026-05-19)
+- Commit 약 25개
+- 테스트: 37 → 90 (+53)
+- backend `app/` 약 18000줄 동일 (refactor 위주, 신규 코드 적음)
+- frontend production build OK, backend boot OK (289 endpoint)
+- alembic schema ↔ 모델 일치
