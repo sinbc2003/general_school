@@ -12,6 +12,7 @@ import { Pin, Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-reac
 import { api } from "@/lib/api/client";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
+import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Post {
@@ -101,17 +102,30 @@ export default function StudentCourseDetailPage() {
 
       {/* ── 게시판 ── */}
       {activeTab === "stream" && (
-        <div className="space-y-3">
-          {posts.length === 0 ? (
-            <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
-              <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
-              아직 작성된 글이 없습니다
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {posts.map((p) => <PostCard key={p.id} post={p} />)}
-            </div>
-          )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <aside className="lg:col-span-1 order-2 lg:order-1">
+            <CourseInfoWidget
+              cid={cid}
+              subject={course.subject}
+              className={course.class_name}
+              teacherName={course.teacher_name}
+              studentCount={course.student_count ?? course.students?.length ?? 0}
+              baseHref="/s/classroom"
+              showTeacher={true}
+            />
+          </aside>
+          <main className="lg:col-span-2 space-y-3 order-1 lg:order-2">
+            {posts.length === 0 ? (
+              <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
+                <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
+                아직 작성된 글이 없습니다
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {posts.map((p) => <PostCard key={p.id} post={p} />)}
+              </div>
+            )}
+          </main>
         </div>
       )}
 

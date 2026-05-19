@@ -11,13 +11,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Users, MessageSquare, Plus, Trash2, Pin, Save, X, UserPlus, BarChart3,
+  Users, MessageSquare, Trash2, Pin, X, UserPlus, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CreateMenu, type CreateActionKind } from "@/components/classroom/CreateMenu";
+import { PostComposer, type PostType } from "@/components/classroom/PostComposer";
+import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Student {
@@ -58,17 +61,18 @@ interface CourseDetail {
 export default function CourseDetailAdminPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const cid = Number(params.cid);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showPostForm, setShowPostForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [activeTab, setActiveTab] = useState<CourseTab>("stream");
-  // PostForm 초기 post_type — CreateMenu에서 [과제/자료] 선택 시 미리 채움
-  const [postFormInitType, setPostFormInitType] =
-    useState<"notice" | "material" | "assignment_ref">("notice");
+  // PostComposer 초기 post_type — CreateMenu에서 [과제/자료] 선택 시 미리 채움
+  const [postFormInitType, setPostFormInitType] = useState<PostType>("notice");
+  // composerKey > 0이면 강제 remount + 펼침 상태로 시작 (CreateMenu에서 진입한 신호)
+  const [composerKey, setComposerKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -100,13 +104,9 @@ export default function CourseDetailAdminPage() {
   };
 
   const handleCreate = (kind: CreateActionKind) => {
-    if (kind === "assignment") {
-      setPostFormInitType("assignment_ref");
-      setShowPostForm(true);
-      setActiveTab("stream");
-    } else if (kind === "material") {
-      setPostFormInitType("material");
-      setShowPostForm(true);
+    if (kind === "assignment" || kind === "material") {
+      setPostFormInitType(kind === "assignment" ? "assignment_ref" : "material");
+      setComposerKey((k) => k + 1);  // 강제 remount + 펼침
       setActiveTab("stream");
     } else if (kind === "doc") {
       router.push(`/classroom/${cid}/docs`);
@@ -148,47 +148,55 @@ export default function CourseDetailAdminPage() {
 
       <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
 
-      {/* ── 게시판 (Stream) ── */}
+      {/* ── 게시판 (Stream) — Google Classroom 식 grid (좌측 위젯 + 우측 메인) ── */}
       {activeTab === "stream" && (
-        <div className="space-y-3">
-          {canEdit && (
-            <div className="bg-bg-primary border border-border-default rounded-lg p-4">
-              {showPostForm ? (
-                <PostForm
-                  cid={cid}
-                  initType={postFormInitType}
-                  onClose={() => setShowPostForm(false)}
-                  onSaved={() => { setShowPostForm(false); setPostFormInitType("notice"); load(); }}
-                />
-              ) : (
-                <button
-                  onClick={() => { setPostFormInitType("notice"); setShowPostForm(true); }}
-                  className="w-full text-left text-caption text-text-tertiary px-3 py-2 border border-border-default rounded bg-bg-secondary hover:bg-bg-primary"
-                >
-                  <Plus size={12} className="inline mr-1" />
-                  수업에 새 글 또는 자료를 공유하세요...
-                </button>
-              )}
-            </div>
-          )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <aside className="lg:col-span-1 order-2 lg:order-1">
+            <CourseInfoWidget
+              cid={cid}
+              subject={course.subject}
+              className={course.class_name}
+              teacherName={course.teacher_name}
+              studentCount={course.students.length}
+              baseHref="/classroom"
+              showTeacher={true}
+            />
+          </aside>
 
-          {posts.length === 0 ? (
-            <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
-              <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
-              아직 작성된 글이 없습니다
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {posts.map((p) => (
-                <PostCard
-                  key={p.id}
-                  post={p}
-                  onDelete={() => deletePost(p.id)}
-                  canEdit={canEdit}
-                />
-              ))}
-            </div>
-          )}
+          <main className="lg:col-span-2 space-y-3 order-1 lg:order-2">
+            {canEdit && (
+              <PostComposer
+                key={`composer-${composerKey}`}
+                userName={user?.name}
+                userId={user?.id}
+                initType={postFormInitType}
+                initOpen={composerKey > 0}
+                onSubmit={async (body) => {
+                  await api.post(`/api/classroom/courses/${cid}/posts`, body);
+                  setPostFormInitType("notice");
+                  await load();
+                }}
+              />
+            )}
+
+            {posts.length === 0 ? (
+              <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
+                <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
+                아직 작성된 글이 없습니다
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {posts.map((p) => (
+                  <PostCard
+                    key={p.id}
+                    post={p}
+                    onDelete={() => deletePost(p.id)}
+                    canEdit={canEdit}
+                  />
+                ))}
+              </div>
+            )}
+          </main>
         </div>
       )}
 
@@ -396,84 +404,7 @@ function PostCard({ post, onDelete, canEdit }: { post: Post; onDelete: () => voi
 }
 
 
-// ─── 글 작성 ───
-function PostForm({
-  cid, initType = "notice", onClose, onSaved,
-}: {
-  cid: number;
-  initType?: "notice" | "material" | "assignment_ref";
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [postType, setPostType] = useState<"notice" | "material" | "assignment_ref">(initType);
-  const [isPinned, setIsPinned] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const save = async () => {
-    if (!title.trim() || !content.trim()) return alert("제목·내용 필수");
-    setSaving(true);
-    try {
-      await api.post(`/api/classroom/courses/${cid}/posts`, {
-        title: title.trim(),
-        content: content.trim(),
-        post_type: postType,
-        is_pinned: isPinned,
-      });
-      onSaved();
-    } catch (e: any) {
-      alert(e?.detail || "실패");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="mb-3 p-3 border border-accent bg-accent-light rounded space-y-2">
-      <div className="flex items-center gap-2">
-        <select
-          value={postType}
-          onChange={(e) => setPostType(e.target.value as any)}
-          className="px-2 py-1 text-caption border border-border-default rounded bg-bg-primary"
-        >
-          <option value="notice">공지</option>
-          <option value="material">자료</option>
-          <option value="assignment_ref">과제 안내</option>
-        </select>
-        <label className="flex items-center gap-1 text-caption cursor-pointer">
-          <input type="checkbox" checked={isPinned} onChange={(e) => setIsPinned(e.target.checked)} />
-          상단 고정
-        </label>
-        <div className="flex-1" />
-        <button onClick={onClose}><X size={14} /></button>
-      </div>
-      <input
-        type="text"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="제목"
-        className="w-full px-2 py-1 text-body border border-border-default rounded bg-bg-primary"
-      />
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        rows={4}
-        placeholder="내용"
-        className="w-full px-2 py-1 text-body border border-border-default rounded bg-bg-primary resize-y"
-      />
-      <div className="flex justify-end">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-1 px-3 py-1 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
-        >
-          <Save size={12} /> {saving ? "저장 중..." : "게시"}
-        </button>
-      </div>
-    </div>
-  );
-}
+// PostForm은 components/classroom/PostComposer.tsx로 대체됨.
 
 
 // ─── 학생 일괄 등록 ───
