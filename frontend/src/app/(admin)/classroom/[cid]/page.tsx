@@ -14,8 +14,10 @@ import {
   Users, MessageSquare, Plus, Trash2, Pin, Save, X, UserPlus, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import Link from "next/link";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
+import { CreateMenu, type CreateActionKind } from "@/components/classroom/CreateMenu";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Student {
@@ -64,6 +66,9 @@ export default function CourseDetailAdminPage() {
   const [showPostForm, setShowPostForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [activeTab, setActiveTab] = useState<CourseTab>("stream");
+  // PostForm 초기 post_type — CreateMenu에서 [과제/자료] 선택 시 미리 채움
+  const [postFormInitType, setPostFormInitType] =
+    useState<"notice" | "material" | "assignment_ref">("notice");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,6 +96,22 @@ export default function CourseDetailAdminPage() {
       await load();
     } catch (e: any) {
       alert(e?.detail || "실패");
+    }
+  };
+
+  const handleCreate = (kind: CreateActionKind) => {
+    if (kind === "assignment") {
+      setPostFormInitType("assignment_ref");
+      setShowPostForm(true);
+      setActiveTab("stream");
+    } else if (kind === "material") {
+      setPostFormInitType("material");
+      setShowPostForm(true);
+      setActiveTab("stream");
+    } else if (kind === "doc") {
+      router.push(`/classroom/${cid}/docs`);
+    } else if (kind === "survey") {
+      router.push(`/classroom/${cid}/surveys`);
     }
   };
 
@@ -135,12 +156,13 @@ export default function CourseDetailAdminPage() {
               {showPostForm ? (
                 <PostForm
                   cid={cid}
+                  initType={postFormInitType}
                   onClose={() => setShowPostForm(false)}
-                  onSaved={() => { setShowPostForm(false); load(); }}
+                  onSaved={() => { setShowPostForm(false); setPostFormInitType("notice"); load(); }}
                 />
               ) : (
                 <button
-                  onClick={() => setShowPostForm(true)}
+                  onClick={() => { setPostFormInitType("notice"); setShowPostForm(true); }}
                   className="w-full text-left text-caption text-text-tertiary px-3 py-2 border border-border-default rounded bg-bg-secondary hover:bg-bg-primary"
                 >
                   <Plus size={12} className="inline mr-1" />
@@ -170,12 +192,14 @@ export default function CourseDetailAdminPage() {
         </div>
       )}
 
-      {/* ── 수업 과제 (H3에서 정밀 설계) ── */}
+      {/* ── 수업 과제 ── */}
       {activeTab === "coursework" && (
-        <CourseworkPlaceholder
+        <CourseworkTab
+          cid={cid}
           posts={posts}
           canEdit={canEdit}
-          onCreate={() => setShowPostForm(true)}
+          tone={tone}
+          onCreate={(kind) => handleCreate(kind)}
         />
       )}
 
@@ -258,41 +282,83 @@ export default function CourseDetailAdminPage() {
 }
 
 
-// ─── 수업 과제 탭 placeholder — H3 commit에서 + 만들기 dropdown 추가 ───
-function CourseworkPlaceholder({
-  posts, canEdit, onCreate,
-}: { posts: Post[]; canEdit: boolean; onCreate: () => void }) {
+// ─── 수업 과제 탭 — Google Classroom 식 (+ 만들기 드롭다운 + 카테고리 list) ───
+function CourseworkTab({
+  cid, posts, canEdit, tone, onCreate,
+}: {
+  cid: number; posts: Post[]; canEdit: boolean;
+  tone: { accent: string };
+  onCreate: (kind: CreateActionKind) => void;
+}) {
+  // 과제·자료만 (공지는 게시판 탭에서)
   const materials = posts.filter((p) => p.post_type !== "notice");
+  const assignments = materials.filter((p) => p.post_type === "assignment_ref");
+  const others = materials.filter((p) => p.post_type !== "assignment_ref");
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {canEdit && (
-        <div>
-          <button
-            onClick={onCreate}
-            className="flex items-center gap-1 px-4 py-2 text-caption bg-accent text-white rounded-full hover:bg-accent-hover shadow-sm"
+        <div className="flex items-center gap-3">
+          <CreateMenu onAction={onCreate} accentColor={tone.accent} />
+          <Link
+            href={`/classroom/${cid}/docs`}
+            className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
           >
-            <Plus size={14} /> 만들기
-          </button>
+            협업 문서 전체 보기 →
+          </Link>
+          <Link
+            href={`/classroom/${cid}/surveys`}
+            className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
+          >
+            설문 전체 보기 →
+          </Link>
         </div>
       )}
+
       {materials.length === 0 ? (
-        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center text-caption text-text-tertiary">
-          <div className="text-body mb-1">과제물을 할당하는 공간</div>
-          학생들을 위한 과제와 자료를 추가하면 여기에 표시됩니다
+        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 px-6 text-center">
+          <div className="text-body text-text-secondary mb-2">과제물을 할당하는 공간</div>
+          <div className="text-caption text-text-tertiary">
+            학생들을 위한 과제와 자료를 추가하면 여기에 표시됩니다
+          </div>
         </div>
       ) : (
-        <div className="bg-bg-primary border border-border-default rounded-lg divide-y divide-border-default">
-          {materials.map((p) => (
-            <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary">
-              <div className="text-body font-medium">{p.title}</div>
-              <div className="text-caption text-text-tertiary mt-0.5">
-                {p.post_type === "material" ? "자료" : "과제"}
-                {p.created_at && ` · ${p.created_at.slice(0, 10)}`}
-              </div>
-            </div>
-          ))}
-        </div>
+        <>
+          {assignments.length > 0 && (
+            <PostGroup title="과제" posts={assignments} />
+          )}
+          {others.length > 0 && (
+            <PostGroup title="자료" posts={others} />
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+function PostGroup({ title, posts }: { title: string; posts: Post[] }) {
+  return (
+    <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
+      <div className="px-4 py-2 border-b border-border-default text-caption font-semibold text-text-secondary">
+        {title} ({posts.length})
+      </div>
+      <div className="divide-y divide-border-default">
+        {posts.map((p) => (
+          <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary cursor-pointer">
+            <div className="flex items-center gap-2">
+              <div className="text-body font-medium flex-1 truncate">{p.title}</div>
+              <span className="text-caption text-text-tertiary">
+                {p.created_at && p.created_at.slice(0, 10)}
+              </span>
+            </div>
+            {p.content && (
+              <div className="text-caption text-text-secondary mt-1 line-clamp-2 whitespace-pre-wrap">
+                {p.content}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -331,10 +397,17 @@ function PostCard({ post, onDelete, canEdit }: { post: Post; onDelete: () => voi
 
 
 // ─── 글 작성 ───
-function PostForm({ cid, onClose, onSaved }: { cid: number; onClose: () => void; onSaved: () => void }) {
+function PostForm({
+  cid, initType = "notice", onClose, onSaved,
+}: {
+  cid: number;
+  initType?: "notice" | "material" | "assignment_ref";
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [postType, setPostType] = useState<"notice" | "material" | "assignment_ref">("notice");
+  const [postType, setPostType] = useState<"notice" | "material" | "assignment_ref">(initType);
   const [isPinned, setIsPinned] = useState(false);
   const [saving, setSaving] = useState(false);
 
