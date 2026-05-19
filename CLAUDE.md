@@ -86,6 +86,54 @@ SQLAlchemy `Base.metadata.sorted_tables`를 기반으로 모든 테이블을 동
   ```
 - favicon 같은 익명 접근은 `/storage/branding/`만 허용 (main.py에 명시)
 
+### 7. 새 기능 추가 체크리스트 (필수)
+
+**새 모듈/router 만들 때:**
+1. `app/modules/X/__init__.py`, `router.py`, `permissions.py` 생성
+2. `app/modules/X/permissions.py`에 `PERMISSIONS = [...]` 정의 (없으면 빈 list)
+3. router의 모든 endpoint에 `Depends(require_permission("X.action"))` 적용
+4. `app/main.py`에 router import + `app.include_router(...)` 등록
+
+**학생 데이터 다루는 endpoint (`students/{sid}/...` 같은):**
+1. 첫 줄에 `await assert_can_view_student(db, user, sid)` **必**
+2. visibility 정책 자동 적용 (super_admin/designated_admin 무제한,
+   학생 본인만, 교사는 scope=all/scoped에 따라 담임/수업 학년)
+3. `test_convention_invariants.py`가 자동 검증 — 누락 시 CI fail
+
+**파일 업로드 endpoint:**
+1. `from app.core.upload import validate_upload, POLICY_X`
+2. `data = await validate_upload(file, POLICY_X)` (확장자·크기·MIME 검증)
+3. 새 파일 타입이면 `app/core/upload.py`에 `POLICY_새이름` 추가
+4. **새 storage 디렉토리** 사용 시 `app/modules/files/router.py:_GUARDS`에
+   `_guard_새섹션` 등록 (등록 안 하면 다운로드 차단됨 — 안전한 기본값)
+
+**새 모델 추가:**
+1. `app/models/X.py` 작성, `Base` 상속
+2. `app/models/__init__.py`에 import 등록 (백업 자동 포함 보장)
+3. `cd backend && alembic revision --autogenerate -m "add X"`
+4. `alembic upgrade head`로 dev DB에 적용 + 검증
+5. 학기별 격리 데이터면 `semester_id` FK 추가
+6. 파일 컬럼(`file_url`/`stored_path`/`file_path`) 있으면 files/router.py 가드 추가
+
+**민감 권한 (성적·상담·생기부 등):**
+- `permissions.py`의 권한 정의에 `requires_2fa=True` + `is_sensitive=True` 추가
+- 라우터에서 `await log_action(..., is_sensitive=True)` 호출
+
+**Frontend 새 페이지:**
+1. backend 응답 타입은 `frontend/src/types/index.ts` 활용 (UserItem, Semester 등)
+2. 파일 다운로드는 `downloadSecure()` 헬퍼만 사용
+3. 새 권한 키 사용 시 `<PermissionGate permission="X.action">...` 활용
+
+**자동 강제 (CI에서 잡힘):**
+- `tests/test_convention_invariants.py`가 매 CI마다 5가지 invariant 검증:
+  1. 학생 sensitive endpoint visibility 가드 호출
+  2. UploadFile + validate_upload 일관성
+  3. storage section ↔ files/router.py 가드 등록
+  4. 모델 file 컬럼 ↔ 가드 함수
+  5. sensitive 권한 키워드 2FA 마크
+- `tests/test_security_regressions.py` — 권한 escalation, JWT secret, 마지막 super_admin 등
+- `tests/test_storage_security.py` — `/storage` 익명 차단 회귀
+
 ## 기술 스택
 - **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
 - **Backend**: FastAPI + async SQLAlchemy 2.0 + PostgreSQL/SQLite

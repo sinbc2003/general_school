@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.upload import POLICY_ARTIFACT, validate_upload
 from app.models.student_self import StudentArtifact
 from app.models.user import User
 from app.modules.student_self.schemas import ArtifactUpdate
@@ -26,10 +27,6 @@ from app.modules.student_self._helpers import _artifact_to_dict, _require_studen
 
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[3] / "storage" / "artifacts"
-ALLOWED_EXTS = {".pdf", ".docx", ".doc", ".hwp", ".hwpx", ".ppt", ".pptx",
-                ".xlsx", ".xls", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-                ".mp4", ".mov", ".txt", ".md", ".zip"}
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 @router.get("/artifacts")
@@ -67,12 +64,8 @@ async def create_artifact(
     mime_type = None
 
     if file and file.filename:
-        ext = os.path.splitext(file.filename)[1].lower()
-        if ext not in ALLOWED_EXTS:
-            raise HTTPException(400, f"허용 확장자: {sorted(ALLOWED_EXTS)}")
-        data = await file.read()
-        if len(data) > MAX_FILE_SIZE:
-            raise HTTPException(400, "파일이 너무 큽니다 (최대 50MB)")
+        # POLICY_ARTIFACT: 확장자 화이트리스트 + 100MB 한도 + MIME 검증
+        data = await validate_upload(file, POLICY_ARTIFACT)
 
         student_dir = ARTIFACT_DIR / str(user.id)
         student_dir.mkdir(parents=True, exist_ok=True)

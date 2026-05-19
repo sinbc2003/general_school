@@ -220,10 +220,13 @@ async def assignment_csv_import(
     한 학생을 여러 동아리에 가입시키려면 행을 여러 줄 작성.
     같은 동아리에 이미 가입된 학생이면 skip (멱등).
     """
+    from app.core.upload import POLICY_CSV, validate_upload
+
     sid = await resolve_semester_id({"semester_id": semester_id} if semester_id else None, db)
 
-    # CSV 파싱 (BOM 제거)
-    raw = (await file.read()).decode("utf-8-sig", errors="replace")
+    # CSV 검증 (확장자·크기 화이트리스트) 후 BOM 제거
+    raw_bytes = await validate_upload(file, POLICY_CSV)
+    raw = raw_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(raw))
     rows: list[dict] = []
     for r in reader:
