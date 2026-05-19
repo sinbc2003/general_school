@@ -35,6 +35,16 @@ class ApiClient {
     localStorage.removeItem("refresh_token");
   }
 
+  /**
+   * 외부에서 명시적으로 토큰 갱신을 요청.
+   *
+   * 사용처: HocuspocusProvider 처럼 fetch wrapper 밖에서 신선한 access_token이 필요한 경우.
+   * 실패 시 false 반환 (refresh_token도 만료/없음). 그 경우 사용자는 재로그인 필요.
+   */
+  async ensureFreshToken(): Promise<boolean> {
+    return this.refreshTokens();
+  }
+
   private async refreshTokens(): Promise<boolean> {
     const refreshToken = this.getRefreshToken();
     if (!refreshToken) return false;

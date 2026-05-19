@@ -222,15 +222,31 @@ async def test_archived_doc_blocks_write_via_permission_endpoint(
 
 
 @pytest.mark.asyncio
-async def test_yjs_snapshot_get_requires_read_permission(
-    app_client, doc, other_student, auth_headers,
+async def test_yjs_snapshot_get_requires_internal_token(
+    app_client, doc, other_student, auth_headers, monkeypatch,
 ):
-    """다른 학생은 yjs-snapshot 조회 403."""
+    """yjs-snapshot GET은 Hocuspocus 전용 — INTERNAL_TOKEN 인증.
+
+    사용자가 (다른 학생이든 권한자든) 직접 호출하면 401.
+    onAuthenticate(WS)에서 이미 사용자별 can_read 검사를 했기에 GET 자체는
+    INTERNAL_TOKEN으로만 가드.
+    """
+    monkeypatch.setattr(settings, "HOCUSPOCUS_INTERNAL_TOKEN", "ok-token")
+
+    # 사용자 JWT로 호출 → 401
     res = await app_client.get(
         f"/api/classroom/docs/{doc.id}/yjs-snapshot",
         headers=auth_headers(other_student),
     )
-    assert res.status_code == 403
+    assert res.status_code == 401
+
+    # INTERNAL_TOKEN으로 호출 → 200
+    res2 = await app_client.get(
+        f"/api/classroom/docs/{doc.id}/yjs-snapshot",
+        headers={"X-Internal-Token": "ok-token"},
+    )
+    assert res2.status_code == 200
+    assert res2.json()["doc_id"] == doc.id
 
 
 @pytest.mark.asyncio

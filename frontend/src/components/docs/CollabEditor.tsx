@@ -28,6 +28,7 @@ import {
   Bold, Italic, List, ListOrdered, Heading1, Heading2, Quote,
   Undo, Redo, Wifi, WifiOff, Loader2,
 } from "lucide-react";
+import { api } from "@/lib/api/client";
 
 interface CollabEditorProps {
   docId: number;
@@ -55,17 +56,21 @@ export default function CollabEditor({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Y.Doc + HocuspocusProvider — docId 단위로 한 번만 생성 (useMemo)
+  // token은 함수로 전달 → 매 (재)연결 시점에 fresh access_token 반환.
+  // access_token 만료(15분) 이전이면 그대로, 만료 시 refresh_token으로 갱신 후 반환.
   const { doc, provider } = useMemo(() => {
     const yDoc = new Y.Doc();
-    const token = typeof window !== "undefined"
-      ? localStorage.getItem("access_token") ?? ""
-      : "";
 
     const prov = new HocuspocusProvider({
       url: hocuspocusUrl,
       name: `doc-${docId}`,
       document: yDoc,
-      token,
+      async token() {
+        // 매 연결마다 refresh 시도 (refresh_token이 살아있으면 새 access_token 발급).
+        // 실패해도 진행 — 기존 access_token이 아직 유효할 수 있음.
+        await api.ensureFreshToken().catch(() => false);
+        return localStorage.getItem("access_token") ?? "";
+      },
       onStatus: ({ status: s }) => setStatus(s),
       onAuthenticationFailed: ({ reason }) => {
         setAuthError(reason || "인증 실패");
@@ -76,6 +81,16 @@ export default function CollabEditor({
     // hocuspocusUrl/docId가 바뀌면 새 provider 생성
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId, hocuspocusUrl]);
+
+  // 14분마다 access_token 백그라운드 갱신 — long session 동안 만료 방지.
+  // (access_token 기본 15분 만료. 만료 후 재연결 시 token() 함수가 다시 refresh하지만,
+  //  active connection은 끊지 않도록 사전 갱신.)
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.ensureFreshToken().catch(() => undefined);
+    }, 14 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // 언마운트 시 정리
   useEffect(() => {

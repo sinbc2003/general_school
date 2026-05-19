@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.classroom_docs import ClassroomDocument, DocumentRevision
 from app.models.user import User
-from app.modules.classroom_docs._helpers import assert_can_read, resolve_permission
+from app.modules.classroom_docs._helpers import resolve_permission
 from app.modules.classroom_docs.router import router
 from app.modules.classroom_docs.schemas import DocumentSnapshotIn
 
@@ -40,14 +40,24 @@ async def check_doc_permission(
 @router.get("/{did}/yjs-snapshot")
 async def get_yjs_snapshot(
     did: int,
-    user: User = Depends(get_current_user),
+    x_internal_token: str | None = Header(None, alias="X-Internal-Token"),
     db: AsyncSession = Depends(get_db),
 ):
-    """문서 초기 로딩 시 호출. 마지막 저장된 Yjs state(base64) 반환."""
+    """문서 초기 로딩 시 호출 — Hocuspocus 전용 (INTERNAL_TOKEN 인증).
+
+    onLoadDocument 시점에는 사용자 컨텍스트가 없어 사용자 JWT로는 인증 불가.
+    POST(저장)와 동일한 인증 방식 사용. 권한 가드는 onAuthenticate(WS auth) 단계에서
+    이미 처리됨 (사용자별 can_read 체크).
+    """
+    expected_token = settings.HOCUSPOCUS_INTERNAL_TOKEN
+    if not expected_token:
+        raise HTTPException(503, "HOCUSPOCUS_INTERNAL_TOKEN 미설정")
+    if x_internal_token != expected_token:
+        raise HTTPException(401, "내부 토큰 인증 실패")
+
     d = await db.get(ClassroomDocument, did)
     if not d:
         raise HTTPException(404)
-    await assert_can_read(db, user, d)
 
     if d.yjs_state is None:
         return {"state_base64": None, "doc_id": did}

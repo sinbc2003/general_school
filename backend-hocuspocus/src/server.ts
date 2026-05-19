@@ -58,28 +58,40 @@ const server = Server.configure({
 
   async onAuthenticate({ token, documentName, connection }: onAuthenticatePayload) {
     if (!token) {
+      console.warn(`[hocuspocus] auth reject: no token (${documentName})`);
       throw new Error("token required");
     }
-    const payload = verifyToken(token);
+    let payload;
+    try {
+      payload = verifyToken(token);
+    } catch (e: any) {
+      console.warn(`[hocuspocus] auth reject: JWT verify failed (${documentName}): ${e?.message ?? e}`);
+      throw e;
+    }
     const docId = extractDocIdFromName(documentName);
 
     let perm: DocPermission;
     try {
       perm = await fetchDocPermission(docId, token);
     } catch (e: any) {
+      console.warn(`[hocuspocus] auth reject: permission lookup failed (${documentName}): ${e?.message ?? e}`);
       throw new Error(`permission check failed: ${e?.message ?? e}`);
     }
     if (!perm.can_read) {
+      console.warn(`[hocuspocus] auth reject: can_read=false uid=${payload.sub} doc=${docId}`);
       throw new Error("forbidden");
     }
 
     // read-only 사용자도 connection은 허용 (presence·커서 보기 위해)
-    // 단 변경 message는 Hocuspocus 자체가 readOnly 플래그로 무시.
     if (!perm.can_write) {
       connection.readOnly = true;
     }
 
-    // 반환값은 context로 onChange/onStoreDocument 등에서 접근 가능
+    console.log(
+      `[hocuspocus] auth OK uid=${payload.sub} role=${payload.role} ` +
+      `doc=${docId} canWrite=${perm.can_write}`,
+    );
+
     return {
       userId: parseInt(payload.sub, 10),
       role: payload.role,
@@ -87,13 +99,19 @@ const server = Server.configure({
     };
   },
 
+  async onConnect({ documentName }) {
+    console.log(`[hocuspocus] connect → ${documentName}`);
+  },
+
   async onLoadDocument({ documentName, document }: onLoadDocumentPayload) {
     const docId = extractDocIdFromName(documentName);
     try {
       const state = await loadDocSnapshot(docId);
       if (state) {
-        // 기존 state를 applyUpdate로 merge (CRDT 특성상 안전)
         Y.applyUpdate(document, state);
+        console.log(`[hocuspocus] loaded snapshot doc=${docId} bytes=${state.length}`);
+      } else {
+        console.log(`[hocuspocus] no snapshot, fresh doc=${docId}`);
       }
     } catch (e) {
       console.error(`[hocuspocus] onLoadDocument ${docId} 실패:`, e);
