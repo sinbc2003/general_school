@@ -22,10 +22,10 @@
  * 동일 컴포넌트로 "과제" / "자료" 두 모드 모두 처리 (kind prop).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
-  Trash2, Users, Award, Calendar, Hash,
+  Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -101,6 +101,8 @@ export function AssignmentModal({
   const [topic, setTopic] = useState(initial?.topic || "");
   const [attachments, setAttachments] = useState<AttachmentItem[]>(initial?.attachments || []);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isEdit = mode === "edit" && initial?.postId;
   const headerLabel = isEdit ? `${meta.title} 편집`
@@ -118,14 +120,43 @@ export function AssignmentModal({
   };
 
   const addDoc = () => {
-    const t = window.prompt("협업 문서 제목:");
-    if (!t) return;
-    // 실제 doc 생성은 별도 페이지. 여기는 placeholder
     alert("협업 문서는 별도 페이지에서 만들고 URL을 [링크] 첨부로 추가하세요.");
   };
 
   const addSurvey = () => {
     alert("설문은 별도 페이지에서 만들고 단축 링크를 [링크] 첨부로 추가하세요.");
+  };
+
+  const triggerFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const next: AttachmentItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const res = await api.upload<{ file_url: string; file_name: string; byte_size: number }>(
+          `/api/classroom/courses/${cid}/attachments`,
+          f,
+        );
+        next.push({
+          type: "file",
+          title: res.file_name,
+          file_url: res.file_url,
+          file_name: res.file_name,
+        });
+      }
+      setAttachments([...attachments, ...next]);
+    } catch (err: any) {
+      alert(err?.detail || "업로드 실패");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const removeAttachment = (idx: number) => {
@@ -235,36 +266,60 @@ export function AssignmentModal({
               <div className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wide mb-3">
                 첨부
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <AttachBtn
+                  icon={uploading ? Loader2 : Upload}
+                  label={uploading ? "업로드 중..." : "파일"}
+                  onClick={triggerFilePicker}
+                  bg="#e0e7ff"
+                  color="#4338ca"
+                  spin={uploading}
+                />
                 <AttachBtn icon={LinkIcon} label="링크" onClick={addLink} bg="#dbeafe" color="#1d4ed8" />
                 <AttachBtn icon={FileText} label="협업 문서" onClick={addDoc} bg="#fef3c7" color="#a16207" />
                 <AttachBtn icon={ClipboardCheck} label="설문" onClick={addSurvey} bg="#fce7f3" color="#be185d" />
               </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFileChange}
+                className="hidden"
+                accept=".pdf,.hwp,.hwpx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif,.zip"
+              />
 
               {/* 첨부된 항목들 */}
               {attachments.length > 0 && (
                 <div className="mt-4 space-y-1.5">
-                  {attachments.map((a, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary group"
-                    >
-                      <LinkIcon size={13} className="text-text-tertiary" />
-                      {a.url ? (
-                        <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
-                          {a.title}
-                        </a>
-                      ) : (
-                        <span className="text-caption flex-1 truncate">{a.title}</span>
-                      )}
-                      <button
-                        onClick={() => removeAttachment(i)}
-                        className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
+                  {attachments.map((a, i) => {
+                    const Icon = a.type === "file" ? Paperclip : LinkIcon;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary group"
                       >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  ))}
+                        <Icon size={13} className="text-text-tertiary flex-shrink-0" />
+                        {a.url ? (
+                          <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
+                            {a.title}
+                          </a>
+                        ) : a.file_name ? (
+                          <span className="text-caption flex-1 truncate" title={a.file_name}>
+                            {a.title}
+                          </span>
+                        ) : (
+                          <span className="text-caption flex-1 truncate">{a.title}</span>
+                        )}
+                        <button
+                          onClick={() => removeAttachment(i)}
+                          className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
+                          title="제거"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -357,22 +412,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function AttachBtn({
-  icon: Icon, label, onClick, bg, color,
+  icon: Icon, label, onClick, bg, color, spin,
 }: {
   icon: any; label: string; onClick: () => void;
   bg: string; color: string;
+  spin?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1 group"
+      disabled={spin}
+      className="flex flex-col items-center gap-1 group disabled:opacity-60 disabled:cursor-progress"
     >
       <div
         className="w-11 h-11 rounded-full border border-border-default flex items-center justify-center group-hover:scale-105 transition"
         style={{ backgroundColor: bg, color }}
       >
-        <Icon size={18} />
+        <Icon size={18} className={spin ? "animate-spin" : ""} />
       </div>
       <span className="text-[11px] text-text-secondary">{label}</span>
     </button>

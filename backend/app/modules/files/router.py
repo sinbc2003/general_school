@@ -33,6 +33,7 @@ from app.core.database import get_db
 from app.core.visibility import assert_can_view_student
 from app.models.assignment import Assignment, AssignmentSubmission
 from app.models.archive import Document
+from app.models.classroom import Course, CoursePost, CourseStudent
 from app.models.club import Club, ClubSubmission
 from app.models.research import ResearchProject, ResearchSubmission
 from app.models.student_self import StudentArtifact
@@ -173,6 +174,58 @@ async def _guard_club(db: AsyncSession, user: User, path: str) -> None:
     raise HTTPException(403, "권한 없음")
 
 
+async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
+    """classroom: 강좌 멤버(교사·학생) 또는 admin만 다운로드.
+
+    storage/classroom/{uuid}.ext — CoursePost.attachments 또는 file_url에서 참조.
+    DB lookup으로 file_url 매칭되는 글이 있어야 통과 (path 추측 차단).
+    """
+    file_url = f"/storage/{path}"
+    # CoursePost.attachments(JSON list)에 file_url이 포함된 글이 있는지 OR file_url 컬럼 직접 매칭
+    # JSON에서 file_url 검색은 DB 종속이라 단순화: 모든 post의 attachments를 in-app로 검사.
+    # 첨부가 많지 않다는 가정. 향후 성능 이슈 시 jsonb 인덱스 추가.
+    candidate_posts = (await db.execute(
+        select(CoursePost).where(
+            (CoursePost.file_url == file_url)
+            | CoursePost.attachments.is_not(None)
+        )
+    )).scalars().all()
+
+    matched_post: CoursePost | None = None
+    for p in candidate_posts:
+        if p.file_url == file_url:
+            matched_post = p
+            break
+        for a in (p.attachments or []):
+            if isinstance(a, dict) and a.get("file_url") == file_url:
+                matched_post = p
+                break
+        if matched_post:
+            break
+
+    if not matched_post:
+        raise HTTPException(404)
+
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    # 강좌 멤버: 교사 본인 또는 active 수강생
+    course = await db.get(Course, matched_post.course_id)
+    if not course:
+        raise HTTPException(404)
+    if course.teacher_id == user.id:
+        return
+    cs = (await db.execute(
+        select(CourseStudent).where(
+            CourseStudent.course_id == course.id,
+            CourseStudent.student_id == user.id,
+            CourseStudent.status == "active",
+        )
+    )).scalar_one_or_none()
+    if cs:
+        return
+    raise HTTPException(403, "권한 없음")
+
+
 async def _guard_auto_backups(db: AsyncSession, user: User, path: str) -> None:
     """auto-backups: super_admin 전용. 직접 다운로드는 별도 endpoint 권장하나
     file_url 추측 차단을 위해 가드.
@@ -190,6 +243,7 @@ _GUARDS = {
     "research": _guard_research,
     "documents": _guard_archive_document,
     "club": _guard_club,
+    "classroom": _guard_classroom,
     "auto-backups": _guard_auto_backups,
 }
 

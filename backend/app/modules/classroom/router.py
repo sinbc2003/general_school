@@ -27,8 +27,11 @@
 """
 
 import json
+import os
+import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +39,7 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.semester import get_active_semester_id_or_404, resolve_semester_id
+from app.core.upload import POLICY_CLASSROOM, check_extension, validate_upload
 from app.models.classroom import Course, CoursePost, CourseStudent
 from app.models.timetable import Semester, SemesterEnrollment
 from app.models.user import User
@@ -699,3 +703,61 @@ async def delete_course_post(
         raise HTTPException(403, "본인 글만 삭제 가능")
     await db.delete(p)
     return {"ok": True}
+
+
+# ── 첨부 파일 업로드 ───────────────────────────────────────
+
+
+STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+CLASSROOM_DIR = STORAGE_ROOT / "classroom"
+
+
+@router.post("/courses/{cid}/attachments")
+async def upload_attachment(
+    cid: int, request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("classroom.post.write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """강좌 첨부 파일 업로드 — 검증 + storage 저장 + URL 반환.
+
+    프론트엔드가 받은 file_url/file_name을 AssignmentModal의 attachments에
+    {type:"file", file_url, file_name, title} 형태로 추가한 뒤 POST/PUT 호출.
+
+    storage 경로: backend/storage/classroom/{uuid}{ext}
+    files/router.py의 _GUARDS에 classroom section 등록 必 — 그래야 다운로드 시
+    인증/권한 통과 후만 서빙.
+
+    권한:
+    - 작성 권한이 있는 교사·관리자만 (require_permission)
+    - 본인 강좌 또는 admin (여기서 추가 확인)
+    """
+    course = await db.get(Course, cid)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not _is_admin(user) and course.teacher_id != user.id:
+        raise HTTPException(403, "본인 강좌만 업로드 가능")
+
+    # 검증 (크기·확장자)
+    data = await validate_upload(file, POLICY_CLASSROOM)
+    ext = check_extension(file.filename, POLICY_CLASSROOM)
+
+    # 저장 — uuid 사용해 collision 방지 + 추측 차단
+    CLASSROOM_DIR.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    full = CLASSROOM_DIR / stored_name
+    full.write_bytes(data)
+
+    file_url = f"/storage/classroom/{stored_name}"
+    original_name = (file.filename or stored_name).strip()
+
+    await log_action(
+        db, user, "classroom.attachment.upload",
+        target=f"course:{cid} bytes:{len(data)} ext:{ext}", request=request,
+    )
+
+    return {
+        "file_url": file_url,
+        "file_name": original_name,
+        "byte_size": len(data),
+    }

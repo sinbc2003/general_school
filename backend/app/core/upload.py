@@ -80,6 +80,22 @@ POLICY_BACKUP = FilePolicy(
     allowed_extensions=frozenset({".zip"}),
 )
 
+# 클래스룸 첨부 — 자료/과제에 첨부할 파일. 문서·이미지·간단 zip.
+POLICY_CLASSROOM = FilePolicy(
+    name="classroom",
+    max_size_bytes=50 * 1024 * 1024,  # 50MB (영상은 외부 링크 권장)
+    allowed_extensions=frozenset({
+        ".pdf", ".hwp", ".hwpx",
+        ".doc", ".docx",
+        ".ppt", ".pptx",
+        ".xls", ".xlsx",
+        ".txt", ".md",
+        ".png", ".jpg", ".jpeg", ".webp", ".gif",
+        ".zip",
+    }),
+)
+
+
 # 파비콘 — 작은 이미지
 POLICY_FAVICON = FilePolicy(
     name="favicon",
