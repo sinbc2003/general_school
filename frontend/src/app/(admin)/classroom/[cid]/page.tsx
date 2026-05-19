@@ -9,12 +9,14 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText, ClipboardList, Archive,
+  Users, MessageSquare, Plus, Trash2, Pin, Save, X, UserPlus, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { CourseBanner } from "./_components/CourseBanner";
+import { CourseTabs, type CourseTab } from "./_components/CourseTabs";
+import { getCourseTone } from "./_components/_color";
 
 interface Student {
   id: number;
@@ -61,6 +63,7 @@ export default function CourseDetailAdminPage() {
   const [loading, setLoading] = useState(true);
   const [showPostForm, setShowPostForm] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [activeTab, setActiveTab] = useState<CourseTab>("stream");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,141 +107,144 @@ export default function CourseDetailAdminPage() {
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!course) return null;
 
+  const tone = getCourseTone(cid);
+  const canEdit = course.viewer_role !== "student";
+
   return (
-    <div>
-      <div className="mb-4">
-        <Link href="/classroom" className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1">
-          <ArrowLeft size={12} /> 목록으로
-        </Link>
-        <div className="flex items-start justify-between mt-1 gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-title text-text-primary flex items-center gap-2">
-              {course.name}
-              {!course.is_active && (
-                <span className="text-caption px-2 py-0.5 bg-amber-100 text-amber-700 rounded inline-flex items-center gap-1 font-normal">
-                  <Archive size={11} /> 보관 강좌
-                </span>
-              )}
-            </h1>
-            <div className="text-caption text-text-tertiary mt-1">
-              {course.subject} {course.class_name && `· ${course.class_name}`}
-              {course.teacher_name && ` · 담당: ${course.teacher_name}`}
-            </div>
-            {course.description && (
-              <p className="text-body text-text-secondary mt-2">{course.description}</p>
-            )}
-            {!course.is_active && (
-              <div className="text-caption text-amber-700 mt-2 inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-1 rounded">
-                <Archive size={11} /> 새 협업 문서·설문은 보관 강좌에서 만들 수 없습니다.
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Link
-              href={`/classroom/${cid}/docs`}
-              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
-              title="강좌 협업 문서 (Google Docs 식 실시간 편집)"
-            >
-              <FileText size={13} /> 협업 문서
-            </Link>
-            <Link
-              href={`/classroom/${cid}/surveys`}
-              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
-              title="설문지 (Google Forms 식 응답 수집)"
-            >
-              <ClipboardList size={13} /> 설문지
-            </Link>
-          </div>
-        </div>
-      </div>
+    <div className="max-w-5xl mx-auto">
+      <CourseBanner
+        cid={cid}
+        name={course.name}
+        subject={course.subject}
+        className={course.class_name}
+        teacherName={course.teacher_name}
+        description={course.description}
+        isActive={course.is_active}
+        studentCount={course.students.length}
+        viewerRole={course.viewer_role}
+        tone={tone}
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* 학생 명단 */}
-        <div className="lg:col-span-1">
-          <div className="bg-bg-primary border border-border-default rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-body font-semibold flex items-center gap-1">
-                <Users size={14} /> 수강 학생 ({course.students.length})
-              </h2>
-              <button
-                onClick={() => setShowBulk(true)}
-                className="flex items-center gap-1 px-2 py-1 text-caption bg-accent text-white rounded hover:bg-accent-hover"
-              >
-                <UserPlus size={12} /> 등록
-              </button>
-            </div>
+      <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
 
-            {course.students.length === 0 ? (
-              <div className="text-caption text-text-tertiary py-3 text-center">
-                등록된 학생 없음
-              </div>
-            ) : (
-              <div className="space-y-1 max-h-[500px] overflow-y-auto">
-                {course.students.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between px-2 py-1.5 text-caption hover:bg-bg-secondary rounded group"
-                  >
-                    <div>
-                      <span className="font-medium">{s.name}</span>
-                      <span className="text-text-tertiary ml-1">
-                        {s.grade && s.class_number && s.student_number
-                          ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
-                          : ""}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => removeStudent(s.student_id, s.name)}
-                      className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 클래스룸 글 */}
-        <div className="lg:col-span-2">
-          <div className="bg-bg-primary border border-border-default rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-body font-semibold flex items-center gap-1">
-                <MessageSquare size={14} /> 클래스룸 글
-              </h2>
-              {(course.viewer_role === "teacher" || course.viewer_role === "admin") && (
+      {/* ── 게시판 (Stream) ── */}
+      {activeTab === "stream" && (
+        <div className="space-y-3">
+          {canEdit && (
+            <div className="bg-bg-primary border border-border-default rounded-lg p-4">
+              {showPostForm ? (
+                <PostForm
+                  cid={cid}
+                  onClose={() => setShowPostForm(false)}
+                  onSaved={() => { setShowPostForm(false); load(); }}
+                />
+              ) : (
                 <button
                   onClick={() => setShowPostForm(true)}
-                  className="flex items-center gap-1 px-2 py-1 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+                  className="w-full text-left text-caption text-text-tertiary px-3 py-2 border border-border-default rounded bg-bg-secondary hover:bg-bg-primary"
                 >
-                  <Plus size={12} /> 글 작성
+                  <Plus size={12} className="inline mr-1" />
+                  수업에 새 글 또는 자료를 공유하세요...
                 </button>
               )}
             </div>
+          )}
 
-            {showPostForm && (
-              <PostForm
-                cid={cid}
-                onClose={() => setShowPostForm(false)}
-                onSaved={() => { setShowPostForm(false); load(); }}
-              />
-            )}
+          {posts.length === 0 ? (
+            <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
+              <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
+              아직 작성된 글이 없습니다
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {posts.map((p) => (
+                <PostCard
+                  key={p.id}
+                  post={p}
+                  onDelete={() => deletePost(p.id)}
+                  canEdit={canEdit}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-            {posts.length === 0 ? (
-              <div className="text-caption text-text-tertiary py-6 text-center">
-                아직 작성된 글이 없습니다
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {posts.map((p) => (
-                  <PostCard key={p.id} post={p} onDelete={() => deletePost(p.id)} canEdit={course.viewer_role !== "student"} />
-                ))}
-              </div>
+      {/* ── 수업 과제 (H3에서 정밀 설계) ── */}
+      {activeTab === "coursework" && (
+        <CourseworkPlaceholder
+          posts={posts}
+          canEdit={canEdit}
+          onCreate={() => setShowPostForm(true)}
+        />
+      )}
+
+      {/* ── 사용자 ── */}
+      {activeTab === "people" && (
+        <div className="bg-bg-primary border border-border-default rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-body font-semibold flex items-center gap-1">
+              <Users size={15} /> 수강 학생 ({course.students.length})
+            </h2>
+            {canEdit && (
+              <button
+                onClick={() => setShowBulk(true)}
+                className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+              >
+                <UserPlus size={12} /> 학생 등록
+              </button>
             )}
           </div>
+          {course.teacher_name && (
+            <div className="text-caption text-text-tertiary mb-3 px-2 py-1.5 bg-bg-secondary rounded">
+              담당 교사: <span className="text-text-primary font-medium">{course.teacher_name}</span>
+            </div>
+          )}
+          {course.students.length === 0 ? (
+            <div className="text-caption text-text-tertiary py-8 text-center">
+              등록된 학생 없음
+            </div>
+          ) : (
+            <div className="divide-y divide-border-default">
+              {course.students.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between px-2 py-2 hover:bg-bg-secondary rounded group text-caption"
+                >
+                  <div>
+                    <span className="font-medium text-text-primary">{s.name}</span>
+                    <span className="text-text-tertiary ml-2">
+                      {s.grade && s.class_number && s.student_number
+                        ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
+                        : ""}
+                    </span>
+                  </div>
+                  {canEdit && (
+                    <button
+                      onClick={() => removeStudent(s.student_id, s.name)}
+                      className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
+                      title="제외"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* ── 성적 (placeholder) ── */}
+      {activeTab === "grades" && (
+        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center">
+          <BarChart3 size={32} className="mx-auto text-text-tertiary opacity-30 mb-3" />
+          <div className="text-body text-text-secondary mb-1">성적 모듈은 준비 중입니다</div>
+          <div className="text-caption text-text-tertiary">
+            추후 과제·평가 점수를 강좌별로 집계해 표시합니다.
+          </div>
+        </div>
+      )}
 
       {showBulk && (
         <BulkAddModal
@@ -246,6 +252,46 @@ export default function CourseDetailAdminPage() {
           onClose={() => setShowBulk(false)}
           onSaved={() => { setShowBulk(false); load(); }}
         />
+      )}
+    </div>
+  );
+}
+
+
+// ─── 수업 과제 탭 placeholder — H3 commit에서 + 만들기 dropdown 추가 ───
+function CourseworkPlaceholder({
+  posts, canEdit, onCreate,
+}: { posts: Post[]; canEdit: boolean; onCreate: () => void }) {
+  const materials = posts.filter((p) => p.post_type !== "notice");
+  return (
+    <div className="space-y-3">
+      {canEdit && (
+        <div>
+          <button
+            onClick={onCreate}
+            className="flex items-center gap-1 px-4 py-2 text-caption bg-accent text-white rounded-full hover:bg-accent-hover shadow-sm"
+          >
+            <Plus size={14} /> 만들기
+          </button>
+        </div>
+      )}
+      {materials.length === 0 ? (
+        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center text-caption text-text-tertiary">
+          <div className="text-body mb-1">과제물을 할당하는 공간</div>
+          학생들을 위한 과제와 자료를 추가하면 여기에 표시됩니다
+        </div>
+      ) : (
+        <div className="bg-bg-primary border border-border-default rounded-lg divide-y divide-border-default">
+          {materials.map((p) => (
+            <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary">
+              <div className="text-body font-medium">{p.title}</div>
+              <div className="text-caption text-text-tertiary mt-0.5">
+                {p.post_type === "material" ? "자료" : "과제"}
+                {p.created_at && ` · ${p.created_at.slice(0, 10)}`}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
