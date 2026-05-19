@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText, ClipboardList,
+  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText, ClipboardList, Archive,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -112,13 +112,25 @@ export default function CourseDetailAdminPage() {
         </Link>
         <div className="flex items-start justify-between mt-1 gap-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-title text-text-primary">{course.name}</h1>
+            <h1 className="text-title text-text-primary flex items-center gap-2">
+              {course.name}
+              {!course.is_active && (
+                <span className="text-caption px-2 py-0.5 bg-amber-100 text-amber-700 rounded inline-flex items-center gap-1 font-normal">
+                  <Archive size={11} /> 보관 강좌
+                </span>
+              )}
+            </h1>
             <div className="text-caption text-text-tertiary mt-1">
               {course.subject} {course.class_name && `· ${course.class_name}`}
               {course.teacher_name && ` · 담당: ${course.teacher_name}`}
             </div>
             {course.description && (
               <p className="text-body text-text-secondary mt-2">{course.description}</p>
+            )}
+            {!course.is_active && (
+              <div className="text-caption text-amber-700 mt-2 inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-1 rounded">
+                <Archive size={11} /> 새 협업 문서·설문은 보관 강좌에서 만들 수 없습니다.
+              </div>
             )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">

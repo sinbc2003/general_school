@@ -770,6 +770,26 @@ Phase A+B는 큰 단계라 sub-commit으로 나눠 진행:
 - SurveyBuilder active 상태에 "공유" 버튼 + 모달
 - 협업 문서 편집기 (작성자/admin) 에도 "공유" 버튼 추가
 
-### 다음 권장 단계
-- **Phase C**: 강좌 통합 UI 정리 (현재 진입 버튼은 있지만 깊이 매끄럽게)
-- **Phase F**: 안전망·운영 문서 마무리 (convention invariants 확장, 학기 보관 정책)
+### 모듈화 + Phase C·F 마무리 (이 commit)
+
+**Backend 분할** (이전 세션 sub-router 패턴 적용):
+- `classroom_surveys/router.py` 645줄 → router 24 + _helpers 90 + crud 145 + questions 80 + responses 90 + results 175
+- `classroom_docs/router.py` 464줄 → router 20 + _helpers 95 + crud 145 + members 95 + hocuspocus 100
+- 각 sub-module은 router.py의 `router`를 import해 endpoint 등록 (portfolio 모듈 패턴 동일)
+
+**Phase F: 학기 보관 정책**:
+- `assert_active_course_or_403(course)` — course.is_active=false면 new doc/survey 생성 시 409
+- 회귀 테스트 `tests/test_classroom_archived.py` 3건
+  · archived 강좌에 새 문서 생성 → 409
+  · archived 강좌에 새 설문 생성 → 409
+  · active 강좌는 정상 생성 (false-positive 방지)
+
+**Phase C-mini**:
+- 강좌 상세에 "보관 강좌" 배지 + 안내 박스 (`!course.is_active` 시)
+
+검증: pytest security 123/123 (이전 120 + archived 3), npx tsc --noEmit 통과.
+
+### 다음 권장 단계 (남음)
+- (있다면) link.create를 student에게도 부여하고 익명 응답 시나리오 확장
+- frontend SurveyBuilder/Builder 페이지 추가 분할 (현재 ~470줄, 정책상 200줄 기준 분리 검토)
+- 시간 기반 응답 수정 정책 (제출 후 N분 내만 수정 가능)
