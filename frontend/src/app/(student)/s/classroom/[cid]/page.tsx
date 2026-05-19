@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Pin, Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api/client";
@@ -143,7 +144,7 @@ export default function StudentCourseDetailPage() {
 
       {/* ── 수업 과제 (주제별 그룹) ── */}
       {activeTab === "coursework" && (
-        <StudentCourseworkList posts={materials} />
+        <StudentCourseworkList cid={cid} posts={materials} />
       )}
 
       {/* ── 사용자 ── */}
@@ -194,7 +195,7 @@ export default function StudentCourseDetailPage() {
 
 
 // ─── 학생용 수업 과제 list — Google Classroom 식 주제별 그룹 ───
-function StudentCourseworkList({ posts }: { posts: Post[] }) {
+function StudentCourseworkList({ cid, posts }: { cid: number; posts: Post[] }) {
   const groups: Record<string, Post[]> = {};
   for (const p of posts) {
     const key = p.topic || "주제 없음";
@@ -228,7 +229,11 @@ function StudentCourseworkList({ posts }: { posts: Post[] }) {
             {groups[topicKey].map((p) => {
               const isAssignment = p.post_type === "assignment_ref";
               return (
-                <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary">
+                <Link
+                  key={p.id}
+                  href={`/s/classroom/${cid}/posts/${p.id}`}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer"
+                >
                   <div
                     className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                     style={{
@@ -253,7 +258,7 @@ function StudentCourseworkList({ posts }: { posts: Post[] }) {
                   <div className="text-caption text-text-tertiary whitespace-nowrap">
                     게시일: {p.created_at && new Date(p.created_at).toLocaleString("ko-KR", { hour: "numeric", minute: "2-digit" })}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

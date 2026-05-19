@@ -530,9 +530,14 @@ function CourseworkItem({
   const isAssignment = post.post_type === "assignment_ref";
   const isMaterial = post.post_type === "material";
   const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
+  const go = () => router.push(`/classroom/${post.course_id}/posts/${post.id}`);
 
   return (
-    <div className="group flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer">
+    <div
+      onClick={go}
+      className="group flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer"
+    >
       <div
         className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{

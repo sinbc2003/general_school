@@ -668,6 +668,29 @@ async def create_course_post(
     return _post_to_dict(p, user.name)
 
 
+@router.get("/posts/{pid}")
+async def get_course_post(
+    pid: int,
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """단일 글 상세 — 과제 상세 페이지용. 강좌 멤버만 접근 가능."""
+    p = await db.get(CoursePost, pid)
+    if not p:
+        raise HTTPException(404)
+    course = await db.get(Course, p.course_id)
+    if not course:
+        raise HTTPException(404)
+    await _assert_course_access(db, user, course)
+    author = await db.get(User, p.author_id) if p.author_id else None
+    return {
+        **_post_to_dict(p, author.name if author else None),
+        "course_name": course.name,
+        "course_subject": course.subject,
+        "course_class_name": course.class_name,
+    }
+
+
 @router.put("/posts/{pid}")
 async def update_course_post(
     pid: int, body: CoursePostUpdate, request: Request,
