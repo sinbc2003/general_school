@@ -22,6 +22,9 @@ interface ChallengeInfo {
   email_masked: string;
   expires_in_minutes: number;
   issued_at: number;
+  // dev 편의 — SMTP 미설정 ENV=dev에서만 backend가 노출.
+  // production에서는 null/undefined.
+  dev_code?: string | null;
 }
 
 export default function VerifyEmailPage() {
@@ -98,13 +101,16 @@ export default function VerifyEmailPage() {
     setResending(true);
     setError("");
     try {
-      await api.post("/api/auth/login/resend-email", {
-        challenge_token: challenge.challenge_token,
-      });
+      const data = await api.post<{ dev_code?: string | null }>(
+        "/api/auth/login/resend-email",
+        { challenge_token: challenge.challenge_token },
+      );
       // 쿨다운 60초
       setResendCooldown(60);
-      // 시간 카운트 재시작
-      setChallenge({ ...challenge, issued_at: Date.now() });
+      // 시간 카운트 재시작 + 새 dev_code 반영 (있을 때)
+      const next = { ...challenge, issued_at: Date.now(), dev_code: data.dev_code ?? null };
+      setChallenge(next);
+      sessionStorage.setItem("login_challenge", JSON.stringify(next));
     } catch (err: any) {
       setError(err?.detail || "재발송 실패");
     } finally {
@@ -135,9 +141,23 @@ export default function VerifyEmailPage() {
         <p className="text-caption text-text-secondary mb-1">
           <b>{challenge.email_masked}</b> 로 6자리 인증 코드를 보냈습니다.
         </p>
-        <p className="text-caption text-text-tertiary mb-5">
+        <p className="text-caption text-text-tertiary mb-3">
           이메일 받은편지함을 확인하세요. ({challenge.expires_in_minutes}분 내 유효)
         </p>
+
+        {challenge.dev_code && (
+          <div className="mb-5 px-3 py-2 bg-amber-50 border border-amber-300 rounded">
+            <div className="text-[11px] text-amber-700 font-semibold mb-0.5">
+              [개발 환경 — SMTP 미설정]
+            </div>
+            <div className="text-caption text-amber-900">
+              인증 코드: <span className="font-mono font-bold text-body tracking-widest">{challenge.dev_code}</span>
+            </div>
+            <div className="text-[11px] text-amber-700 mt-1">
+              운영 환경에서는 표시되지 않습니다.
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submit} className="space-y-4">
           <div>

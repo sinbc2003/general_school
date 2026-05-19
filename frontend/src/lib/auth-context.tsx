@@ -19,6 +19,8 @@ export type LoginResult =
       challenge_token: string;
       email_masked: string;
       expires_in_minutes: number;
+      // dev 편의 — SMTP 미설정 ENV=dev 환경에서만 backend가 노출 (보안 critical: production 절대 X)
+      dev_code?: string | null;
     };
 
 interface AuthContextValue {
@@ -135,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           challenge_token: data.challenge_token,
           email_masked: data.email_masked,
           expires_in_minutes: data.expires_in_minutes,
+          dev_code: data.dev_code ?? null,
         };
       }
       // type === 'token' (학생 / 신뢰 장치 매칭)

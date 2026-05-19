@@ -156,12 +156,17 @@ async def _start_email_challenge(
         except Exception:
             pass
 
-    return {
+    resp: dict = {
         "type": "challenge",
         "challenge_token": challenge_token,
         "email_masked": _mask_email(user.email),
         "expires_in_minutes": settings.LOGIN_CHALLENGE_MINUTES,
     }
+    # dev 편의: ENV=dev + SMTP 미설정이면 응답에 dev_code 포함 → frontend가 표시.
+    # production(ENV!=dev 또는 SMTP_HOST 설정됨)에서는 절대 포함 안 됨 (보안 critical).
+    if settings.ENV == "dev" and not settings.SMTP_HOST:
+        resp["dev_code"] = code
+    return resp
 
 
 @router.post("/login")
@@ -338,4 +343,8 @@ async def resend_email_code(
         pass
 
     await log_action(db, user, "login.email_challenge_resent", request=request, is_sensitive=True)
-    return {"ok": True, "email_masked": _mask_email(user.email)}
+    resp: dict = {"ok": True, "email_masked": _mask_email(user.email)}
+    # dev 편의: SMTP 미설정 dev 환경에서만 코드 노출 (위 _start_email_challenge와 동일 정책)
+    if settings.ENV == "dev" and not settings.SMTP_HOST:
+        resp["dev_code"] = code
+    return resp

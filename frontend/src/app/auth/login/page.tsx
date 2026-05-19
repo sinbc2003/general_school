@@ -30,11 +30,13 @@ export default function LoginPage() {
       const result = await login(identifier, password);
       if (result.type === "challenge") {
         // 이메일 코드 발송됨 — 코드 입력 페이지로
+        // dev_code (SMTP 미설정 dev 환경에서만 backend가 노출)는 verify-email 페이지에서 표시.
         sessionStorage.setItem("login_challenge", JSON.stringify({
           challenge_token: result.challenge_token,
           email_masked: result.email_masked,
           expires_in_minutes: result.expires_in_minutes,
           issued_at: Date.now(),
+          dev_code: result.dev_code ?? null,
         }));
         router.push("/auth/verify-email");
         return;
