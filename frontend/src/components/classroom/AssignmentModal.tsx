@@ -32,11 +32,24 @@ import { api } from "@/lib/api/client";
 export type CreateKind = "assignment" | "material";
 
 interface AttachmentItem {
-  type: "link" | "doc" | "survey";
+  type: "link" | "file" | "doc" | "survey";
   title: string;
   url?: string;
+  file_url?: string;
+  file_name?: string;
   doc_id?: number;
   survey_id?: number;
+}
+
+/** 편집/복제 모드 시 prefill할 기존 post 데이터 */
+export interface AssignmentModalInitial {
+  postId?: number;       // 있으면 PUT (편집). 없으면 POST (생성/복제).
+  title?: string;
+  content?: string;
+  max_score?: number | null;
+  due_date?: string | null;  // ISO
+  topic?: string | null;
+  attachments?: AttachmentItem[];
 }
 
 interface AssignmentModalProps {
@@ -45,6 +58,10 @@ interface AssignmentModalProps {
   studentCount: number;
   /** 기존 주제 list (자동완성용) */
   existingTopics: string[];
+  /** 편집/복제 모드의 prefill. 없으면 신규 생성. */
+  initial?: AssignmentModalInitial;
+  /** 모드 표시 — 'edit' | 'duplicate' | undefined(신규) */
+  mode?: "edit" | "duplicate";
   onClose: () => void;
   onSaved: (postId: number) => void;
 }
@@ -61,17 +78,35 @@ const KIND_META: Record<CreateKind, { icon: any; iconBg: string; iconColor: stri
 };
 
 export function AssignmentModal({
-  cid, kind, studentCount, existingTopics, onClose, onSaved,
+  cid, kind, studentCount, existingTopics, initial, mode, onClose, onSaved,
 }: AssignmentModalProps) {
   const meta = KIND_META[kind];
 
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [maxScore, setMaxScore] = useState<string>(kind === "assignment" ? "100" : "");
-  const [dueDate, setDueDate] = useState(""); // YYYY-MM-DDTHH:MM
-  const [topic, setTopic] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  // datetime-local input은 "YYYY-MM-DDTHH:MM" 형식. ISO → local 변환.
+  const isoToLocal = (iso?: string | null): string => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const off = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - off).toISOString().slice(0, 16);
+  };
+
+  const [title, setTitle] = useState(initial?.title || "");
+  const [content, setContent] = useState(initial?.content || "");
+  const [maxScore, setMaxScore] = useState<string>(
+    initial?.max_score != null ? String(initial.max_score)
+    : kind === "assignment" ? "100" : "",
+  );
+  const [dueDate, setDueDate] = useState(isoToLocal(initial?.due_date)); // YYYY-MM-DDTHH:MM
+  const [topic, setTopic] = useState(initial?.topic || "");
+  const [attachments, setAttachments] = useState<AttachmentItem[]>(initial?.attachments || []);
   const [saving, setSaving] = useState(false);
+
+  const isEdit = mode === "edit" && initial?.postId;
+  const headerLabel = isEdit ? `${meta.title} 편집`
+    : mode === "duplicate" ? `${meta.title} 복제`
+    : meta.title;
+  const submitLabel = isEdit ? "저장" : meta.submitLabel;
 
   const titleEmpty = !title.trim();
 
@@ -108,17 +143,25 @@ export function AssignmentModal({
         title: title.trim(),
         content: content.trim() || title.trim(),  // backend가 content 필수 → 제목 fallback
         post_type: meta.postType,
-        is_pinned: false,
       };
+      if (!isEdit) body.is_pinned = false;
       if (maxScore && kind === "assignment") {
         body.max_score = Math.max(0, Math.min(10000, parseInt(maxScore, 10) || 0));
       }
       if (dueDate) body.due_date = new Date(dueDate).toISOString();
+      // 편집 시: 사용자가 비웠으면 명시적 null로 (백엔드가 update 안 함; 본 모달은 단순화로 항상 보냄)
       if (topic.trim()) body.topic = topic.trim();
       if (attachments.length > 0) body.attachments = attachments;
 
-      const res = await api.post<{ id: number }>(`/api/classroom/courses/${cid}/posts`, body);
-      onSaved(res.id);
+      let postId: number;
+      if (isEdit && initial?.postId) {
+        await api.put(`/api/classroom/posts/${initial.postId}`, body);
+        postId = initial.postId;
+      } else {
+        const res = await api.post<{ id: number }>(`/api/classroom/courses/${cid}/posts`, body);
+        postId = res.id;
+      }
+      onSaved(postId);
     } catch (e: any) {
       alert(e?.detail || "저장 실패");
     } finally {
@@ -146,14 +189,14 @@ export function AssignmentModal({
           >
             <Icon size={16} />
           </div>
-          <h1 className="text-body font-medium">{meta.title}</h1>
+          <h1 className="text-body font-medium">{headerLabel}</h1>
         </div>
         <button
           onClick={submit}
           disabled={titleEmpty || saving}
           className="px-5 py-2 text-caption font-medium bg-accent text-white rounded-full hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
-          {saving ? "저장 중..." : meta.submitLabel}
+          {saving ? "저장 중..." : submitLabel}
         </button>
       </header>
 

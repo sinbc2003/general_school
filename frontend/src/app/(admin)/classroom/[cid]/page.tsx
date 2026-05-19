@@ -21,7 +21,7 @@ import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CreateMenu, type CreateActionKind } from "@/components/classroom/CreateMenu";
 import { PostComposer, type PostType } from "@/components/classroom/PostComposer";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
-import { AssignmentModal, type CreateKind } from "@/components/classroom/AssignmentModal";
+import { AssignmentModal, type AssignmentModalInitial, type CreateKind } from "@/components/classroom/AssignmentModal";
 import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
 
@@ -90,8 +90,10 @@ export default function CourseDetailAdminPage() {
   const [postFormInitType, setPostFormInitType] = useState<PostType>("notice");
   // composerKey > 0이면 강제 remount + 펼침 상태로 시작 (CreateMenu에서 진입한 신호)
   const [composerKey, setComposerKey] = useState(0);
-  // 풀스크린 과제·자료 생성 modal
+  // 풀스크린 과제·자료 modal — 신규/편집/복제 모드 통합
   const [modalKind, setModalKind] = useState<CreateKind | null>(null);
+  const [modalInitial, setModalInitial] = useState<AssignmentModalInitial | undefined>();
+  const [modalMode, setModalMode] = useState<"edit" | "duplicate" | undefined>();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,13 +127,49 @@ export default function CourseDetailAdminPage() {
 
   const handleCreate = (kind: CreateActionKind) => {
     if (kind === "assignment" || kind === "material") {
-      // 풀스크린 modal — 점수·기한·주제·첨부 함께 설정
       setModalKind(kind);
+      setModalInitial(undefined);
+      setModalMode(undefined);
     } else if (kind === "doc") {
       router.push(`/classroom/${cid}/docs`);
     } else if (kind === "survey") {
       router.push(`/classroom/${cid}/surveys`);
     }
+  };
+
+  const handleEdit = (post: Post) => {
+    const k: CreateKind = post.post_type === "assignment_ref" ? "assignment" : "material";
+    setModalKind(k);
+    setModalInitial({
+      postId: post.id,
+      title: post.title,
+      content: post.content,
+      max_score: post.max_score,
+      due_date: post.due_date,
+      topic: post.topic,
+      attachments: post.attachments,
+    });
+    setModalMode("edit");
+  };
+
+  const handleDuplicate = (post: Post) => {
+    const k: CreateKind = post.post_type === "assignment_ref" ? "assignment" : "material";
+    setModalKind(k);
+    setModalInitial({
+      title: post.title + " (사본)",
+      content: post.content,
+      max_score: post.max_score,
+      due_date: null,  // 복제 시 기한은 비움 (재설정 필요)
+      topic: post.topic,
+      attachments: post.attachments,
+    });
+    setModalMode("duplicate");
+  };
+
+  const closeModal = () => {
+    setModalKind(null);
+    setModalInitial(undefined);
+    setModalMode(undefined);
   };
 
   const deletePost = async (pid: number) => {
@@ -230,6 +268,8 @@ export default function CourseDetailAdminPage() {
           tone={tone}
           onCreate={(kind) => handleCreate(kind)}
           onDelete={deletePost}
+          onEdit={handleEdit}
+          onDuplicate={handleDuplicate}
         />
       )}
 
@@ -314,13 +354,16 @@ export default function CourseDetailAdminPage() {
           kind={modalKind}
           studentCount={course.students.length}
           existingTopics={Array.from(new Set(posts.map((p) => p.topic).filter(Boolean) as string[]))}
-          onClose={() => setModalKind(null)}
+          initial={modalInitial}
+          mode={modalMode}
+          onClose={closeModal}
           onSaved={() => {
-            const label = modalKind === "assignment" ? "과제가 생성됨" : "자료가 게시됨";
-            setModalKind(null);
+            const noun = modalKind === "assignment" ? "과제" : "자료";
+            const verb = modalMode === "edit" ? "저장됨" : modalMode === "duplicate" ? "복제됨" : "생성됨";
+            closeModal();
             setActiveTab("coursework");
             load();
-            toast.show(label, "success");
+            toast.show(`${noun} ${verb}`, "success");
           }}
         />
       )}
@@ -331,12 +374,14 @@ export default function CourseDetailAdminPage() {
 
 // ─── 수업 과제 탭 — Google Classroom 식 주제별 그룹 + 항목 아이콘 + 더보기 메뉴 ───
 function CourseworkTab({
-  cid, posts, canEdit, tone, onCreate, onDelete,
+  cid, posts, canEdit, tone, onCreate, onDelete, onEdit, onDuplicate,
 }: {
   cid: number; posts: Post[]; canEdit: boolean;
   tone: { accent: string };
   onCreate: (kind: CreateActionKind) => void;
   onDelete: (pid: number) => void;
+  onEdit: (post: Post) => void;
+  onDuplicate: (post: Post) => void;
 }) {
   // 과제·자료만 (공지는 게시판 탭에서)
   const materials = posts.filter((p) => p.post_type !== "notice");
@@ -417,6 +462,8 @@ function CourseworkTab({
             onToggle={() => toggleCollapse(topicKey)}
             canEdit={canEdit}
             onDelete={onDelete}
+            onEdit={onEdit}
+            onDuplicate={onDuplicate}
             tone={tone}
           />
         ))
@@ -426,10 +473,12 @@ function CourseworkTab({
 }
 
 function TopicGroup({
-  topic, posts, collapsed, onToggle, canEdit, onDelete, tone,
+  topic, posts, collapsed, onToggle, canEdit, onDelete, onEdit, onDuplicate, tone,
 }: {
   topic: string; posts: Post[]; collapsed: boolean; onToggle: () => void;
   canEdit: boolean; onDelete: (pid: number) => void;
+  onEdit: (post: Post) => void;
+  onDuplicate: (post: Post) => void;
   tone: { accent: string };
 }) {
   return (
@@ -462,6 +511,8 @@ function TopicGroup({
               post={p}
               canEdit={canEdit}
               onDelete={() => onDelete(p.id)}
+              onEdit={() => onEdit(p)}
+              onDuplicate={() => onDuplicate(p)}
             />
           ))}
         </div>
@@ -471,8 +522,11 @@ function TopicGroup({
 }
 
 function CourseworkItem({
-  post, canEdit, onDelete,
-}: { post: Post; canEdit: boolean; onDelete: () => void }) {
+  post, canEdit, onDelete, onEdit, onDuplicate,
+}: {
+  post: Post; canEdit: boolean;
+  onDelete: () => void; onEdit: () => void; onDuplicate: () => void;
+}) {
   const isAssignment = post.post_type === "assignment_ref";
   const isMaterial = post.post_type === "material";
   const [menuOpen, setMenuOpen] = useState(false);
@@ -516,6 +570,19 @@ function CourseworkItem({
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
               <div className="absolute top-full right-0 mt-1 z-20 bg-bg-primary border border-border-default rounded shadow-lg w-32 py-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(); }}
+                  className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
+                >
+                  수정
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDuplicate(); }}
+                  className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
+                >
+                  복제
+                </button>
+                <div className="border-t border-border-default my-1" />
                 <button
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
                   className="w-full text-left px-3 py-1.5 text-caption text-status-error hover:bg-bg-secondary"
