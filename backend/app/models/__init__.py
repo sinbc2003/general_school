@@ -82,6 +82,9 @@ from app.models.device import TrustedDevice, LoginChallenge
 # ── Classroom (구글 클래스룸 식 수업 운영) ──
 from app.models.classroom import Course, CourseStudent, CoursePost
 
+# ── Classroom Docs (협업 문서 — Yjs CRDT) ──
+from app.models.classroom_docs import ClassroomDocument, DocumentMember, DocumentRevision
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -129,4 +132,6 @@ __all__ = [
     "TrustedDevice", "LoginChallenge",
     # Classroom
     "Course", "CourseStudent", "CoursePost",
+    # Classroom Docs
+    "ClassroomDocument", "DocumentMember", "DocumentRevision",
 ]

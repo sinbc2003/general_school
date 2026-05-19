@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MessageSquare, Pin, Users } from "lucide-react";
+import { ArrowLeft, MessageSquare, Pin, Users, FileText } from "lucide-react";
 import { api } from "@/lib/api/client";
 
 interface Post {
@@ -77,8 +77,17 @@ export default function StudentCourseDetailPage() {
         {course.description && (
           <p className="text-body text-text-secondary mt-2">{course.description}</p>
         )}
-        <div className="text-caption text-text-tertiary mt-2 flex items-center gap-1">
-          <Users size={12} /> {course.student_count}명 수강
+        <div className="text-caption text-text-tertiary mt-2 flex items-center gap-3">
+          <span className="inline-flex items-center gap-1">
+            <Users size={12} /> {course.student_count}명 수강
+          </span>
+          <Link
+            href={`/s/classroom/${cid}/docs`}
+            className="inline-flex items-center gap-1 px-2 py-0.5 bg-cream-100 border border-cream-300 rounded hover:bg-cream-200 text-text-primary"
+            title="협업 문서 (Google Docs 식 실시간 편집)"
+          >
+            <FileText size={12} /> 협업 문서
+          </Link>
         </div>
       </div>
 

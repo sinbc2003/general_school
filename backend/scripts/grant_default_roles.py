@@ -63,6 +63,8 @@ STAFF_KEYS = {
     "announcement.post.edit", "announcement.post.delete",
     # 클래스룸 조회만 (강좌 관리는 본인 강좌만 — 라우터에서 자동 가드)
     "classroom.course.view", "classroom.post.view",
+    # 협업 문서: 직원도 강좌 멤버로 부여받을 수 있음
+    "classroom.doc.view", "classroom.doc.edit",
 }
 
 STUDENT_KEYS = {
@@ -89,6 +91,8 @@ STUDENT_KEYS = {
     "announcement.post.view",
     # 학생: 본인 수강 강좌 조회 + 클래스룸 글 읽기
     "classroom.course.view", "classroom.post.view",
+    # 학생: 협업 문서 조회/편집 (Google Docs 식 동시 편집 — 강좌 멤버 자동 부여)
+    "classroom.doc.view", "classroom.doc.edit",
 }
 
 

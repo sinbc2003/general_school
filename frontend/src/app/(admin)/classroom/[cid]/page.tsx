@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus,
+  ArrowLeft, Users, MessageSquare, Plus, Trash2, Pin, Edit3, Save, X, UserPlus, FileText,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -110,14 +110,25 @@ export default function CourseDetailAdminPage() {
         <Link href="/classroom" className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1">
           <ArrowLeft size={12} /> 목록으로
         </Link>
-        <h1 className="text-title text-text-primary mt-1">{course.name}</h1>
-        <div className="text-caption text-text-tertiary mt-1">
-          {course.subject} {course.class_name && `· ${course.class_name}`}
-          {course.teacher_name && ` · 담당: ${course.teacher_name}`}
+        <div className="flex items-start justify-between mt-1 gap-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-title text-text-primary">{course.name}</h1>
+            <div className="text-caption text-text-tertiary mt-1">
+              {course.subject} {course.class_name && `· ${course.class_name}`}
+              {course.teacher_name && ` · 담당: ${course.teacher_name}`}
+            </div>
+            {course.description && (
+              <p className="text-body text-text-secondary mt-2">{course.description}</p>
+            )}
+          </div>
+          <Link
+            href={`/classroom/${cid}/docs`}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-cream-100 border border-cream-300 text-text-primary rounded hover:bg-cream-200 whitespace-nowrap"
+            title="강좌 협업 문서 (Google Docs 식 실시간 편집)"
+          >
+            <FileText size={13} /> 협업 문서
+          </Link>
         </div>
-        {course.description && (
-          <p className="text-body text-text-secondary mt-2">{course.description}</p>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
