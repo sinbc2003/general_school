@@ -1,0 +1,49 @@
+/**
+ * 협업 편집기 다른 사용자 caret·label·selection 시각화.
+ *
+ * 기본 (CollaborationCaret + y-tiptap)는 caret span에 border-color만, selection은
+ * 옅은 background-color만 inline style로 적용 — 외부 CSS 없으면 우리 prose
+ * 컨테이너 안에서 display 처리가 어색해 빈 줄 전체가 highlight되는 등 과한 느낌.
+ *
+ * Google Docs 스타일:
+ *  - caret = 1.5px 수직선만, 글자 흐름과 무관하게 절대 위치
+ *  - 위에 사용자 이름 작은 라벨 (caret 색 배경)
+ *  - selection range = 사용자 색 + 낮은 알파 (이미 user.color + "70"로 backend
+ *    설정됨; 줄 전체로 번지지 않도록 display 한정)
+ */
+
+.collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  /* width=0인 inline-block — 텍스트 흐름은 그대로 유지 */
+  border-left: 1.5px solid;
+  border-right: 0 solid;
+  word-break: normal;
+  pointer-events: none;
+  /* 선의 높이는 라인 height에 맞춰 자연스럽게 */
+}
+
+.collaboration-carets__label {
+  position: absolute;
+  top: -1.35em;
+  left: -1px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  padding: 1.5px 4px 2px;
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  /* 라벨이 입력 흐름을 밀지 않도록 */
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  /* 라벨이 겹쳐 보일 때 hover 우선순위 */
+  z-index: 10;
+}
+
+/**
+ * Selection range는 CollaborationCaret.configure의 selectionRender 옵션으로
+ * 시각화 자체 OFF (Google Docs 스타일). 별도 CSS 불필요.
+ */

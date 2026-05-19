@@ -29,6 +29,7 @@ import {
   Undo, Redo, Wifi, WifiOff, Loader2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import "./collab-editor.css";
 
 interface CollabEditorProps {
   docId: number;
@@ -158,6 +159,13 @@ export default function CollabEditor({
           name: userName,
           color: userColor(userId),
         },
+        // selection range는 시각화 안 함 (Google Docs 스타일).
+        // 기본 builder는 background-color로 빈 줄까지 highlight되어 과한 느낌 → 끔.
+        // 다른 사용자 위치는 caret(1.5px 수직선) + 이름 라벨로 표현.
+        selectionRender: () => ({
+          style: "",
+          class: "",
+        }),
       }),
     ],
     editable: canWrite,
