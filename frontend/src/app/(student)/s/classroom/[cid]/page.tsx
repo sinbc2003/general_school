@@ -1,16 +1,18 @@
 "use client";
 
 /**
- * 학생용 강좌 상세 — 읽기 전용.
+ * 학생용 강좌 상세 — Google Classroom 식 디자인 (admin과 동일 layout, 권한만 차이).
  *
- * 클래스룸 글 + 강좌 정보. 학생은 글 작성/편집 권한 X.
+ * 학생은 글 작성·편집 권한 X. 협업 문서·설문은 본인 권한 따라 진입.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MessageSquare, Pin, Users, FileText, ClipboardList } from "lucide-react";
+import { Pin, Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { CourseBanner } from "@/components/classroom/CourseBanner";
+import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
+import { getCourseTone } from "@/components/classroom/_color";
 
 interface Post {
   id: number;
@@ -22,14 +24,26 @@ interface Post {
   created_at: string | null;
 }
 
+interface CourseStudentRow {
+  id: number;
+  student_id: number;
+  name: string;
+  grade: number | null;
+  class_number: number | null;
+  student_number: number | null;
+}
+
 interface CourseDetail {
   id: number;
   name: string;
   subject: string;
   class_name: string | null;
   description: string | null;
+  is_active: boolean;
   teacher_name?: string;
   student_count: number;
+  students: CourseStudentRow[];
+  viewer_role: "admin" | "teacher" | "student";
 }
 
 export default function StudentCourseDetailPage() {
@@ -40,6 +54,7 @@ export default function StudentCourseDetailPage() {
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<CourseTab>("stream");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,56 +78,108 @@ export default function StudentCourseDetailPage() {
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!course) return null;
 
+  const tone = getCourseTone(cid);
+  const materials = posts.filter((p) => p.post_type !== "notice");
+
   return (
-    <div>
-      <div className="mb-4">
-        <Link href="/s/classroom" className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1">
-          <ArrowLeft size={12} /> 내 수업으로
-        </Link>
-        <h1 className="text-title text-text-primary mt-1">{course.name}</h1>
-        <div className="text-caption text-text-tertiary mt-1">
-          {course.subject} {course.class_name && `· ${course.class_name}`}
-          {course.teacher_name && ` · 담당: ${course.teacher_name}`}
-        </div>
-        {course.description && (
-          <p className="text-body text-text-secondary mt-2">{course.description}</p>
-        )}
-        <div className="text-caption text-text-tertiary mt-2 flex items-center gap-3">
-          <span className="inline-flex items-center gap-1">
-            <Users size={12} /> {course.student_count}명 수강
-          </span>
-          <Link
-            href={`/s/classroom/${cid}/docs`}
-            className="inline-flex items-center gap-1 px-2 py-0.5 bg-cream-100 border border-cream-300 rounded hover:bg-cream-200 text-text-primary"
-            title="협업 문서 (Google Docs 식 실시간 편집)"
-          >
-            <FileText size={12} /> 협업 문서
-          </Link>
-          <Link
-            href={`/s/classroom/${cid}/surveys`}
-            className="inline-flex items-center gap-1 px-2 py-0.5 bg-cream-100 border border-cream-300 rounded hover:bg-cream-200 text-text-primary"
-            title="설문 응답"
-          >
-            <ClipboardList size={12} /> 설문
-          </Link>
-        </div>
-      </div>
+    <div className="max-w-5xl mx-auto">
+      <CourseBanner
+        cid={cid}
+        name={course.name}
+        subject={course.subject}
+        className={course.class_name}
+        teacherName={course.teacher_name}
+        description={course.description}
+        isActive={course.is_active}
+        studentCount={course.student_count ?? course.students?.length ?? 0}
+        viewerRole="student"
+        tone={tone}
+        baseHref="/s/classroom"
+      />
 
-      <div className="bg-bg-primary border border-border-default rounded-lg p-4">
-        <h2 className="text-body font-semibold mb-3 flex items-center gap-1">
-          <MessageSquare size={14} /> 클래스룸 글
-        </h2>
+      <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
 
-        {posts.length === 0 ? (
-          <div className="text-caption text-text-tertiary py-6 text-center">
-            아직 작성된 글이 없습니다
+      {/* ── 게시판 ── */}
+      {activeTab === "stream" && (
+        <div className="space-y-3">
+          {posts.length === 0 ? (
+            <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
+              <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
+              아직 작성된 글이 없습니다
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {posts.map((p) => <PostCard key={p.id} post={p} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 수업 과제 ── */}
+      {activeTab === "coursework" && (
+        materials.length === 0 ? (
+          <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center text-caption text-text-tertiary">
+            <ClipboardList size={28} className="mx-auto mb-2 opacity-30" />
+            <div className="text-body mb-1">아직 과제·자료가 없습니다</div>
+            선생님이 자료를 올리면 여기에 표시됩니다
           </div>
         ) : (
-          <div className="space-y-2">
-            {posts.map((p) => <PostCard key={p.id} post={p} />)}
+          <div className="bg-bg-primary border border-border-default rounded-lg divide-y divide-border-default">
+            {materials.map((p) => (
+              <div key={p.id} className="px-4 py-3 hover:bg-bg-secondary">
+                <div className="text-body font-medium">{p.title}</div>
+                <div className="text-caption text-text-tertiary mt-0.5">
+                  {p.post_type === "material" ? "자료" : "과제"}
+                  {p.created_at && ` · ${p.created_at.slice(0, 10)}`}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        )
+      )}
+
+      {/* ── 사용자 ── */}
+      {activeTab === "people" && (
+        <div className="bg-bg-primary border border-border-default rounded-lg p-5">
+          {course.teacher_name && (
+            <div className="text-caption text-text-tertiary mb-3 px-2 py-1.5 bg-bg-secondary rounded">
+              담당 교사: <span className="text-text-primary font-medium">{course.teacher_name}</span>
+            </div>
+          )}
+          <h2 className="text-body font-semibold flex items-center gap-1 mb-3">
+            <Users size={15} /> 함께하는 학생 ({course.students?.length ?? 0})
+          </h2>
+          {!course.students || course.students.length === 0 ? (
+            <div className="text-caption text-text-tertiary py-6 text-center">
+              등록된 학생 정보 없음
+            </div>
+          ) : (
+            <div className="divide-y divide-border-default">
+              {course.students.map((s) => (
+                <div key={s.id} className="px-2 py-2 text-caption">
+                  <span className="font-medium text-text-primary">{s.name}</span>
+                  <span className="text-text-tertiary ml-2">
+                    {s.grade && s.class_number && s.student_number
+                      ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
+                      : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 성적 ── */}
+      {activeTab === "grades" && (
+        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center">
+          <BarChart3 size={32} className="mx-auto text-text-tertiary opacity-30 mb-3" />
+          <div className="text-body text-text-secondary mb-1">성적은 준비 중입니다</div>
+          <div className="text-caption text-text-tertiary">
+            추후 본인의 과제·평가 점수를 강좌별로 확인할 수 있습니다.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -126,8 +193,8 @@ function PostCard({ post }: { post: Post }) {
   };
   const meta = typeLabels[post.post_type] || typeLabels.notice;
   return (
-    <div className="border border-border-default rounded p-3">
-      <div className="flex items-center gap-2 mb-1">
+    <div className="bg-bg-primary border border-border-default rounded-lg p-4 hover:shadow-sm transition">
+      <div className="flex items-center gap-2 mb-2">
         <span className={`px-1.5 py-0.5 text-[10px] rounded ${meta.color}`}>{meta.label}</span>
         {post.is_pinned && <Pin size={11} className="text-accent" />}
         <span className="text-body font-medium flex-1 truncate">{post.title}</span>
@@ -137,7 +204,7 @@ function PostCard({ post }: { post: Post }) {
       </div>
       <div className="text-caption text-text-secondary whitespace-pre-wrap">{post.content}</div>
       {post.author_name && (
-        <div className="text-caption text-text-tertiary mt-1">— {post.author_name}</div>
+        <div className="text-caption text-text-tertiary mt-2">— {post.author_name}</div>
       )}
     </div>
   );

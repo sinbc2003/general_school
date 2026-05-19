@@ -14,9 +14,9 @@ import {
   Users, MessageSquare, Plus, Trash2, Pin, Save, X, UserPlus, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
-import { CourseBanner } from "./_components/CourseBanner";
-import { CourseTabs, type CourseTab } from "./_components/CourseTabs";
-import { getCourseTone } from "./_components/_color";
+import { CourseBanner } from "@/components/classroom/CourseBanner";
+import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
+import { getCourseTone } from "@/components/classroom/_color";
 
 interface Student {
   id: number;
