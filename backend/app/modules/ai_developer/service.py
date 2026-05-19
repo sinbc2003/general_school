@@ -68,6 +68,8 @@ BLOCKED_FILES = [
     ".env",
     ".env.example",
     ".env.production",
+    # 개발 가이드 자기 자신 (AI가 자기 컨벤션 못 바꾸게)
+    "CLAUDE.md",
 ]
 
 # 보안 디렉터리 prefix — 이 prefix 시작하면 차단 (해당 디렉터리 통째 보호)
@@ -122,7 +124,41 @@ def is_path_allowed(relative_path: str) -> bool:
     return False
 
 
+def _load_project_guide() -> str:
+    """CLAUDE.md(개발 가이드)를 AI 시스템 프롬프트에 자동 첨부.
+
+    실패 시 빈 문자열 (시스템 프롬프트는 fallback). CLAUDE.md가 작아질 수 있어
+    경로 traversal·크기 제한 적용.
+    """
+    guide_path = PROJECT_ROOT / "CLAUDE.md"
+    try:
+        text = guide_path.read_text(encoding="utf-8")
+        # 80KB 제한 (CLAUDE.md 평소 ~30KB)
+        if len(text) > 80_000:
+            text = text[:80_000] + "\n\n... (이하 생략 — 전문은 git에서 확인)"
+        return text
+    except Exception as e:
+        logger.warning(f"CLAUDE.md 로드 실패: {e}")
+        return ""
+
+
 def build_system_prompt() -> str:
+    """AI에게 프로젝트 컨벤션 + 보안 규칙 + 응답 형식 안내.
+
+    핵심: CLAUDE.md를 그대로 첨부해 AI가 다음을 알게 함:
+      - 새 모델 추가 시 __init__.py 등록 의무
+      - student-sensitive endpoint에 assert_can_view_student 호출 의무
+      - 파일 업로드에 validate_upload + POLICY_X 사용
+      - 새 storage section은 files/router.py에 가드 등록
+      - 새 권한 키는 permissions.py에 정의 (안 하면 부팅 실패)
+      - downloadSecure() 헬퍼만 사용
+      - convention test가 매 CI에서 검증
+    """
+    guide = _load_project_guide()
+    guide_section = (
+        f"## 프로젝트 개발 가이드 (CLAUDE.md 전문 — 이 규칙 위반 시 CI에서 fail)\n\n{guide}\n\n"
+        if guide else ""
+    )
     return f"""당신은 학교 통합 플랫폼의 AI 개발자입니다.
 관리자가 기능 추가/수정 요청을 보내면, 코드 변경사항을 생성합니다.
 
@@ -131,20 +167,29 @@ def build_system_prompt() -> str:
 - 한국어로 UI 텍스트를 작성합니다
 - 최소한의 변경으로 요청을 구현합니다
 - 보안에 민감한 파일은 절대 수정하지 않습니다
+- **CLAUDE.md의 모든 보안·확장 규칙을 지킵니다** (특히 "새 기능 추가 체크리스트")
 
 ## 기술 스택
 - Frontend: Next.js 14 (App Router) + TypeScript + Tailwind CSS
-- Backend: FastAPI + async SQLAlchemy 2.0 + SQLite/PostgreSQL
-- 인증: JWT + TOTP 2FA
-- 디자인: CSS 변수 (--bg-primary, --text-primary, --accent 등)
+- Backend: FastAPI + async SQLAlchemy 2.0 + PostgreSQL (dev/prod 동일)
+- 인증: JWT + TOTP 2FA + 이메일 2FA (교사)
+- 디자인: CSS 변수 (--bg-primary, --text-primary, --accent 등) + cream-* 팔레트
 
 ## 수정 가능한 범위
 {json.dumps(ALLOWED_DIRS, ensure_ascii=False, indent=2)}
 
-## 수정 불가 파일
+## 수정 불가 파일 (시도해도 차단됨)
 {json.dumps(BLOCKED_FILES, ensure_ascii=False, indent=2)}
 
-## 응답 형식 (JSON만 출력)
+## 자동 검증되는 invariant (변경 후 CI가 잡음 — 위반 시 자동 rollback 후보)
+- `/api/students/{{sid}}/*` endpoint는 `await assert_can_view_student(db, user, sid)` 호출 필수
+- `UploadFile` 받는 endpoint는 `validate_upload(file, POLICY_X)` 사용 필수
+- 새 storage 디렉토리 사용 시 `app/modules/files/router.py:_GUARDS`에 가드 등록 필수
+- 새 권한 키는 `app/modules/X/permissions.py`에 정의 필수 (부팅 시 RuntimeError)
+- 새 모델은 `app/models/__init__.py`에 import 등록 + alembic revision 필수
+- frontend 파일 다운로드는 `downloadSecure(file_url)` 헬퍼만 사용 (`<a href>` 금지)
+
+{guide_section}## 응답 형식 (JSON만 출력)
 
 ```json
 {{
@@ -170,7 +215,7 @@ def build_system_prompt() -> str:
       ]
     }}
   ],
-  "notes": "관리자에게 전달할 안내사항 (선택)"
+  "notes": "관리자에게 전달할 안내사항 (선택, 마이그레이션 명령·재시작 필요 등)"
 }}
 ```
 """
@@ -238,14 +283,113 @@ async def call_claude_api(
 
 
 def extract_referenced_files(prompt: str) -> dict[str, str]:
-    files = {}
+    """프롬프트에 직접 명시된 파일 경로 읽어 첨부 + 모듈 키워드로 자동 첨부.
+
+    예: prompt에 "users 모듈"이 나오면 users/router.py, users/schemas.py 자동 첨부.
+    """
+    files: dict[str, str] = {}
+
+    # 1) 명시된 파일 경로
     pattern = r"((?:frontend|backend)/\S+\.(?:tsx?|py|ts|css|json))"
     matches = re.findall(pattern, prompt)
     for path in matches[:10]:
         content = read_file_safe(path)
         if content:
             files[path] = content
+
+    # 2) 모듈 키워드 자동 첨부 — "X 모듈", "/api/X/" 패턴
+    module_pattern = r"(?:^|\s|/)([a-z_]+)(?:\s*모듈|\s*module|/api/[a-z]+)"
+    module_names = set(re.findall(module_pattern, prompt))
+    # 알려진 모듈만 (오탐 방지)
+    known_modules = {
+        "auth", "users", "permissions", "system", "archive", "pipeline", "contest",
+        "assignment", "papers", "timetable", "research", "club", "admissions",
+        "portfolio", "challenge", "feedback", "ai_developer", "chatbot",
+        "student_self", "announcement", "files",
+    }
+    for mod in module_names & known_modules:
+        for sub in ("router.py", "schemas.py", "permissions.py"):
+            path = f"backend/app/modules/{mod}/{sub}"
+            if path in files:
+                continue
+            content = read_file_safe(path)
+            if content:
+                files[path] = content
+        if len(files) >= 15:
+            break
+
     return files
+
+
+def run_smoke_tests() -> tuple[bool, str]:
+    """적용 후 빠른 회귀 검증 — pytest의 security 마킹 + smoke 테스트만 실행.
+
+    전체 90+개 테스트는 시간 오래 걸려 적용 직후엔 보안 critical만 빠르게.
+    반환: (passed, output)
+    """
+    backend_dir = PROJECT_ROOT / "backend"
+    try:
+        # pytest 보안 마킹 + smoke 테스트 — 빠른 회귀 검증
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest",
+             "tests/test_smoke.py",
+             "tests/test_convention_invariants.py",
+             "tests/test_security_regressions.py",
+             "--tb=line", "-q", "--no-header"],
+            cwd=str(backend_dir),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        ok = proc.returncode == 0
+        return ok, (proc.stdout + proc.stderr)[-3000:]
+    except subprocess.TimeoutExpired:
+        return False, "pytest 타임아웃 (120초 초과)"
+    except Exception as e:
+        return False, f"pytest 실행 실패: {e}"
+
+
+def rollback_changes(applied_results: list[dict], backups: dict[str, str]) -> list[dict]:
+    """적용된 변경을 원상복구.
+
+    apply_changes 호출 전 백업된 원본 파일 내용으로 되돌림.
+    create된 파일은 삭제. modify된 파일은 백업으로 복원.
+    """
+    restored = []
+    for r in applied_results:
+        path = r.get("file_path", "")
+        if not is_path_allowed(path):
+            continue
+        full_path = PROJECT_ROOT / path
+        try:
+            if r.get("status") == "created" and full_path.exists():
+                full_path.unlink()
+                restored.append({"file_path": path, "rollback": "deleted"})
+            elif r.get("status") == "modified" and path in backups:
+                full_path.write_text(backups[path], encoding="utf-8")
+                restored.append({"file_path": path, "rollback": "restored"})
+        except Exception as e:
+            restored.append({"file_path": path, "rollback": f"failed: {e}"})
+    return restored
+
+
+def backup_changes(changes: list[dict]) -> dict[str, str]:
+    """apply_changes 전에 영향 파일들의 원본 내용 백업 (메모리 in dict)."""
+    backups: dict[str, str] = {}
+    for c in changes:
+        path = c.get("file_path", "")
+        action = c.get("action", "")
+        if action != "modify":
+            continue
+        if not is_path_allowed(path):
+            continue
+        full = PROJECT_ROOT / path
+        if full.exists():
+            try:
+                backups[path] = full.read_text(encoding="utf-8")
+            except Exception:
+                pass
+    return backups
 
 
 def needs_backend_restart(changes: list[dict]) -> bool:

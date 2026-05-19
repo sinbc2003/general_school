@@ -5,12 +5,13 @@ import os
 import signal
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit import log_action
 from app.core.database import get_db
-from app.core.permissions import require_super_admin
+from app.core.permissions import require_permission
 from app.models.feedback import DevRequest, Feedback
 from app.models.user import User
 from app.modules.ai_developer.schemas import (
@@ -22,12 +23,15 @@ from app.modules.ai_developer.schemas import (
 )
 from app.modules.ai_developer.service import (
     apply_changes,
+    backup_changes,
     build_system_prompt,
     build_user_message,
     call_claude_api,
     extract_referenced_files,
     needs_backend_restart,
     restart_backend,
+    rollback_changes,
+    run_smoke_tests,
 )
 
 router = APIRouter(prefix="/api/ai-developer", tags=["ai-developer"])
@@ -35,7 +39,7 @@ router = APIRouter(prefix="/api/ai-developer", tags=["ai-developer"])
 
 @router.get("/models")
 async def list_models(
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
 ):
     import httpx
     from app.core.config import settings
@@ -63,7 +67,7 @@ async def list_requests(
     status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(DevRequest)
@@ -82,7 +86,7 @@ async def list_requests(
 @router.get("/{request_id}", response_model=DevRequestResponse)
 async def get_request(
     request_id: int,
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)
@@ -94,7 +98,7 @@ async def get_request(
 @router.post("", response_model=DevRequestResponse)
 async def create_request(
     body: DevRequestCreate,
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
     if body.feedback_id:
@@ -119,7 +123,7 @@ async def create_request(
 async def generate_code(
     request_id: int,
     body: DevRequestExecute | None = None,
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)
@@ -165,9 +169,21 @@ async def generate_code(
 async def review_request(
     request_id: int,
     body: DevRequestApply,
-    user: User = Depends(require_super_admin()),
+    request: Request,
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
+    """AI 생성 코드 검토 후 승인/거부.
+
+    승인 흐름 (보안 강화):
+      1. 영향 파일 백업 (메모리)
+      2. apply_changes — 실제 디스크 쓰기
+      3. run_smoke_tests — pytest 보안 마킹 + smoke 테스트 자동 실행
+      4. 실패 시 rollback_changes — 원본 복구
+      5. 성공 시 status="applied", 필요 시 backend 재시작
+
+    is_sensitive=True audit log로 모든 적용/거부 기록.
+    """
     req = await db.get(DevRequest, request_id)
     if not req:
         raise HTTPException(404, "요청을 찾을 수 없습니다.")
@@ -179,30 +195,59 @@ async def review_request(
 
     if body.action == "reject":
         req.status = "rejected"
+        await log_action(
+            db, user, "ai_developer.reject",
+            target=f"request:{request_id}", request=request, is_sensitive=True,
+        )
         await db.flush()
         await db.refresh(req)
         return req
 
-    # 승인 → 코드 적용
+    # 승인 → 코드 적용 (백업 → apply → 테스트 → 실패 시 rollback)
     req.status = "approved"
     await db.flush()
 
+    changes = req.file_changes or []
+    backups = backup_changes(changes)
+
     try:
-        changes = req.file_changes or []
         results = apply_changes(changes)
         failed = [r for r in results if r["status"] == "failed"]
         if failed:
             req.error_message = json.dumps(failed, ensure_ascii=False)
             req.status = "failed"
         else:
-            req.status = "applied"
-            req.error_message = None
-            if needs_backend_restart(changes):
-                req.admin_note = (req.admin_note or "") + "\n[시스템] 백엔드 파일 변경 — 서버 재시작 예정"
+            # 자동 회귀 테스트 — security regression + convention invariants + smoke
+            test_ok, test_output = run_smoke_tests()
+            if not test_ok:
+                # 회귀 발생 → 자동 rollback
+                restored = rollback_changes(results, backups)
+                req.status = "failed"
+                req.error_message = (
+                    "[자동 rollback] 적용 후 회귀 테스트 fail.\n\n"
+                    f"테스트 결과:\n{test_output}\n\n"
+                    f"복구된 파일: {json.dumps(restored, ensure_ascii=False)}"
+                )
+                req.admin_note = (req.admin_note or "") + "\n[시스템] 회귀 테스트 실패로 자동 rollback"
+            else:
+                req.status = "applied"
+                req.error_message = None
+                if needs_backend_restart(changes):
+                    req.admin_note = (req.admin_note or "") + "\n[시스템] 백엔드 파일 변경 — 서버 재시작 예정"
     except Exception as e:
+        # apply 중 예외 → rollback 시도
+        try:
+            rollback_changes(results if "results" in locals() else [], backups)
+        except Exception:
+            pass
         req.status = "failed"
         req.error_message = f"적용 중 오류: {str(e)}"
 
+    await log_action(
+        db, user, f"ai_developer.{req.status}",
+        target=f"request:{request_id} files:{len(changes)}",
+        request=request, is_sensitive=True,
+    )
     await db.flush()
     await db.refresh(req)
 
@@ -220,7 +265,7 @@ def _schedule_restart():
 @router.delete("/{request_id}")
 async def delete_request(
     request_id: int,
-    user: User = Depends(require_super_admin()),
+    user: User = Depends(require_permission("system.ai_developer.use")),
     db: AsyncSession = Depends(get_db),
 ):
     req = await db.get(DevRequest, request_id)

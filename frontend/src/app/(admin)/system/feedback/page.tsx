@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 import { Bug, Lightbulb, HelpCircle, Bot } from "lucide-react";
 
@@ -29,6 +30,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function FeedbackManagePage() {
+  const router = useRouter();
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -69,15 +71,17 @@ export default function FeedbackManagePage() {
 
   const createDevRequest = async (fb: FeedbackItem) => {
     try {
-      await api.post("/api/ai-developer", {
-        feedback_id: fb.id,
-        title: `[${fb.feedback_type}] ${fb.content.slice(0, 50)}`,
-        prompt: fb.content,
-        request_type: fb.feedback_type === "bug" ? "bugfix" : "feature",
-      });
-      alert("AI 개발 요청이 생성되었습니다. AI 개발자 페이지에서 확인하세요.");
+      // 새 endpoint — page_url, 작업지시 자동 포함된 풍부한 prompt + 멱등성
+      const res = await api.post<{ id: number; status: string; reused: boolean }>(
+        `/api/feedback/${fb.id}/ai-request`,
+      );
+      const msg = res.reused
+        ? `이미 AI 요청이 있습니다 (DevRequest #${res.id}). 페이지로 이동합니다.`
+        : `AI 개발 요청 생성됨 (DevRequest #${res.id}). 페이지로 이동합니다.`;
+      alert(msg);
+      router.push("/system/ai-developer");
     } catch (err: any) {
-      alert(err?.detail || "생성 실패");
+      alert(err?.detail || "생성 실패 (system.ai_developer.use 권한 필요)");
     }
   };
 
