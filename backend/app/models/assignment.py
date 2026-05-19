@@ -50,6 +50,11 @@ class Assignment(Base):
     submission_format: Mapped[str] = mapped_column(
         String(50), default="pdf", nullable=False
     )  # pdf, image, text
+    # 파일명 정규화 템플릿 (예: "{grade}-{class}_{number}_{name}_{original}")
+    # 학생이 업로드 시 자동 적용 → "2-3_15_홍길동_보고서.pdf"
+    # 비어있으면 원본 파일명 그대로 저장.
+    # 지원 변수: app/core/filename_normalize.py 의 SUPPORTED_VARS 참고
+    filename_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[AssignmentStatus] = mapped_column(
         Enum(AssignmentStatus), default=AssignmentStatus.DRAFT, nullable=False
     )

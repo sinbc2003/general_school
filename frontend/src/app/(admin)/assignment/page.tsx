@@ -90,6 +90,7 @@ interface AssignmentFormData {
   target_grades: string;
   due_date: string;
   submission_format: string;
+  filename_template: string;
 }
 
 const EMPTY_FORM: AssignmentFormData = {
@@ -99,7 +100,15 @@ const EMPTY_FORM: AssignmentFormData = {
   target_grades: "",
   due_date: "",
   submission_format: "file",
+  filename_template: "",
 };
+
+const FILENAME_PATTERN_EXAMPLES = [
+  { label: "학년-반_번호_이름_원본", value: "{grade}-{class}_{number}_{name}_{original}" },
+  { label: "날짜_학년반_이름", value: "{date}_{grade}-{class}_{name}" },
+  { label: "[과제명]_이름", value: "[{assignment_title}]_{name}_{original}" },
+  { label: "YYYY-MM-DD_이름_원본", value: "{date:YYYY-MM-DD}_{name}_{original}" },
+];
 
 export default function AssignmentPage() {
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
@@ -163,6 +172,7 @@ export default function AssignmentPage() {
       target_grades: "",
       due_date: assignment.due_date ? assignment.due_date.slice(0, 10) : "",
       submission_format: "file",
+      filename_template: (assignment as any).filename_template || "",
     });
     setShowForm(true);
   };
@@ -190,6 +200,7 @@ export default function AssignmentPage() {
         target_grades: targetGrades.length > 0 ? targetGrades : null,
         due_date: form.due_date,
         submission_format: form.submission_format,
+        filename_template: form.filename_template.trim() || null,
       };
 
       if (editingId) {
@@ -325,6 +336,11 @@ export default function AssignmentPage() {
                   className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary focus:outline-none focus:border-accent resize-y"
                 />
               </div>
+              <FilenameTemplateField
+                value={form.filename_template}
+                onChange={(v) => updateForm("filename_template", v)}
+                assignmentTitle={form.title || "과제명"}
+              />
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button
@@ -431,4 +447,106 @@ export default function AssignmentPage() {
       />
     </div>
   );
+}
+
+
+// ── 파일명 정규화 패턴 입력 + 실시간 미리보기 ──────────────
+
+function FilenameTemplateField({
+  value,
+  onChange,
+  assignmentTitle,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  assignmentTitle: string;
+}) {
+  // 클라이언트 단에서 실시간 미리보기 (서버 호출 없이) — 가벼운 시뮬레이션
+  const sample = renderPreviewClient(value, assignmentTitle);
+
+  return (
+    <div className="bg-bg-secondary rounded-lg p-3 space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <label className="text-caption text-text-secondary font-medium">
+          파일명 정규화 패턴 (선택) —
+          <span className="text-text-tertiary font-normal">
+            {" "}학생 업로드 시 자동 적용
+          </span>
+        </label>
+      </div>
+
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder='예: {grade}-{class}_{number}_{name}_{original}'
+        className="w-full px-3 py-1.5 text-body border border-border-default rounded bg-bg-primary font-mono text-caption focus:outline-none focus:border-accent"
+      />
+
+      {value && (
+        <div className="text-caption">
+          <span className="text-text-tertiary">미리보기 (홍길동/2-3/15): </span>
+          <span className="font-mono text-accent">{sample}</span>
+        </div>
+      )}
+
+      <div className="text-caption text-text-tertiary">
+        <span>빠른 선택: </span>
+        {FILENAME_PATTERN_EXAMPLES.map((p, i) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => onChange(p.value)}
+            className="inline-block mr-2 mb-1 px-2 py-0.5 bg-bg-primary border border-border-default rounded text-[11px] hover:bg-accent-light hover:border-accent"
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <details className="text-caption text-text-tertiary">
+        <summary className="cursor-pointer hover:text-text-primary">사용 가능한 변수 (펼치기)</summary>
+        <ul className="mt-1 ml-4 space-y-0.5 text-[11px] font-mono">
+          <li><b>{"{grade}"}</b> 학년 (예: 2)</li>
+          <li><b>{"{class}"}</b> 반 (예: 3)</li>
+          <li><b>{"{number}"}</b> 번호 (예: 15)</li>
+          <li><b>{"{name}"}</b> 이름 (예: 홍길동)</li>
+          <li><b>{"{student_number}"}</b> 학번 (number와 동일 fallback)</li>
+          <li><b>{"{date}"}</b> 업로드 날짜 YYYYMMDD</li>
+          <li><b>{"{date:YYYY-MM-DD}"}</b> 커스텀 포맷</li>
+          <li><b>{"{original}"}</b> 원본 파일명 (확장자 제외)</li>
+          <li><b>{"{ext}"}</b> 확장자 (.pdf 등). 미명시 시 끝에 자동 추가</li>
+          <li><b>{"{assignment_title}"}</b> 과제 제목</li>
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+// 클라이언트 단 간단 시뮬레이터 (서버와 동일 결과 보장은 아니지만 실시간 피드백)
+function renderPreviewClient(pattern: string, assignmentTitle: string): string {
+  if (!pattern) return "원본파일.pdf";
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const dateStr = `${today.getFullYear()}${pad(today.getMonth() + 1)}${pad(today.getDate())}`;
+  const vars: Record<string, string> = {
+    grade: "2", class: "3", number: "15", student_number: "15",
+    name: "홍길동", original: "원본파일", ext: ".pdf",
+    assignment_title: assignmentTitle || "과제명",
+  };
+  // {date:format} 처리
+  let result = pattern.replace(/\{date(?::([^}]+))?\}/g, (_m, fmt) => {
+    if (!fmt) return dateStr;
+    let out = fmt;
+    out = out.replace(/YYYY/g, String(today.getFullYear()));
+    out = out.replace(/YY/g, String(today.getFullYear()).slice(2));
+    out = out.replace(/MM/g, pad(today.getMonth() + 1));
+    out = out.replace(/DD/g, pad(today.getDate()));
+    return out;
+  });
+  // 일반 변수
+  result = result.replace(/\{([a-z_]+)\}/g, (m, k) => vars[k] ?? m);
+  // ext 자동 추가
+  if (!result.endsWith(".pdf")) result = result + ".pdf";
+  return result;
 }

@@ -20,6 +20,9 @@ class AssignmentCreate(BaseModel):
     submission_format: SubmissionFormat = "pdf"
     is_visible: bool = True
     semester_id: int | None = None
+    # 파일명 정규화 템플릿 (예: "{grade}-{class}_{number}_{name}_{original}")
+    # 학생 업로드 시 자동 적용. None이면 원본 그대로.
+    filename_template: str | None = Field(None, max_length=255)
 
 
 class AssignmentUpdate(BaseModel):
@@ -31,6 +34,12 @@ class AssignmentUpdate(BaseModel):
     submission_format: SubmissionFormat | None = None
     is_visible: bool | None = None
     status: AssignmentStatusStr | None = None
+    filename_template: str | None = Field(None, max_length=255)
+
+
+class FilenamePreviewRequest(BaseModel):
+    """패턴 미리보기 — frontend 패턴 입력 중 실시간 검증/표시용."""
+    pattern: str = Field(..., min_length=1, max_length=255)
 
 
 class SubmissionReview(BaseModel):

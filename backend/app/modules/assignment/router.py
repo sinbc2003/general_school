@@ -16,10 +16,40 @@ from app.core.semester import (
 )
 from app.models.assignment import Assignment, AssignmentStatus, AssignmentSubmission, SubmissionStatus
 from app.models.user import User
-from app.modules.assignment.schemas import AssignmentCreate, AssignmentUpdate, SubmissionReview
+from app.modules.assignment.schemas import (
+    AssignmentCreate, AssignmentUpdate, FilenamePreviewRequest, SubmissionReview,
+)
 
 router = APIRouter(prefix="/api/assignment", tags=["assignment"])
 UPLOAD_DIR = os.path.join("storage", "assignments")
+
+
+@router.post("/_filename-preview")
+async def filename_preview(
+    body: FilenamePreviewRequest,
+    user: User = Depends(require_permission("assignment.manage.create")),
+):
+    """파일명 패턴 미리보기 — 교사가 패턴 입력하는 동안 결과 확인.
+
+    가상의 학생 (홍길동 / 2학년 3반 / 학번 15)으로 렌더.
+    {assignment_title}은 예시 텍스트 사용.
+    """
+    from app.core.filename_normalize import preview, SUPPORTED_VARS
+    sample = preview(
+        body.pattern,
+        student={"grade": 2, "class_number": 3, "student_number": 15, "name": "홍길동"},
+        extra={"assignment_title": "1차 과제"},
+    )
+    return {
+        "preview": sample,
+        "supported_variables": sorted(SUPPORTED_VARS),
+        "examples": [
+            "{grade}-{class}_{number}_{name}_{original}",
+            "{date}_{grade}-{class}_{number}_{name}",
+            "[{assignment_title}]_{name}_{original}",
+            "{date:YYYY-MM-DD}_{name}_{original}",
+        ],
+    }
 
 
 @router.post("")
@@ -39,6 +69,7 @@ async def create_assignment(
         due_date=body.due_date,
         submission_format=body.submission_format,
         is_visible=body.is_visible,
+        filename_template=body.filename_template,
         created_by_id=user.id,
     )
     db.add(a)
@@ -131,7 +162,7 @@ async def update_assignment(
         raise HTTPException(404, "과제를 찾을 수 없습니다")
     data = body.model_dump(exclude_unset=True)
     for f in ["title", "subject", "description", "target_grades", "due_date",
-              "submission_format", "is_visible"]:
+              "submission_format", "is_visible", "filename_template"]:
         if f in data:
             setattr(a, f, data[f])
     if "status" in data and data["status"]:
@@ -170,25 +201,36 @@ async def submit_assignment(
         raise HTTPException(404, "과제를 찾을 수 없습니다")
 
     from app.core.upload import validate_upload, POLICY_ARTIFACT
+    from app.core.filename_normalize import render as normalize_filename
     content = await validate_upload(file, POLICY_ARTIFACT)
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1].lower()
+    # 디스크 저장명은 충돌 방지를 위해 uuid (학생/검토 시 다운로드는 정규화된 이름으로 노출)
     stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = os.path.join(UPLOAD_DIR, stored_name)
     with open(stored_path, "wb") as f:
         f.write(content)
 
+    # 표시용 파일명 = 패턴 정규화 (교사가 과제에 filename_template 지정 시)
+    # 없으면 원본 파일명 그대로
+    display_filename = normalize_filename(
+        a.filename_template,
+        student=user,
+        original_filename=file.filename,
+        extra={"assignment_title": a.title},
+    ) if a.filename_template else (file.filename or stored_name)
+
     sub = AssignmentSubmission(
         assignment_id=aid,
         user_id=user.id,
-        filename=file.filename,
+        filename=display_filename,
         stored_path=stored_path,
         file_size=len(content),
     )
     db.add(sub)
     await db.flush()
-    return {"id": sub.id, "status": sub.status.value}
+    return {"id": sub.id, "status": sub.status.value, "filename": display_filename}
 
 
 @router.get("/{aid}/submissions")
