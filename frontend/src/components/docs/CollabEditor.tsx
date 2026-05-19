@@ -66,15 +66,41 @@ export default function CollabEditor({
       name: `doc-${docId}`,
       document: yDoc,
       async token() {
-        // 매 연결마다 refresh 시도 (refresh_token이 살아있으면 새 access_token 발급).
-        // 실패해도 진행 — 기존 access_token이 아직 유효할 수 있음.
         await api.ensureFreshToken().catch(() => false);
         return localStorage.getItem("access_token") ?? "";
       },
-      onStatus: ({ status: s }) => setStatus(s),
+      onStatus: ({ status: s }) => {
+        // eslint-disable-next-line no-console
+        console.log("[CollabEditor] status", s);
+        setStatus(s);
+      },
+      onSynced: ({ state }) => {
+        // eslint-disable-next-line no-console
+        console.log("[CollabEditor] synced — initial state received:", state);
+      },
       onAuthenticationFailed: ({ reason }) => {
+        // eslint-disable-next-line no-console
+        console.warn("[CollabEditor] auth failed:", reason);
         setAuthError(reason || "인증 실패");
       },
+      onAwarenessChange: ({ states }) => {
+        // eslint-disable-next-line no-console
+        console.log(
+          "[CollabEditor] awareness peers=",
+          states.map((s: any) => s?.user?.name ?? "?").join(","),
+        );
+      },
+    });
+
+    // 본문 update 진단 — 다른 client의 update를 받는지 확인용
+    yDoc.on("update", (_update: Uint8Array, origin: any) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[CollabEditor] yDoc update bytes=",
+        _update.length,
+        "origin=",
+        origin?.constructor?.name ?? typeof origin,
+      );
     });
 
     return { doc: yDoc, provider: prov };

@@ -18,6 +18,7 @@
 import {
   Server,
   type onAuthenticatePayload,
+  type onAwarenessUpdatePayload,
   type onChangePayload,
   type onDisconnectPayload,
   type onLoadDocumentPayload,
@@ -119,10 +120,17 @@ const server = Server.configure({
     return document;
   },
 
-  async onChange({ documentName, document, context }: onChangePayload) {
+  async onChange({ documentName, document, context, update }: onChangePayload) {
     const docId = extractDocIdFromName(documentName);
     const state = getOrInitDocState(docId);
     state.lastEditorId = (context as any)?.userId ?? null;
+
+    // 진단: 변경이 들어왔는지 (sync 진단용 — 두 client 사이 broadcast 추적)
+    const bytes = (update as Uint8Array | undefined)?.length ?? 0;
+    console.log(
+      `[hocuspocus] change doc=${docId} editor=${state.lastEditorId} ` +
+      `bytes=${bytes}`,
+    );
 
     if (state.debounceTimer) {
       clearTimeout(state.debounceTimer);
@@ -135,6 +143,20 @@ const server = Server.configure({
         console.error(`[hocuspocus] snapshot ${docId} 실패:`, e);
       }
     }, config.snapshotDebounceMs);
+  },
+
+  async onAwarenessUpdate({
+    documentName, awareness, added, updated, removed,
+  }: onAwarenessUpdatePayload) {
+    if (added.length || removed.length) {
+      const states = Array.from(awareness.getStates().entries()).map(
+        ([id, s]: any) => `${id}:${s?.user?.name ?? "?"}`,
+      );
+      console.log(
+        `[hocuspocus] awareness ${documentName} added=${added.length} ` +
+        `removed=${removed.length} states=[${states.join(",")}]`,
+      );
+    }
   },
 
   async onDisconnect({ documentName, document }: onDisconnectPayload) {
