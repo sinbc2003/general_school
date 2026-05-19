@@ -11,6 +11,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Share2 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth-context";
+import CollabEditor from "@/components/docs/CollabEditor";
 
 interface Permission {
   can_read: boolean;
@@ -34,6 +36,7 @@ interface DocDetail {
 export default function StudentDocEditorPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const cid = Number(params.cid);
   const did = Number(params.did);
 
@@ -91,16 +94,19 @@ export default function StudentDocEditorPage() {
         </span>
       </div>
 
-      {/* 편집기 자리 — Phase A+B-4에서 CollabEditor 컴포넌트로 교체 */}
-      <div className="border border-border-default rounded-lg p-8 bg-bg-primary min-h-[400px]">
-        <div className="text-caption text-text-tertiary text-center py-10 space-y-2">
-          <div className="text-body font-medium">실시간 협업 편집기</div>
-          <div>곧 여기서 친구들과 동시에 편집할 수 있게 됩니다.</div>
-          <div className="text-[11px] mt-4">
-            현재는 준비 중입니다. (Hocuspocus 서버 연동 대기)
-          </div>
+      {/* 실시간 협업 편집기 */}
+      {user ? (
+        <CollabEditor
+          docId={did}
+          userId={user.id}
+          userName={user.name}
+          canWrite={doc.permission.can_write && !doc.is_archived}
+        />
+      ) : (
+        <div className="border border-border-default rounded-lg p-8 text-center text-text-tertiary">
+          사용자 정보 로딩 중...
         </div>
-      </div>
+      )}
     </div>
   );
 }
