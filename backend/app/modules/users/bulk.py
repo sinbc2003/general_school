@@ -16,6 +16,7 @@ from app.core.auth import hash_password
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission, require_super_admin
+from app.core.quota import assign_default_quota
 from app.models.user import User
 from app.modules.users.schemas import BulkImportResult, BulkValidationResult
 from app.services.excel_service import (
@@ -95,6 +96,7 @@ async def confirm_bulk_import(
             department=row.get("department"),
             must_change_password=True,
         )
+        assign_default_quota(new_user)
         db.add(new_user)
         created += 1
 

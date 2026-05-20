@@ -14,6 +14,7 @@ from app.core.auth import hash_password
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.quota import assign_default_quota
 from app.models.user import User
 from app.modules.users.schemas import UserCreate, UserUpdate
 
@@ -127,6 +128,7 @@ async def create_user(
         department=body.department,
         must_change_password=True,
     )
+    assign_default_quota(new_user)
     db.add(new_user)
     await db.flush()
 

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import hash_password
 from app.core.config import settings
+from app.core.quota import assign_default_quota
 from app.models.user import User
 
 
@@ -128,6 +129,7 @@ async def import_users_csv(
 
     if not dry_run and new_users:
         for u in new_users:
+            assign_default_quota(u)
             db.add(u)
         await db.flush()
 

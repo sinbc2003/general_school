@@ -19,6 +19,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import resolve_permissions
+from app.core.quota import assign_default_quota
 from app.models.user import RefreshToken, User
 from app.modules.auth.schemas import (
     BootstrapStatus, RegisterRequest, TokenResponse,
@@ -92,6 +93,7 @@ async def register(body: RegisterRequest, request: Request, db: AsyncSession = D
         status="approved",
         must_change_password=False,
     )
+    assign_default_quota(new_user)
     db.add(new_user)
     await db.flush()
     await log_action(db, new_user, "register_super_admin", request=request)

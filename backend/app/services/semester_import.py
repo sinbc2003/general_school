@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import hash_password
 from app.core.config import settings
+from app.core.quota import assign_default_quota
 from app.models.user import User
 from app.models.timetable import SemesterEnrollment
 
@@ -264,6 +265,7 @@ async def import_enrollments_csv(
     if not dry_run:
         # 신규 사용자 먼저 flush해서 id 확보
         for u in new_users:
+            assign_default_quota(u)
             db.add(u)
         if new_users:
             await db.flush()
