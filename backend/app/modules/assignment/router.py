@@ -237,6 +237,25 @@ async def submit_assignment(
     )
     db.add(sub)
     await db.flush()
+
+    # 알림: 과제 등록한 교사(creator)에게 — best-effort
+    try:
+        from app.services.notification import notify_users
+        creator_id = a.created_by_id if hasattr(a, "created_by_id") else None
+        if creator_id and creator_id != user.id:
+            await notify_users(
+                db, user_ids=[creator_id],
+                type="classroom.submission.received",
+                title=f"새 과제 제출: {user.name} — {a.title}",
+                body=f"파일: {display_filename}",
+                link_url=f"/classroom/posts/_assignment/{aid}/submissions",
+                source_user_id=user.id,
+                meta={"assignment_id": aid, "submission_id": sub.id, "submitter_id": user.id},
+            )
+    except Exception as e:  # noqa: F841
+        import logging
+        logging.getLogger(__name__).warning("submission notify failed: %s", e)
+
     return {"id": sub.id, "status": sub.status.value, "filename": display_filename}
 
 

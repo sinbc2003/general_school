@@ -11,6 +11,7 @@ import { useSidebar } from "@/lib/sidebar-context";
 import { adminMenu, type MenuItem } from "@/config/admin-menu";
 import { studentMenu } from "@/config/student-menu";
 import { iconMap, type MenuCategory } from "@/config/menu-categories";
+import { NotificationBell } from "@/components/NotificationBell";
 
 // student-menu의 단순 항목을 admin-menu의 MenuItem 형태로 어댑팅
 function studentMenuAsItems(): MenuItem[] {
@@ -273,6 +274,9 @@ export function AdminSidebar() {
           <CalendarRange size={16} className="text-accent" />
         </div>
       )}
+
+      {/* 알림 종 + 드롭다운 — 사이드바 상단 (학기 표시 바로 아래) */}
+      <NotificationBell collapsed={collapsed} />
 
       {/* super_admin 학생 미리보기 모드 안내 — 관리자 화면으로 돌아가는 버튼 */}
       {previewingStudent && !collapsed && (

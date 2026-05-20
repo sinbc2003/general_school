@@ -750,6 +750,34 @@ async def create_course_post(
     )
     db.add(p)
     await db.flush()
+
+    # 알림: 강좌 수강생 전체에게 — best-effort (실패해도 게시는 성공)
+    try:
+        from app.services.notification import notify_users
+        student_ids = (await db.execute(
+            select(CourseStudent.student_id).where(
+                CourseStudent.course_id == cid,
+                CourseStudent.status == "active",
+            )
+        )).scalars().all()
+        type_label = {
+            "notice": "공지사항",
+            "material": "자료",
+            "assignment_ref": "과제",
+        }.get(p.post_type, "글")
+        await notify_users(
+            db, user_ids=list(student_ids),
+            type=f"classroom.{p.post_type}.new",
+            title=f"[{c.name}] 새 {type_label}: {p.title}",
+            body=(p.content or "")[:300] or None,
+            link_url=f"/s/classroom/{cid}/posts/{p.id}",
+            source_user_id=user.id,
+            meta={"course_id": cid, "post_id": p.id, "post_type": p.post_type},
+        )
+    except Exception as e:  # noqa: F841
+        import logging
+        logging.getLogger(__name__).warning("post notify failed: %s", e)
+
     await log_action(
         db, user, "classroom.post.create",
         target=f"course:{cid} post:{p.id}", request=request,
