@@ -107,6 +107,12 @@ from app.models.classroom_sheets import ClassroomSheet, SheetMember
 # ── Notifications (in-app + browser OS 알림) ──
 from app.models.notification import Notification
 
+# ── Google Drive OAuth 연결 (Phase 1.5) ──
+from app.models.google_connection import GoogleConnection
+
+# ── 스토리지 볼륨 (Phase 2 — 외장 SSD multi-volume 기반) ──
+from app.models.storage_volume import StorageVolume
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -169,4 +175,8 @@ __all__ = [
     "ClassroomSheet", "SheetMember",
     # Notifications
     "Notification",
+    # Google
+    "GoogleConnection",
+    # Storage
+    "StorageVolume",
 ]

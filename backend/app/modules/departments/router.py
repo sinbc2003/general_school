@@ -177,3 +177,5 @@ async def bulk_create_departments(
         detail=f"created={created} skipped={skipped}", request=request,
     )
     return {"ok": True, "created": created, "skipped": skipped}
+
+from app.modules.departments import delegation  # noqa: E402, F401

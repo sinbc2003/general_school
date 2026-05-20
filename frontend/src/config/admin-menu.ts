@@ -31,6 +31,7 @@ import {
   Smartphone,
   HardDrive,
   Building2,
+  Globe,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -286,6 +287,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-logs", label: "감사 로그", icon: FileText, path: "/system/logs", permission: "system.audit.view" },
       { key: "sys-menu", label: "메뉴 관리", icon: LayoutList, path: "/system/menu", permission: "system.settings.edit" },
       { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
+      { key: "sys-google", label: "Google 연동", icon: Globe, path: "/system/integrations/google", permission: "google.integration.configure" },
     ],
   },
 ];

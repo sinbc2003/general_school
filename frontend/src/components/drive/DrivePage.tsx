@@ -23,8 +23,10 @@ import Link from "next/link";
 import {
   FileText, FileSpreadsheet, Presentation, ClipboardList,
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
+  Globe, PanelRightOpen, PanelRightClose,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys";
 type TabKey = "all" | ItemType | "trash";
@@ -74,6 +76,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showGooglePanel, setShowGooglePanel] = useState(false);
 
   const baseClassroom = mode === "admin" ? "/classroom" : "/s/classroom";
   const baseDocs = mode === "admin" ? "/docs" : "/s/docs";
@@ -187,12 +190,28 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       : "#3b82f6";
 
   return (
-    <div onClick={() => menuOpen && setMenuOpen(null)}>
-      <div className="mb-6">
-        <h1 className="text-title text-text-primary">내 드라이브</h1>
-        <p className="text-caption text-text-tertiary mt-1">
-          본인이 만든 문서·스프레드시트·프리젠테이션·설문지. 휴지통은 30일 후 자동 영구 삭제됩니다.
-        </p>
+    <div onClick={() => menuOpen && setMenuOpen(null)} className="flex gap-4 h-full">
+      <div className="flex-1 min-w-0">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-title text-text-primary">내 드라이브</h1>
+          <p className="text-caption text-text-tertiary mt-1">
+            본인이 만든 문서·스프레드시트·프리젠테이션·설문지. 휴지통은 30일 후 자동 영구 삭제됩니다.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowGooglePanel(!showGooglePanel)}
+          className={`px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 ${
+            showGooglePanel
+              ? "bg-accent text-white"
+              : "text-accent border border-accent/30 hover:bg-accent/5"
+          }`}
+          title="본인 Google Drive 연동"
+        >
+          {showGooglePanel ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
+          <Globe size={13} /> Google Drive
+        </button>
       </div>
 
       {/* 만료 임박 배너 */}
@@ -424,6 +443,14 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               </div>
             );
           })}
+        </div>
+      )}
+      </div>
+
+      {/* Google Drive 사이드 패널 */}
+      {showGooglePanel && (
+        <div className="w-[360px] flex-shrink-0 hidden lg:block">
+          <GoogleDriveSidePanel onClose={() => setShowGooglePanel(false)} />
         </div>
       )}
     </div>
