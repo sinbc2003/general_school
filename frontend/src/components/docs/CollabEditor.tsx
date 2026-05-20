@@ -34,6 +34,8 @@ import { Table } from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
+import Youtube from "@tiptap/extension-youtube";
+import { LinkCard } from "./LinkCardExtension";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Wifi, WifiOff, Loader2 } from "lucide-react";
@@ -172,6 +174,14 @@ export default function CollabEditor({
       TableRow,
       TableHeader,
       TableCell,
+      // 미디어 임베드
+      Youtube.configure({
+        controls: true,
+        nocookie: true,
+        allowFullscreen: true,
+        modestBranding: true,
+      }),
+      LinkCard,
       Placeholder.configure({
         placeholder: "여기에 함께 작성해보세요...",
       }),

@@ -135,3 +135,97 @@
   height: 0;
   pointer-events: none;
 }
+
+/* ── YouTube embed (TipTap extension-youtube가 div.youtube wrapper) ── */
+.ProseMirror div[data-youtube-video] {
+  max-width: 100%;
+  margin: 0.75em 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+.ProseMirror div[data-youtube-video] iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  display: block;
+}
+
+/* ── 일반 링크 OG 미리보기 카드 ── */
+.ProseMirror a.link-card,
+a.link-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  margin: 0.75em 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  background: #fff;
+}
+.ProseMirror a.link-card:hover,
+a.link-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.link-card__body {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  min-height: 88px;
+}
+.link-card__thumb {
+  flex-shrink: 0;
+  width: 130px;
+  background-size: cover;
+  background-position: center;
+  background-color: #f3f4f6;
+}
+.link-card__thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #9ca3af;
+}
+.link-card__text {
+  flex: 1;
+  padding: 10px 12px 10px 0;
+  min-width: 0;
+}
+.link-card__site {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.link-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.3;
+  margin-bottom: 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.link-card__desc {
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.link-card__url {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

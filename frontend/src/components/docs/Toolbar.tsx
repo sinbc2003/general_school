@@ -15,8 +15,9 @@ import {
   List, ListOrdered, Quote, Heading1, Heading2, Heading3,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Link as LinkIcon, Image as ImageIcon, Table as TableIcon,
-  Undo, Redo, Palette, Highlighter, Code,
+  Undo, Redo, Palette, Highlighter, Code, Youtube, Globe,
 } from "lucide-react";
+import { api } from "@/lib/api/client";
 
 interface ToolbarProps {
   editor: Editor | null;
@@ -99,6 +100,47 @@ export function Toolbar({ editor }: ToolbarProps) {
 
   const insertTable = () => {
     editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  };
+
+  const promptYouTube = () => {
+    const url = window.prompt("YouTube URL (또는 video ID):", "https://www.youtube.com/watch?v=...");
+    if (!url) return;
+    // TipTap의 setYoutubeVideo는 다양한 URL 형식 자동 처리
+    const cmd = editor.chain().focus() as any;
+    if (cmd.setYoutubeVideo) {
+      cmd.setYoutubeVideo({ src: url, width: 640, height: 360 }).run();
+    } else {
+      alert("YouTube 확장이 로드되지 않았습니다");
+    }
+  };
+
+  const promptLinkCard = async () => {
+    const url = window.prompt("링크 URL (미리보기 카드로 삽입):", "https://");
+    if (!url) return;
+    try {
+      // OG 미리보기 fetch (안전: backend가 SSRF 차단)
+      const meta = await api.get<{
+        title?: string; description?: string; image?: string;
+        site_name?: string; url?: string;
+      }>(`/api/embeds/og-preview?url=${encodeURIComponent(url)}`);
+      const cmd = editor.chain().focus() as any;
+      if (cmd.setLinkCard) {
+        cmd.setLinkCard({
+          url: meta.url || url,
+          title: meta.title || url,
+          description: meta.description || "",
+          image: meta.image || "",
+          site_name: meta.site_name || "",
+        }).run();
+      } else {
+        editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+      }
+    } catch (e: any) {
+      // 미리보기 실패 — 일반 링크로 fallback
+      // eslint-disable-next-line no-console
+      console.warn("OG fetch failed, fallback to plain link:", e);
+      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    }
   };
 
   return (
@@ -228,8 +270,10 @@ export function Toolbar({ editor }: ToolbarProps) {
 
       {/* Link / Image / Table */}
       <Btn onClick={promptLink}
-        active={editor.isActive("link")} title="링크"><LinkIcon size={14} /></Btn>
+        active={editor.isActive("link")} title="링크 (인라인)"><LinkIcon size={14} /></Btn>
+      <Btn onClick={promptLinkCard} title="링크 카드 (OG 미리보기)"><Globe size={14} /></Btn>
       <Btn onClick={promptImage} title="이미지 (URL)"><ImageIcon size={14} /></Btn>
+      <Btn onClick={promptYouTube} title="YouTube 임베드"><Youtube size={14} /></Btn>
       <div className="relative inline-flex items-center">
         <Btn onClick={insertTable} title="표 삽입 (3×3)"><TableIcon size={14} /></Btn>
         {editor.isActive("table") && (

@@ -24,6 +24,8 @@ import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import Youtube from "@tiptap/extension-youtube";
+import { LinkCard } from "../docs/LinkCardExtension";
 import Collaboration from "@tiptap/extension-collaboration";
 import { ChevronLeft, ChevronRight, X, Maximize } from "lucide-react";
 import { api } from "@/lib/api/client";
@@ -191,6 +193,8 @@ function PresentSlide({
       Underline,
       Link.configure({ openOnClick: true, autolink: false }),
       Image.configure({ inline: false, allowBase64: true }),
+      Youtube.configure({ controls: true, nocookie: true, allowFullscreen: true, modestBranding: true }),
+      LinkCard,
       TextStyleWithSize,
       FontFamily,
       Color,
