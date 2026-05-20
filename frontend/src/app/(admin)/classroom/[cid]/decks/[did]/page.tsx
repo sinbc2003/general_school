@@ -73,13 +73,13 @@ export default function CourseDeckEditorAdminPage() {
   const canWrite = deck.permission.can_write && !deck.is_archived;
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
         <Link
-          href={`/classroom/${cid}/decks`}
+          href="/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
         >
-          <ArrowLeft size={12} /> 프리젠테이션 목록
+          <ArrowLeft size={12} /> 내 드라이브
         </Link>
         <div className="flex items-center gap-2 text-caption text-text-tertiary flex-wrap">
           <Presentation size={13} />

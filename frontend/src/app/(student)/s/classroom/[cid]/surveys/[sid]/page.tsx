@@ -146,10 +146,10 @@ export default function StudentSurveyResponsePage() {
           소중한 의견 감사합니다.
         </p>
         <Link
-          href={`/s/classroom/${cid}/surveys`}
+          href="/s/drive"
           className="inline-flex items-center gap-1 px-4 py-2 text-caption bg-accent text-white rounded hover:bg-accent-hover"
         >
-          설문 목록으로
+          내 드라이브로
         </Link>
       </div>
     );
@@ -166,10 +166,10 @@ export default function StudentSurveyResponsePage() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-3">
           <Link
-            href={`/s/classroom/${cid}/surveys`}
+            href="/s/drive"
             className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
           >
-            <ArrowLeft size={12} /> 설문 목록
+            <ArrowLeft size={12} /> 내 드라이브
           </Link>
         </div>
         <h1 className="text-title mb-2">{survey.title}</h1>
@@ -213,10 +213,10 @@ export default function StudentSurveyResponsePage() {
     <div className="max-w-2xl mx-auto">
       <div className="mb-3">
         <Link
-          href={`/s/classroom/${cid}/surveys`}
+          href="/s/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
         >
-          <ArrowLeft size={12} /> 설문 목록
+          <ArrowLeft size={12} /> 내 드라이브
         </Link>
       </div>
       <h1 className="text-title font-semibold mb-2 flex items-center gap-2">

@@ -100,12 +100,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     setLoading(true);
     setError(null);
     try {
+      // counts가 모든 탭에서 정확하게 표시되도록 항상 type=all로 가져옴.
+      // 화면 표시는 filtered가 active 탭에 맞게 필터링.
       const [i, list] = await Promise.all([
         api.get<DriveInfo>("/api/drive/me"),
         api.get<{ items: DriveItem[] }>(
-          `/api/drive/items?trash=${tab === "trash" ? "true" : "false"}&type=${
-            tab === "trash" || tab === "all" ? "all" : tab
-          }`
+          `/api/drive/items?trash=${tab === "trash" ? "true" : "false"}&type=all`
         ),
       ]);
       setInfo(i);
@@ -121,9 +121,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => it.title.toLowerCase().includes(q));
-  }, [items, search]);
+    let list = items;
+    // 휴지통/전체가 아니면 해당 type만 표시
+    if (tab !== "all" && tab !== "trash") {
+      list = list.filter((it) => it.type === tab);
+    }
+    if (q) {
+      list = list.filter((it) => it.title.toLowerCase().includes(q));
+    }
+    return list;
+  }, [items, search, tab]);
 
   const counts = useMemo(() => {
     if (tab === "trash") return {} as any;

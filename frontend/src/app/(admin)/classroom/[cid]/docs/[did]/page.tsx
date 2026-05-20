@@ -110,13 +110,13 @@ export default function CourseDocEditorPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="w-full">
       <div className="mb-3">
         <Link
-          href={`/classroom/${cid}/docs`}
+          href="/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
         >
-          <ArrowLeft size={12} /> 협업 문서 목록
+          <ArrowLeft size={12} /> 내 드라이브
         </Link>
       </div>
 

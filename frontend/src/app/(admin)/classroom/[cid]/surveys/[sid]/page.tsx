@@ -122,10 +122,10 @@ export default function SurveyBuilderPage() {
         {/* 상단 액션 row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Link
-            href={`/classroom/${cid}/surveys`}
+            href="/drive"
             className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1 mr-2"
           >
-            <ArrowLeft size={12} /> 설문 목록
+            <ArrowLeft size={12} /> 내 드라이브
           </Link>
           <span className={`text-caption px-2 py-0.5 rounded ${
             isDraft ? "bg-white text-text-secondary border border-border-default"
