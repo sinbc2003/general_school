@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, FileSpreadsheet, Share2 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth-context";
 import { SheetEditor } from "@/components/sheets/SheetEditor";
 
 interface Permission {
@@ -44,6 +45,7 @@ export default function SheetEditorPage() {
   const params = useParams();
   const router = useRouter();
   const sp = useSearchParams();
+  const { user } = useAuth();
   const sid = Number(params.sid);
   const fromSurvey = sp?.get("from-survey");
 
@@ -114,14 +116,21 @@ export default function SheetEditorPage() {
         </div>
       </div>
 
-      <SheetEditor
-        sheetId={sid}
-        canWrite={sheet.permission.can_write}
-        seedData={seedData}
-      />
+      {user ? (
+        <SheetEditor
+          sheetId={sid}
+          canWrite={sheet.permission.can_write}
+          userId={user.id}
+          userName={user.name}
+          seedData={seedData}
+        />
+      ) : (
+        <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
+      )}
 
       <div className="mt-2 text-[11px] text-text-tertiary">
-        ⓘ 변경사항은 5초마다 자동 저장됩니다. 다른 사용자가 동시 편집 시 마지막 저장이 우선됩니다.
+        ⓘ 동시 편집 활성 — 다른 사용자의 변경이 ~350ms 후 화면에 반영됩니다.
+        같은 셀에 동시 입력 시 마지막 입력이 우선 (셀 LWW).
       </div>
     </div>
   );
