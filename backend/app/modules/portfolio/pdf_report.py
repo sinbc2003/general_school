@@ -3,6 +3,8 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import pdf_report'로 등록.
 """
 
+import asyncio
+
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy import select
@@ -61,7 +63,10 @@ async def student_report_pdf(
         .where(ClubSubmission.author_id == sid)
     )).all()
 
-    pdf_bytes = generate_student_pdf(
+    # ReportLab은 CPU-bound (200~500ms). event loop을 막지 않게 to_thread로 위임.
+    # gunicorn 4 worker 환경에서 동시 PDF 요청이 와도 다른 워커가 다른 요청을 받음.
+    pdf_bytes = await asyncio.to_thread(
+        generate_student_pdf,
         student={
             "name": student.name, "email": student.email, "grade": student.grade,
             "class_number": student.class_number, "student_number": student.student_number,

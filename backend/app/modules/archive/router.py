@@ -35,13 +35,14 @@ async def upload_document(
     request: Request = None,
 ):
     from app.core.upload import validate_upload, POLICY_DOCUMENT
+    from app.core.files import ensure_dir_async, write_bytes_async
+    from pathlib import Path as _P
     content = await validate_upload(file, POLICY_DOCUMENT)
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    await ensure_dir_async(_P(UPLOAD_DIR))
     ext = os.path.splitext(file.filename or "")[1].lower()
     stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = os.path.join(UPLOAD_DIR, stored_name)
-    with open(stored_path, "wb") as f:
-        f.write(content)
+    await write_bytes_async(_P(stored_path), content)
 
     doc = Document(
         title=title or file.filename or "Untitled",

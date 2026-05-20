@@ -77,18 +77,16 @@ def generate_user_template() -> io.BytesIO:
     return buf
 
 
-async def parse_user_excel(
-    content: bytes, db: AsyncSession
+def _parse_excel_sync(
+    content: bytes, existing_emails: set[str]
 ) -> tuple[list[dict], list[dict]]:
-    """엑셀 파일을 파싱하여 유효한 행과 오류 목록 반환.
+    """openpyxl 파싱 + 유효성 검사 — 100% 동기. asyncio.to_thread로 호출.
 
-    read_only + data_only: cell 스타일 인덱싱 오류(다른 도구가 만든 .xlsx에서 발생)와
-    수식 계산 결과만 필요한 경우를 한 번에 회피.
+    `existing_emails`는 호출자가 미리 async로 DB에서 fetch.
     """
     try:
         wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    except Exception as e:
-        # 폴백: read_only 실패 시 일반 모드로 한 번 더 시도
+    except Exception as e:  # noqa: F841
         try:
             wb = load_workbook(io.BytesIO(content), data_only=True)
         except Exception as e2:
@@ -100,14 +98,9 @@ async def parse_user_excel(
     if not ws:
         return [], [{"row": 0, "field": "", "message": "시트를 찾을 수 없습니다"}]
 
-    # 기존 이메일 조회
-    result = await db.execute(select(User.email))
-    existing_emails = set(result.scalars().all())
-
     valid_rows: list[dict] = []
     errors: list[dict] = []
     seen_emails: set[str] = set()
-
     email_re = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
@@ -123,22 +116,17 @@ async def parse_user_excel(
         student_num = row[6] if row[6] else None
         department = str(row[7]).strip() if row[7] else None
 
-        # 유효성 검사
         row_errors = []
-
         if not name or len(name) < 2:
             row_errors.append({"row": row_idx, "field": "이름", "message": "이름은 2자 이상"})
-
         if not email or not email_re.match(email):
             row_errors.append({"row": row_idx, "field": "이메일", "message": "유효하지 않은 이메일"})
         elif email in existing_emails:
             row_errors.append({"row": row_idx, "field": "이메일", "message": f"이미 등록된 이메일: {email}"})
         elif email in seen_emails:
             row_errors.append({"row": row_idx, "field": "이메일", "message": f"파일 내 중복: {email}"})
-
         if role not in VALID_ROLES:
             row_errors.append({"row": row_idx, "field": "역할", "message": f"유효하지 않은 역할: {role}"})
-
         if role == "student":
             if not grade:
                 row_errors.append({"row": row_idx, "field": "학년", "message": "학생은 학년 필수"})
@@ -149,7 +137,6 @@ async def parse_user_excel(
                         row_errors.append({"row": row_idx, "field": "학년", "message": "학년은 1-3"})
                 except (ValueError, TypeError):
                     row_errors.append({"row": row_idx, "field": "학년", "message": "숫자를 입력하세요"})
-
         if password and len(password) < 8:
             row_errors.append({"row": row_idx, "field": "비밀번호", "message": "비밀번호 8자 이상"})
 
@@ -157,7 +144,7 @@ async def parse_user_excel(
             errors.extend(row_errors)
         else:
             seen_emails.add(email)
-            data = {
+            valid_rows.append({
                 "name": name,
                 "email": email,
                 "role": role,
@@ -166,10 +153,29 @@ async def parse_user_excel(
                 "class_number": int(class_num) if class_num else None,
                 "student_number": int(student_num) if student_num else None,
                 "department": department if department else None,
-            }
-            valid_rows.append(data)
+            })
 
     return valid_rows, errors
+
+
+async def parse_user_excel(
+    content: bytes, db: AsyncSession
+) -> tuple[list[dict], list[dict]]:
+    """엑셀 파일을 파싱하여 유효한 행과 오류 목록 반환.
+
+    openpyxl + 유효성 loop는 sync (수백 행 = 50~300ms blocking).
+    event loop을 막지 않게 asyncio.to_thread로 위임. 그 전에 기존 이메일은
+    async DB로 fetch해 to_thread 함수에 전달.
+
+    read_only + data_only: cell 스타일 인덱싱 오류 + 수식 결과만 필요 시 회피.
+    """
+    import asyncio
+
+    # 기존 이메일은 async DB로 미리 조회 (to_thread에서는 AsyncSession 못 씀)
+    result = await db.execute(select(User.email))
+    existing_emails = set(result.scalars().all())
+
+    return await asyncio.to_thread(_parse_excel_sync, content, existing_emails)
 
 
 def generate_user_export(users: list) -> io.BytesIO:

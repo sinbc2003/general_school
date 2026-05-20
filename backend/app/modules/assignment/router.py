@@ -209,13 +209,15 @@ async def submit_assignment(
     from app.core.filename_normalize import render as normalize_filename
     content = await validate_upload(file, POLICY_ARTIFACT)
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    # 파일 IO는 비차단으로 (큰 과제 제출도 event loop 안 막음)
+    from pathlib import Path as _P
+    from app.core.files import ensure_dir_async, write_bytes_async
+    await ensure_dir_async(_P(UPLOAD_DIR))
     ext = os.path.splitext(file.filename or "")[1].lower()
     # 디스크 저장명은 충돌 방지를 위해 uuid (학생/검토 시 다운로드는 정규화된 이름으로 노출)
     stored_name = f"{uuid.uuid4().hex}{ext}"
     stored_path = os.path.join(UPLOAD_DIR, stored_name)
-    with open(stored_path, "wb") as f:
-        f.write(content)
+    await write_bytes_async(_P(stored_path), content)
 
     # 표시용 파일명 = 패턴 정규화 (교사가 과제에 filename_template 지정 시)
     # 없으면 원본 파일명 그대로

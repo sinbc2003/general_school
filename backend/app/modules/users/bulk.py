@@ -70,17 +70,23 @@ async def confirm_bulk_import(
     user: User = Depends(require_permission("user.manage.bulk_import")),
     db: AsyncSession = Depends(get_db),
 ):
+    import asyncio
+
     from app.core.upload import validate_upload, POLICY_CSV
     content = await validate_upload(file, POLICY_CSV)
     rows, errors = await parse_user_excel(content, db)
 
+    # 비밀번호 해싱은 PBKDF2/bcrypt — 1행당 50~200ms CPU-bound.
+    # 1000명이면 sync 루프로 100초 차단. 한 번에 to_thread로 위임.
+    passwords = [row.get("password") or settings.DEFAULT_USER_PASSWORD for row in rows]
+    hashes = await asyncio.to_thread(lambda: [hash_password(p) for p in passwords])
+
     created = 0
-    for row in rows:
-        password = row.get("password") or settings.DEFAULT_USER_PASSWORD
+    for row, pwd_hash in zip(rows, hashes):
         new_user = User(
             email=row["email"],
             name=row["name"],
-            password_hash=hash_password(password),
+            password_hash=pwd_hash,
             role=row["role"],
             status="approved",
             grade=row.get("grade"),

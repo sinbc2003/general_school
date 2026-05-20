@@ -766,10 +766,12 @@ async def upload_attachment(
     ext = check_extension(file.filename, POLICY_CLASSROOM)
 
     # 저장 — uuid 사용해 collision 방지 + 추측 차단
-    CLASSROOM_DIR.mkdir(parents=True, exist_ok=True)
+    # 동기 IO는 to_thread로 위임 — event loop 비차단 (50MB 업로드도 다른 요청 막지 않음)
+    from app.core.files import ensure_dir_async, write_bytes_async
+    await ensure_dir_async(CLASSROOM_DIR)
     stored_name = f"{uuid.uuid4().hex}{ext}"
     full = CLASSROOM_DIR / stored_name
-    full.write_bytes(data)
+    await write_bytes_async(full, data)
 
     file_url = f"/storage/classroom/{stored_name}"
     original_name = (file.filename or stored_name).strip()

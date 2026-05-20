@@ -52,6 +52,10 @@ async def import_portfolio_csv(
         raise HTTPException(400, f"unknown type. valid: {list(CSV_TEMPLATES.keys())}")
     from app.core.upload import validate_upload, POLICY_CSV
     raw = await validate_upload(file, POLICY_CSV)
+    # import_csv는 내부 row 루프가 sync 파싱 + async _row_counseling 혼합.
+    # counseling은 별도 처리 (async)이므로 통째로 to_thread 불가.
+    # 큰 CSV(수천 행) import는 학기 초·말 1~2회만 발생하므로 현 구현 유지 OK.
+    # 더 최적화하려면 background task queue로 분리.
     result = await import_csv(db, csv_type, raw, dry_run=dry_run)
     if not dry_run:
         await log_action(db, user, f"portfolio.import.{csv_type}",

@@ -15,6 +15,7 @@
   - 만료 처리: expires_at 지나면 410 Gone.
 """
 
+import asyncio
 import io
 import secrets
 from datetime import datetime, timezone
@@ -199,13 +200,18 @@ async def qr_png(
     _check_link_alive(link)
 
     short_url = f"{settings.FRONTEND_URL}/q/{slug}"
-    img = qrcode.make(short_url)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
+
+    def _render_png() -> bytes:
+        # qrcode.make + PIL save — CPU-bound 50~150ms
+        img = qrcode.make(short_url)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    png_bytes = await asyncio.to_thread(_render_png)
     filename = f"qr_{slug}.png"
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        iter([png_bytes]),
         media_type="image/png",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
@@ -228,11 +234,16 @@ async def qr_svg(
     _check_link_alive(link)
 
     short_url = f"{settings.FRONTEND_URL}/q/{slug}"
-    factory = qrcode.image.svg.SvgPathImage
-    img = qrcode.make(short_url, image_factory=factory)
-    buf = io.BytesIO()
-    img.save(buf)
-    return Response(content=buf.getvalue(), media_type="image/svg+xml")
+
+    def _render_svg() -> bytes:
+        factory = qrcode.image.svg.SvgPathImage
+        img = qrcode.make(short_url, image_factory=factory)
+        buf = io.BytesIO()
+        img.save(buf)
+        return buf.getvalue()
+
+    svg_bytes = await asyncio.to_thread(_render_svg)
+    return Response(content=svg_bytes, media_type="image/svg+xml")
 
 
 # ── 공개 resolve (익명 OK — frontend redirect 핸들러용) ──

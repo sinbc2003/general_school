@@ -17,9 +17,10 @@ frontend에서 슬라이드·문서에 일반 링크 삽입 시, 백엔드가 OG
 응답 캐싱은 향후 (현재는 매 호출 fetch). 응답 5초 미만이라 부담 적음.
 """
 
+import asyncio
 import ipaddress
 import re
-import socket
+import socket  # noqa: F401  (asyncio.getaddrinfo가 내부에서 사용)
 from urllib.parse import urlparse
 
 import httpx
@@ -45,14 +46,14 @@ _FALLBACK_TAGS = {
 }
 
 
-def _is_safe_host(hostname: str | None) -> bool:
+async def _is_safe_host(hostname: str | None) -> bool:
     """SSRF 방어 — 사설망/localhost/메타데이터 IP 차단.
 
     DNS resolve 후 IP 검증. localhost·private·link-local·multicast·reserved 모두 차단.
+    DNS resolve는 asyncio loop.getaddrinfo로 비차단 (느린 DNS도 event loop 안 막음).
     """
     if not hostname:
         return False
-    # 너무 짧거나 점 없는 호스트는 의심 (단, IDN/순수 ip 도 같이 처리)
     try:
         # 호스트가 직접 IP 문자열일 수도
         try:
@@ -61,8 +62,9 @@ def _is_safe_host(hostname: str | None) -> bool:
                         or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
         except ValueError:
             pass
-        # DNS resolve — getaddrinfo는 동기지만 OG fetch는 매번 적어 수용
-        infos = socket.getaddrinfo(hostname, None)
+        # DNS resolve — asyncio loop은 내부적으로 thread pool 사용해 비차단
+        loop = asyncio.get_running_loop()
+        infos = await loop.getaddrinfo(hostname, None)
         for fam, _t, _p, _c, sockaddr in infos:
             ip_str = sockaddr[0]
             try:
@@ -145,7 +147,7 @@ async def og_preview(
     p = urlparse(url)
     if p.scheme not in ("http", "https"):
         raise HTTPException(400, "http/https 만 지원")
-    if not _is_safe_host(p.hostname):
+    if not await _is_safe_host(p.hostname):
         raise HTTPException(400, "허용되지 않은 호스트 (내부망 차단)")
 
     headers = {

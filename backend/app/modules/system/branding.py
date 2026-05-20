@@ -81,16 +81,20 @@ async def upload_favicon(
     data = await validate_upload(file, POLICY_FAVICON)
     ext = os.path.splitext(file.filename or "")[1].lower()
 
-    BRANDING_DIR.mkdir(parents=True, exist_ok=True)
-    # 동일 prefix의 기존 파일 정리 (확장자 다른 경우)
-    for old in BRANDING_DIR.glob("favicon.*"):
-        try:
-            old.unlink()
-        except OSError:
-            pass
+    from app.core.files import ensure_dir_async, write_bytes_async
+    import asyncio
+    await ensure_dir_async(BRANDING_DIR)
+    # 동일 prefix의 기존 파일 정리 (확장자 다른 경우) — 동기 IO이지만 한 번에 처리
+    def _cleanup():
+        for old in BRANDING_DIR.glob("favicon.*"):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    await asyncio.to_thread(_cleanup)
 
     target = BRANDING_DIR / f"favicon{ext}"
-    target.write_bytes(data)
+    await write_bytes_async(target, data)
 
     # cache-busting을 위한 timestamp 쿼리
     import time

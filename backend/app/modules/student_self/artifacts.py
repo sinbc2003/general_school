@@ -67,12 +67,13 @@ async def create_artifact(
         # POLICY_ARTIFACT: 확장자 화이트리스트 + 100MB 한도 + MIME 검증
         data = await validate_upload(file, POLICY_ARTIFACT)
 
+        from app.core.files import ensure_dir_async, write_bytes_async
         student_dir = ARTIFACT_DIR / str(user.id)
-        student_dir.mkdir(parents=True, exist_ok=True)
+        await ensure_dir_async(student_dir)
         ts = int(time.time())
         safe_name = f"{ts}_{os.path.basename(file.filename)}"
         target = student_dir / safe_name
-        target.write_bytes(data)
+        await write_bytes_async(target, data)
         file_url = f"/storage/artifacts/{user.id}/{safe_name}"
         file_name = file.filename
         file_size = len(data)
