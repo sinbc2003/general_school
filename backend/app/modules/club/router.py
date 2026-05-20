@@ -130,18 +130,25 @@ async def create_activity(
 @router.get("/{cid}/activities")
 async def list_activities(
     cid: int,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("club.activity.write")),
     db: AsyncSession = Depends(get_db),
 ):
+    """동아리 활동 목록 (페이지네이션). 기본 50, 최대 500."""
     rows = (await db.execute(
         select(ClubActivity).where(ClubActivity.club_id == cid)
         .order_by(desc(ClubActivity.activity_date))
+        .offset(offset).limit(limit)
     )).scalars().all()
-    return [{
-        "id": a.id, "title": a.title, "content": a.content,
-        "activity_date": a.activity_date.isoformat() if a.activity_date else None,
-        "attendees": a.attendees,
-    } for a in rows]
+    return {
+        "limit": limit, "offset": offset,
+        "items": [{
+            "id": a.id, "title": a.title, "content": a.content,
+            "activity_date": a.activity_date.isoformat() if a.activity_date else None,
+            "attendees": a.attendees,
+        } for a in rows],
+    }
 
 
 # ── Submissions (학생) ──
@@ -165,20 +172,27 @@ async def create_submission(
 @router.get("/{cid}/submissions")
 async def list_submissions(
     cid: int,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("club.activity.write")),
     db: AsyncSession = Depends(get_db),
 ):
+    """동아리 산출물 목록 (페이지네이션). 기본 50, 최대 500."""
     rows = (await db.execute(
         select(ClubSubmission, User.name)
         .join(User, User.id == ClubSubmission.author_id)
         .where(ClubSubmission.club_id == cid)
         .order_by(desc(ClubSubmission.created_at))
+        .offset(offset).limit(limit)
     )).all()
-    return [{
-        "id": s[0].id, "author_id": s[0].author_id, "name": s[1],
-        "title": s[0].title, "submission_type": s[0].submission_type,
-        "created_at": s[0].created_at.isoformat() if s[0].created_at else None,
-    } for s in rows]
+    return {
+        "limit": limit, "offset": offset,
+        "items": [{
+            "id": s[0].id, "author_id": s[0].author_id, "name": s[1],
+            "title": s[0].title, "submission_type": s[0].submission_type,
+            "created_at": s[0].created_at.isoformat() if s[0].created_at else None,
+        } for s in rows],
+    }
 
 
 # ── 학생 동아리 일괄 배정 (CSV import) ─────────────────────────────────

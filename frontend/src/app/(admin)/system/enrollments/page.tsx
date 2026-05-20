@@ -136,11 +136,13 @@ export default function EnrollmentsPage() {
       const params = new URLSearchParams();
       if (roleFilter) params.set("role", roleFilter);
       if (statusFilter) params.set("status", statusFilter);
-      const url = `/api/timetable/semesters/${selectedSid}/enrollments${
-        params.toString() ? `?${params}` : ""
-      }`;
-      const data = await api.get<Enrollment[]>(url);
-      setEnrollments(data);
+      // per_page=2000 — 학교 전체 명단이 한 페이지에 들어오게 (1400명 학교 기준).
+      // 더 큰 학교는 향후 페이지네이션 UI 도입.
+      params.set("per_page", "2000");
+      const url = `/api/timetable/semesters/${selectedSid}/enrollments?${params}`;
+      const data = await api.get<{ items: Enrollment[]; total: number } | Enrollment[]>(url);
+      // 백엔드 응답 호환 (list 또는 {items} 형태)
+      setEnrollments(Array.isArray(data) ? data : data.items);
     } catch (err: any) {
       console.error(err);
       alert(err?.detail || "명단 조회 실패");

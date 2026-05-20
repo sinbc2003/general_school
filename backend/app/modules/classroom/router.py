@@ -609,9 +609,15 @@ async def remove_student_from_course(
 @router.get("/courses/{cid}/posts")
 async def list_course_posts(
     cid: int,
+    limit: int = Query(30, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("classroom.post.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    """강좌 글 목록 (페이지네이션). 기본 30, 최대 200.
+
+    학기당 글 200+ 누적 시 응답 폭증 방지. is_pinned 우선 정렬 유지.
+    """
     c = await db.get(Course, cid)
     if not c:
         raise HTTPException(404)
@@ -620,6 +626,7 @@ async def list_course_posts(
     rows = (await db.execute(
         select(CoursePost).where(CoursePost.course_id == cid)
         .order_by(desc(CoursePost.is_pinned), desc(CoursePost.created_at))
+        .offset(offset).limit(limit)
     )).scalars().all()
 
     # 작성자 이름
@@ -629,7 +636,10 @@ async def list_course_posts(
         urows = (await db.execute(select(User).where(User.id.in_(author_ids)))).scalars().all()
         authors = {u.id: u.name for u in urows}
 
-    return {"items": [_post_to_dict(p, authors.get(p.author_id)) for p in rows]}
+    return {
+        "limit": limit, "offset": offset,
+        "items": [_post_to_dict(p, authors.get(p.author_id)) for p in rows],
+    }
 
 
 @router.post("/courses/{cid}/posts")

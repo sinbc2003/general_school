@@ -177,32 +177,43 @@ async def list_enrollments(
     sid: int,
     role: str | None = None,
     status: str | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=2000),
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """학기별 명단 조회."""
+    """학기별 명단 조회 (페이지네이션).
+
+    1400명 학교 기준 페이지당 100명 = 14페이지. per_page 최대 500 (관리자 전체 조회 시).
+    응답: {items, total, page, per_page}
+    """
+    from sqlalchemy import func as _sa_func
     await get_semester_by_id_or_404(db, sid)
-    q = (
+    base = (
         select(SemesterEnrollment, User)
         .join(User, User.id == SemesterEnrollment.user_id)
         .where(SemesterEnrollment.semester_id == sid)
     )
     if role:
-        q = q.where(SemesterEnrollment.role == role)
+        base = base.where(SemesterEnrollment.role == role)
     if status:
-        q = q.where(SemesterEnrollment.status == status)
-    q = q.order_by(
+        base = base.where(SemesterEnrollment.status == status)
+
+    # total count (페이지네이션 메타용)
+    count_q = select(_sa_func.count()).select_from(base.subquery())
+    total = int((await db.execute(count_q)).scalar() or 0)
+
+    q = base.order_by(
         SemesterEnrollment.role,
         SemesterEnrollment.grade.asc().nulls_last(),
         SemesterEnrollment.class_number.asc().nulls_last(),
         SemesterEnrollment.student_number.asc().nulls_last(),
         User.name,
-    )
+    ).offset((page - 1) * per_page).limit(per_page)
     rows = (await db.execute(q)).all()
 
     # 직책 할당 개수 일괄 조회 (행마다 1쿼리하지 않도록)
     from app.models.position import EnrollmentPosition as _EP
-    from sqlalchemy import func as _sa_func
     eids = [e.id for (e, _u) in rows]
     pos_counts: dict[int, int] = {}
     if eids:
@@ -213,10 +224,15 @@ async def list_enrollments(
         )).all()
         pos_counts = {eid: int(cnt) for eid, cnt in cnt_rows}
 
-    return [
-        _enrollment_to_dict(e, u, position_count=pos_counts.get(e.id, 0))
-        for (e, u) in rows
-    ]
+    return {
+        "items": [
+            _enrollment_to_dict(e, u, position_count=pos_counts.get(e.id, 0))
+            for (e, u) in rows
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
 
 
 @router.post("/semesters/{sid}/enrollments")

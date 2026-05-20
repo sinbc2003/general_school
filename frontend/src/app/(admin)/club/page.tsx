@@ -234,7 +234,7 @@ function ClubActivities({ club, onBack }: { club: ClubItem; onBack: () => void }
 
   useEffect(() => {
     api.get(`/api/club/${club.id}/activities`)
-      .then((d) => setActivities(Array.isArray(d) ? d : []))
+      .then((d: any) => setActivities(Array.isArray(d) ? d : (d?.items ?? [])))
       .catch(() => setActivities([]))
       .finally(() => setLoading(false));
   }, [club.id]);

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import AsyncIterator
 import json
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,19 +41,26 @@ from app.modules.chatbot.schemas import (
 async def list_all_sessions(
     user_id: int | None = None,
     archived: bool = False,
-    limit: int = 100,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("chatbot.session.view_all")),
     db: AsyncSession = Depends(get_db),
 ):
-    """관리자: 전체 사용자 대화 세션 조회 (모니터링)"""
+    """관리자: 전체 사용자 대화 세션 조회 (모니터링).
+    limit 50 기본, 최대 500. 대용량 학교는 offset으로 페이지 이동.
+    """
     q = select(ChatSession, User.username, User.name, User.role).join(
         User, User.id == ChatSession.user_id
     ).where(ChatSession.archived == archived)
     if user_id:
         q = q.where(ChatSession.user_id == user_id)
-    q = q.order_by(desc(ChatSession.last_message_at), desc(ChatSession.created_at)).limit(limit)
+    q = (
+        q.order_by(desc(ChatSession.last_message_at), desc(ChatSession.created_at))
+        .offset(offset).limit(limit)
+    )
     rows = (await db.execute(q)).all()
     return {
+        "limit": limit, "offset": offset,
         "items": [
             {
                 "id": s.id, "title": s.title, "audience": s.audience,
@@ -74,16 +81,22 @@ async def list_all_sessions(
 @router.get("/sessions")
 async def list_sessions(
     archived: bool = False,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("chatbot.session.view_own")),
     db: AsyncSession = Depends(get_db),
 ):
-    """내 대화 세션 목록"""
+    """내 대화 세션 목록. limit 100 기본 (활동 많은 교사도 1년치 100개씩 페이지)."""
     q = select(ChatSession).where(
         ChatSession.user_id == user.id,
         ChatSession.archived == archived,
-    ).order_by(desc(ChatSession.pinned), desc(ChatSession.last_message_at), desc(ChatSession.created_at))
+    ).order_by(
+        desc(ChatSession.pinned), desc(ChatSession.last_message_at),
+        desc(ChatSession.created_at),
+    ).offset(offset).limit(limit)
     rows = (await db.execute(q)).scalars().all()
     return {
+        "limit": limit, "offset": offset,
         "items": [
             {
                 "id": s.id, "title": s.title, "audience": s.audience,
