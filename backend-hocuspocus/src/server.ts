@@ -26,29 +26,36 @@ import {
 import * as Y from "yjs";
 import { config } from "./config.js";
 import {
-  extractDocIdFromName,
-  fetchDocPermission,
+  extractTarget,
+  fetchTargetPermission,
   verifyToken,
   type DocPermission,
+  type TargetRef,
 } from "./auth.js";
 import {
   extractPlainText,
-  loadDocSnapshot,
-  storeDocSnapshot,
+  loadSnapshot,
+  storeSnapshot,
 } from "./storage.js";
 
 // per-document state — onChange로 debounce timer 관리
 interface DocState {
   lastEditorId: number | null;
   debounceTimer: NodeJS.Timeout | null;
+  target: TargetRef;
 }
-const docStates = new Map<number, DocState>();
+const docStates = new Map<string, DocState>();
 
-function getOrInitDocState(docId: number): DocState {
-  let s = docStates.get(docId);
+function stateKey(target: TargetRef): string {
+  return `${target.kind}-${target.id}`;
+}
+
+function getOrInitDocState(target: TargetRef): DocState {
+  const key = stateKey(target);
+  let s = docStates.get(key);
   if (!s) {
-    s = { lastEditorId: null, debounceTimer: null };
-    docStates.set(docId, s);
+    s = { lastEditorId: null, debounceTimer: null, target };
+    docStates.set(key, s);
   }
   return s;
 }
@@ -69,28 +76,27 @@ const server = Server.configure({
       console.warn(`[hocuspocus] auth reject: JWT verify failed (${documentName}): ${e?.message ?? e}`);
       throw e;
     }
-    const docId = extractDocIdFromName(documentName);
+    const target = extractTarget(documentName);
 
     let perm: DocPermission;
     try {
-      perm = await fetchDocPermission(docId, token);
+      perm = await fetchTargetPermission(target, token);
     } catch (e: any) {
       console.warn(`[hocuspocus] auth reject: permission lookup failed (${documentName}): ${e?.message ?? e}`);
       throw new Error(`permission check failed: ${e?.message ?? e}`);
     }
     if (!perm.can_read) {
-      console.warn(`[hocuspocus] auth reject: can_read=false uid=${payload.sub} doc=${docId}`);
+      console.warn(`[hocuspocus] auth reject: can_read=false uid=${payload.sub} target=${documentName}`);
       throw new Error("forbidden");
     }
 
-    // read-only 사용자도 connection은 허용 (presence·커서 보기 위해)
     if (!perm.can_write) {
       connection.readOnly = true;
     }
 
     console.log(
       `[hocuspocus] auth OK uid=${payload.sub} role=${payload.role} ` +
-      `doc=${docId} canWrite=${perm.can_write}`,
+      `target=${documentName} canWrite=${perm.can_write}`,
     );
 
     return {
@@ -105,30 +111,29 @@ const server = Server.configure({
   },
 
   async onLoadDocument({ documentName, document }: onLoadDocumentPayload) {
-    const docId = extractDocIdFromName(documentName);
+    const target = extractTarget(documentName);
     try {
-      const state = await loadDocSnapshot(docId);
+      const state = await loadSnapshot(target);
       if (state) {
         Y.applyUpdate(document, state);
-        console.log(`[hocuspocus] loaded snapshot doc=${docId} bytes=${state.length}`);
+        console.log(`[hocuspocus] loaded snapshot ${documentName} bytes=${state.length}`);
       } else {
-        console.log(`[hocuspocus] no snapshot, fresh doc=${docId}`);
+        console.log(`[hocuspocus] no snapshot, fresh ${documentName}`);
       }
     } catch (e) {
-      console.error(`[hocuspocus] onLoadDocument ${docId} 실패:`, e);
+      console.error(`[hocuspocus] onLoadDocument ${documentName} 실패:`, e);
     }
     return document;
   },
 
   async onChange({ documentName, document, context, update }: onChangePayload) {
-    const docId = extractDocIdFromName(documentName);
-    const state = getOrInitDocState(docId);
+    const target = extractTarget(documentName);
+    const state = getOrInitDocState(target);
     state.lastEditorId = (context as any)?.userId ?? null;
 
-    // 진단: 변경이 들어왔는지 (sync 진단용 — 두 client 사이 broadcast 추적)
     const bytes = (update as Uint8Array | undefined)?.length ?? 0;
     console.log(
-      `[hocuspocus] change doc=${docId} editor=${state.lastEditorId} ` +
+      `[hocuspocus] change ${documentName} editor=${state.lastEditorId} ` +
       `bytes=${bytes}`,
     );
 
@@ -138,9 +143,9 @@ const server = Server.configure({
     state.debounceTimer = setTimeout(async () => {
       try {
         const plain = extractPlainText(document);
-        await storeDocSnapshot(docId, document, plain, state.lastEditorId);
+        await storeSnapshot(target, document, plain, state.lastEditorId);
       } catch (e) {
-        console.error(`[hocuspocus] snapshot ${docId} 실패:`, e);
+        console.error(`[hocuspocus] snapshot ${documentName} 실패:`, e);
       }
     }, config.snapshotDebounceMs);
   },
@@ -161,17 +166,17 @@ const server = Server.configure({
 
   async onDisconnect({ documentName, document }: onDisconnectPayload) {
     // 마지막 client 떠날 때 즉시 snapshot (debounce 무시)
-    const docId = extractDocIdFromName(documentName);
-    const state = docStates.get(docId);
+    const target = extractTarget(documentName);
+    const state = docStates.get(`${target.kind}-${target.id}`);
     if (state?.debounceTimer) {
       clearTimeout(state.debounceTimer);
       state.debounceTimer = null;
     }
     try {
       const plain = extractPlainText(document);
-      await storeDocSnapshot(docId, document, plain, state?.lastEditorId ?? null);
+      await storeSnapshot(target, document, plain, state?.lastEditorId ?? null);
     } catch (e) {
-      console.error(`[hocuspocus] final snapshot ${docId} 실패:`, e);
+      console.error(`[hocuspocus] final snapshot ${documentName} 실패:`, e);
     }
   },
 });

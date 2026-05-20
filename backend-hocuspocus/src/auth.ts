@@ -34,19 +34,37 @@ export function verifyToken(token: string): TokenPayload {
   return decoded;
 }
 
-export function extractDocIdFromName(documentName: string): number {
-  // 형식: "doc-{docId}". frontend HocuspocusProvider의 name과 일치해야 함.
-  const m = documentName.match(/^doc-(\d+)$/);
+export type TargetKind = "doc" | "deck";
+
+export interface TargetRef {
+  kind: TargetKind;
+  id: number;
+}
+
+/**
+ * documentName 형식:
+ *   "doc-{id}"   — 협업 문서 (classroom_docs)
+ *   "deck-{id}"  — 협업 프리젠테이션 deck (classroom_slides)
+ *
+ * frontend HocuspocusProvider의 name과 정확히 일치해야 함.
+ */
+export function extractTarget(documentName: string): TargetRef {
+  const m = documentName.match(/^(doc|deck)-(\d+)$/);
   if (!m) {
     throw new Error(`invalid documentName: ${documentName}`);
   }
-  return parseInt(m[1], 10);
+  return { kind: m[1] as TargetKind, id: parseInt(m[2], 10) };
 }
 
-export async function fetchDocPermission(
-  docId: number, token: string,
+/** kind별 backend resource path. */
+export function resourcePath(kind: TargetKind): string {
+  return kind === "deck" ? "decks" : "docs";
+}
+
+export async function fetchTargetPermission(
+  target: TargetRef, token: string,
 ): Promise<DocPermission> {
-  const url = `${config.fastapiUrl}/api/classroom/docs/${docId}/permission`;
+  const url = `${config.fastapiUrl}/api/classroom/${resourcePath(target.kind)}/${target.id}/permission`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });

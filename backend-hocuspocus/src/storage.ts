@@ -10,15 +10,16 @@
 
 import * as Y from "yjs";
 import { config } from "./config.js";
+import { resourcePath, type TargetRef } from "./auth.js";
 
-export async function loadDocSnapshot(docId: number): Promise<Uint8Array | null> {
-  const url = `${config.fastapiUrl}/api/classroom/docs/${docId}/yjs-snapshot`;
+export async function loadSnapshot(target: TargetRef): Promise<Uint8Array | null> {
+  const url = `${config.fastapiUrl}/api/classroom/${resourcePath(target.kind)}/${target.id}/yjs-snapshot`;
   const res = await fetch(url, {
     headers: { "X-Internal-Token": config.internalToken },
   });
   if (!res.ok) {
-    // 404 (문서 없음) 또는 권한 오류. Hocuspocus는 빈 문서로 진행.
-    console.warn(`[hocuspocus] loadDocSnapshot ${docId} : ${res.status}`);
+    // 404 (없음) 또는 권한 오류. Hocuspocus는 빈 doc으로 진행.
+    console.warn(`[hocuspocus] loadSnapshot ${target.kind}-${target.id} : ${res.status}`);
     return null;
   }
   const data = (await res.json()) as { state_base64: string | null };
@@ -26,11 +27,12 @@ export async function loadDocSnapshot(docId: number): Promise<Uint8Array | null>
   return Buffer.from(data.state_base64, "base64");
 }
 
-export async function storeDocSnapshot(
-  docId: number, doc: Y.Doc, plainText: string | null, lastEditorId: number | null,
+export async function storeSnapshot(
+  target: TargetRef, doc: Y.Doc,
+  plainText: string | null, lastEditorId: number | null,
 ): Promise<void> {
   const state = Y.encodeStateAsUpdate(doc);
-  const url = `${config.fastapiUrl}/api/classroom/docs/${docId}/yjs-snapshot`;
+  const url = `${config.fastapiUrl}/api/classroom/${resourcePath(target.kind)}/${target.id}/yjs-snapshot`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -45,7 +47,7 @@ export async function storeDocSnapshot(
   });
   if (!res.ok) {
     const body = await res.text();
-    console.error(`[hocuspocus] storeDocSnapshot ${docId} 실패: ${res.status} ${body}`);
+    console.error(`[hocuspocus] storeSnapshot ${target.kind}-${target.id} 실패: ${res.status} ${body}`);
     return;
   }
 }
