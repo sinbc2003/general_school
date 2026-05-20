@@ -41,11 +41,22 @@ def event_loop():
 
 @pytest_asyncio.fixture
 async def db_engine():
-    """매 테스트마다 새 in-memory SQLite engine + 테이블 생성."""
+    """매 테스트마다 새 in-memory SQLite engine + 테이블 생성.
+
+    SQLite는 기본적으로 FK 미강제 — connect event로 모든 connection에 PRAGMA 적용.
+    """
+    from sqlalchemy import event
     from app.core.database import Base
     import app.models  # noqa: F401 — 모델 등록
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_fk(dbapi_conn, _):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -127,8 +138,9 @@ async def _create_user(
     class_number: int | None = None,
     student_number: int | None = None,
 ) -> "User":
-    """테스트 사용자 생성."""
+    """테스트 사용자 생성. 운영 흐름과 동일하게 quota 자동 부여."""
     from app.core.auth import hash_password
+    from app.core.quota import assign_default_quota
     from app.models.user import User
     user = User(
         email=email, name=name, role=role,
@@ -138,6 +150,7 @@ async def _create_user(
         grade=grade, class_number=class_number, student_number=student_number,
         must_change_password=False,
     )
+    assign_default_quota(user)
     db.add(user)
     await db.flush()
     await db.refresh(user)

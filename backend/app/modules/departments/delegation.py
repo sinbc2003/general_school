@@ -188,7 +188,7 @@ async def grant_delegation(
     if exists:
         return {"ok": True, "skipped": True}
 
-    db.add(UserPermission(user_id=target.id, permission_id=perm.id))
+    db.add(UserPermission(user_id=target.id, permission_id=perm.id, granted_by=user.id))
     await db.flush()
     await log_action(
         db, user, "department_delegate",

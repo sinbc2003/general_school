@@ -114,15 +114,21 @@ async def seed_grade_office_courses(
         db.add(course)
         await db.flush()
 
-        # 담임들을 co_teacher로 추가 (enrollment에서 같은 학년 homeroom 조회)
+        # 담임들을 co_teacher로 추가 (homeroom_class="N-M" 형식에서 같은 학년 추출)
         homerooms = (await db.execute(
-            select(SemesterEnrollment.user_id).where(
+            select(SemesterEnrollment.user_id, SemesterEnrollment.homeroom_class).where(
                 SemesterEnrollment.semester_id == semester_id,
-                SemesterEnrollment.homeroom_class_grade == grade,
-            ).distinct()
-        )).scalars().all()
-        for uid in homerooms:
-            if uid != lead.id:
+                SemesterEnrollment.homeroom_class.isnot(None),
+            )
+        )).all()
+        for uid, hr_class in homerooms:
+            if not hr_class or "-" not in hr_class:
+                continue
+            try:
+                hr_grade = int(hr_class.split("-")[0])
+            except (ValueError, IndexError):
+                continue
+            if hr_grade == grade and uid != lead.id:
                 await _add_coteacher_if_missing(db, course.id, uid)
 
         created += 1
@@ -140,19 +146,24 @@ async def seed_class_homeroom_courses(
 
     enrollment에서 homeroom_class_grade + homeroom_class_number 조합으로 학급 식별.
     """
-    # 학급 → 담임 매핑
+    # 학급 → 담임 매핑 (homeroom_class="N-M" 형식)
     enrolls = (await db.execute(
         select(SemesterEnrollment).where(
             SemesterEnrollment.semester_id == semester_id,
-            SemesterEnrollment.homeroom_class_grade.isnot(None),
-            SemesterEnrollment.homeroom_class_number.isnot(None),
+            SemesterEnrollment.homeroom_class.isnot(None),
         )
     )).scalars().all()
 
     # 담임 (1학급 1명 기대): (grade, class) → user_id
     homeroom_map: dict[tuple[int, int], int] = {}
     for e in enrolls:
-        homeroom_map[(e.homeroom_class_grade, e.homeroom_class_number)] = e.user_id
+        if not e.homeroom_class or "-" not in e.homeroom_class:
+            continue
+        try:
+            g, c = e.homeroom_class.split("-")
+            homeroom_map[(int(g), int(c))] = e.user_id
+        except (ValueError, IndexError):
+            continue
 
     created = 0
     skipped = 0
