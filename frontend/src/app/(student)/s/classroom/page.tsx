@@ -7,7 +7,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { GraduationCap } from "lucide-react";
+import Link from "next/link";
+import { GraduationCap, Archive } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { CourseCard } from "@/components/classroom/CourseCard";
 
@@ -37,13 +38,22 @@ export default function StudentClassroomPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-title text-text-primary flex items-center gap-2">
-          <GraduationCap size={22} /> 내 수업
-        </h1>
-        <p className="text-caption text-text-tertiary mt-1">
-          이번 학기 수강 강좌. 클릭하면 클래스룸 (공지·자료)을 볼 수 있습니다.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-title text-text-primary flex items-center gap-2">
+            <GraduationCap size={22} /> 내 수업
+          </h1>
+          <p className="text-caption text-text-tertiary mt-1">
+            이번 학기 수강 강좌. 클릭하면 클래스룸 (공지·자료)을 볼 수 있습니다.
+          </p>
+        </div>
+        <Link
+          href="/s/classroom/archived"
+          className="flex items-center gap-1 px-3 py-1.5 text-caption text-text-secondary border border-border-default rounded hover:bg-bg-secondary"
+          title="이전 학기에 수강했던 강좌 (읽기 전용)"
+        >
+          <Archive size={13} /> 이전 학기
+        </Link>
       </div>
 
       {loading ? (

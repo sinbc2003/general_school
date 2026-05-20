@@ -73,6 +73,8 @@ interface CourseDetail {
   student_count: number;
   students: Student[];
   viewer_role: "admin" | "teacher" | "student";
+  is_past_semester?: boolean;
+  semester?: { name: string; year: number; term: number } | null;
 }
 
 export default function CourseDetailAdminPage() {
@@ -188,7 +190,9 @@ export default function CourseDetailAdminPage() {
   if (!course) return null;
 
   const tone = getCourseTone(cid);
-  const canEdit = course.viewer_role !== "student";
+  // 학생은 항상 read-only. 교사/admin도 과거 학기는 read-only.
+  const canEdit = course.viewer_role !== "student" && !course.is_past_semester;
+  const isReadOnly = !!course.is_past_semester;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -204,6 +208,19 @@ export default function CourseDetailAdminPage() {
         viewerRole={course.viewer_role}
         tone={tone}
       />
+
+      {isReadOnly && (
+        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-caption text-amber-900">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-200 rounded text-[11px] font-medium">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+            보관
+          </span>
+          <span>
+            <b>이전 학기</b>{course.semester ? ` (${course.semester.year}학년도 ${course.semester.term}학기)` : ""} 강좌입니다 — 읽기 전용.
+            새 글·과제는 현재 학기 강좌에서 작성하세요.
+          </span>
+        </div>
+      )}
 
       <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
 

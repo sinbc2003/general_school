@@ -184,6 +184,68 @@ async def list_my_courses(
     return {"items": [_course_to_dict(c, counts.get(c.id, 0)) for c in rows]}
 
 
+@router.get("/courses/_archived")
+async def list_my_archived_courses(
+    user: User = Depends(require_permission("classroom.course.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인이 가르쳤거나 수강했던 **과거 학기** 강좌 (read-only 열람용).
+
+    - 교사: teacher_id == user.id AND semester_id != active
+    - 학생: CourseStudent에 본인 등록된 강좌 (status 무관 — dropped/transferred 포함)
+            AND semester_id != active
+    - admin: 모든 과거 학기 강좌
+
+    Google Classroom의 "보관된 강좌" 메뉴와 동일 — 본인 관련만, read-only.
+    """
+    active_sid = await get_active_semester_id_or_404(db)
+
+    base = select(Course).where(Course.semester_id != active_sid)
+    if user.role == "student":
+        # status 무관 — 졸업·전학 학생도 본인 데이터 열람
+        base = base.join(CourseStudent, CourseStudent.course_id == Course.id).where(
+            CourseStudent.student_id == user.id,
+        )
+    elif user.role in ("teacher", "staff"):
+        base = base.where(Course.teacher_id == user.id)
+    # admin은 전체 과거 학기
+
+    rows = (await db.execute(
+        base.order_by(desc(Course.semester_id), Course.subject, Course.class_name)
+    )).scalars().all()
+
+    counts: dict[int, int] = {}
+    if rows:
+        cnt_q = (await db.execute(
+            select(CourseStudent.course_id, func.count(CourseStudent.id))
+            .where(CourseStudent.course_id.in_([c.id for c in rows]),
+                   CourseStudent.status == "active")
+            .group_by(CourseStudent.course_id)
+        )).all()
+        counts = dict(cnt_q)
+
+    # 학기명 + 교사명 일괄
+    sem_ids = {c.semester_id for c in rows}
+    sems: dict[int, dict] = {}
+    if sem_ids:
+        srows = (await db.execute(select(Semester).where(Semester.id.in_(sem_ids)))).scalars().all()
+        sems = {s.id: {"name": s.name, "year": s.year, "term": s.term} for s in srows}
+    teacher_ids = {c.teacher_id for c in rows}
+    teachers: dict[int, str] = {}
+    if teacher_ids:
+        urows = (await db.execute(select(User).where(User.id.in_(teacher_ids)))).scalars().all()
+        teachers = {u.id: u.name for u in urows}
+
+    items = []
+    for c in rows:
+        d = _course_to_dict(c, counts.get(c.id, 0))
+        d["teacher_name"] = teachers.get(c.teacher_id)
+        d["semester"] = sems.get(c.semester_id)
+        d["is_past_semester"] = True
+        items.append(d)
+    return {"items": items, "active_semester_id": active_sid}
+
+
 @router.get("/courses/all")
 async def list_all_courses(
     semester_id: int | None = Query(None),
@@ -460,11 +522,24 @@ async def get_course_detail(
     # 교사 이름
     teacher = await db.get(User, c.teacher_id)
 
+    # 과거 학기 강좌인지 — read-only 모드 판단 (Google 식 보관 정책)
+    active_sid = await get_active_semester_id_or_404(db)
+    is_past = c.semester_id != active_sid
+
+    # 학기 정보 (이전 학기 강좌일 때 frontend 표시용)
+    semester_info = None
+    if is_past:
+        s = await db.get(Semester, c.semester_id)
+        if s:
+            semester_info = {"name": s.name, "year": s.year, "term": s.term}
+
     return {
         **_course_to_dict(c, len(students)),
         "teacher_name": teacher.name if teacher else None,
         "students": students,
         "viewer_role": role,
+        "is_past_semester": is_past,
+        "semester": semester_info,
     }
 
 
@@ -653,6 +728,10 @@ async def create_course_post(
         raise HTTPException(404)
     if not _is_admin(user) and c.teacher_id != user.id:
         raise HTTPException(403, "본인 강좌만 글 작성 가능")
+    # 과거 학기 강좌는 read-only — admin 포함 차단
+    active_sid = await get_active_semester_id_or_404(db)
+    if c.semester_id != active_sid:
+        raise HTTPException(409, "이전 학기 강좌입니다. 새 글은 현재 학기 강좌에 작성하세요.")
 
     p = CoursePost(
         course_id=cid,
@@ -712,6 +791,11 @@ async def update_course_post(
         raise HTTPException(404)
     if not _is_admin(user) and p.author_id != user.id:
         raise HTTPException(403, "본인 글만 편집 가능")
+    # 과거 학기 글은 read-only
+    course = await db.get(Course, p.course_id)
+    active_sid = await get_active_semester_id_or_404(db)
+    if course and course.semester_id != active_sid:
+        raise HTTPException(409, "이전 학기 강좌의 글은 수정할 수 없습니다 (read-only).")
     patch = body.model_dump(exclude_unset=True)
     for k, v in patch.items():
         if k == "attachments" and v is not None:
@@ -720,6 +804,7 @@ async def update_course_post(
         elif v is not None:
             setattr(p, k, v)
     await db.flush()
+    await db.refresh(p)
     return _post_to_dict(p)
 
 

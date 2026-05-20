@@ -11,7 +11,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, GraduationCap, Wand2, X, Save } from "lucide-react";
+import Link from "next/link";
+import { Plus, GraduationCap, Wand2, X, Save, Archive } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { CourseCard } from "@/components/classroom/CourseCard";
@@ -90,6 +91,13 @@ export default function ClassroomAdminPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/classroom/archived"
+            className="flex items-center gap-1 px-3 py-1.5 text-caption text-text-secondary border border-border-default rounded hover:bg-bg-secondary"
+            title="본인이 가르쳤거나 수강했던 과거 학기 강좌 (읽기 전용)"
+          >
+            <Archive size={13} /> 이전 학기
+          </Link>
           {isAdmin && (
             <button
               onClick={autoGenerate}
