@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { ArrowLeft, Archive, FileText, ClipboardList, Presentation } from "lucide-react";
+import { ArrowLeft, Archive } from "lucide-react";
 import type { CourseTone } from "./_color";
 
 interface CourseBannerProps {
@@ -46,32 +46,7 @@ export function CourseBanner({
         <ArrowLeft size={12} /> 클래스룸
       </Link>
 
-      {/* 우상단: 액션 칩들 */}
-      <div className="absolute top-3 right-3 flex items-center gap-1.5">
-        <Link
-          href={`${baseHref}/${cid}/docs`}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] rounded bg-white/20 hover:bg-white/30 backdrop-blur-sm"
-          title="협업 문서"
-        >
-          <FileText size={11} /> 협업 문서
-        </Link>
-        <Link
-          href={`${baseHref}/${cid}/decks`}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] rounded bg-white/20 hover:bg-white/30 backdrop-blur-sm"
-          title="프리젠테이션"
-        >
-          <Presentation size={11} /> 프리젠테이션
-        </Link>
-        <Link
-          href={`${baseHref}/${cid}/surveys`}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] rounded bg-white/20 hover:bg-white/30 backdrop-blur-sm"
-          title="설문지"
-        >
-          <ClipboardList size={11} /> 설문지
-        </Link>
-      </div>
-
-      {/* 메인 콘텐츠 */}
+      {/* 메인 콘텐츠 — 칩은 좌측 위젯·수업과제 탭에서 진입 (Google 식과 일치) */}
       <div className="px-6 pt-14 pb-5 min-h-[140px]">
         <div className="flex items-center gap-2 flex-wrap">
           <h1 className="text-[26px] font-bold leading-tight">{name}</h1>

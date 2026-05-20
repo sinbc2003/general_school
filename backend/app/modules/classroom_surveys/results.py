@@ -180,3 +180,102 @@ async def export_results_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{sid}/results.xlsx")
+async def export_results_xlsx(
+    sid: int,
+    user: User = Depends(require_permission("classroom.survey.view_results")),
+    db: AsyncSession = Depends(get_db),
+):
+    """결과 Excel (.xlsx) — 한컴 셀·MS Excel·구글시트 모두 호환.
+
+    한 행 = 한 응답. 첫 sheet = 응답 raw 데이터. openpyxl 사용 — CPU bound이지만
+    응답 수십~수백 행이라 그대로 동기 처리 (event loop 영향 미미).
+    """
+    import asyncio
+    from openpyxl import Workbook
+
+    s = await db.get(Survey, sid)
+    if not s:
+        raise HTTPException(404)
+    if not can_manage(user, s):
+        raise HTTPException(403)
+
+    qs = (await db.execute(
+        select(SurveyQuestion).where(SurveyQuestion.survey_id == sid)
+        .order_by(SurveyQuestion.order, SurveyQuestion.id)
+    )).scalars().all()
+
+    responses = (await db.execute(
+        select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+        .order_by(SurveyResponse.submitted_at)
+    )).scalars().all()
+    response_ids = [r.id for r in responses]
+    answers = []
+    if response_ids:
+        answers = (await db.execute(
+            select(SurveyAnswer).where(SurveyAnswer.response_id.in_(response_ids))
+        )).scalars().all()
+
+    answers_by_resp: dict[int, dict[int, SurveyAnswer]] = {}
+    for a in answers:
+        answers_by_resp.setdefault(a.response_id, {})[a.question_id] = a
+
+    respondent_ids = {r.respondent_id for r in responses if r.respondent_id}
+    respondents: dict[int, str] = {}
+    if respondent_ids and not s.is_anonymous:
+        urows = (await db.execute(
+            select(User).where(User.id.in_(respondent_ids))
+        )).scalars().all()
+        respondents = {u.id: u.name for u in urows}
+
+    def _build_xlsx() -> bytes:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "응답"
+        header = ["응답ID", "응답자", "제출시각"] + [q.question_text for q in qs]
+        ws.append(header)
+        # 헤더 굵게
+        for cell in ws[1]:
+            cell.font = cell.font.copy(bold=True)
+
+        for r in responses:
+            row = [
+                r.id,
+                "(익명)" if s.is_anonymous else respondents.get(r.respondent_id or 0, ""),
+                r.submitted_at.replace(tzinfo=None) if r.submitted_at else "",
+            ]
+            ans_map = answers_by_resp.get(r.id, {})
+            for q in qs:
+                a = ans_map.get(q.id)
+                if not a:
+                    row.append("")
+                elif q.question_type in ("short_text", "long_text", "date"):
+                    row.append(a.text_value or "")
+                elif q.question_type in ("single_choice", "multi_choice"):
+                    row.append(" | ".join(a.choice_values or []))
+                elif q.question_type == "rating":
+                    row.append(a.rating_value if a.rating_value is not None else "")
+                else:
+                    row.append("")
+            ws.append(row)
+
+        # 컬럼 폭 자동 (간단 추정)
+        for col_idx, col_cells in enumerate(ws.columns, start=1):
+            max_len = max((len(str(c.value or "")) for c in col_cells), default=10)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(50, max(10, max_len + 2))
+
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    # CPU-bound — to_thread로 event loop 비차단
+    data = await asyncio.to_thread(_build_xlsx)
+
+    filename = f"survey_{sid}_results.xlsx"
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

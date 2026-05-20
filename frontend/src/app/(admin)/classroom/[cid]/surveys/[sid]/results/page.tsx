@@ -77,12 +77,11 @@ export default function SurveyResultsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const downloadCsv = async () => {
+  const downloadFile = async (kind: "csv" | "xlsx") => {
     try {
-      // results.csv는 BOM 포함 text/csv — fetch + blob 패턴 (downloadSecure는 /storage/ 전용)
       const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
-      const res = await fetch(`${apiUrl}/api/classroom/surveys/${sid}/results.csv`, {
+      const res = await fetch(`${apiUrl}/api/classroom/surveys/${sid}/results.${kind}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -90,11 +89,11 @@ export default function SurveyResultsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `survey_${sid}_results.csv`;
+      a.download = `survey_${sid}_results.${kind}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
-      alert(`CSV 다운로드 실패: ${e?.message || e}`);
+      alert(`다운로드 실패: ${e?.message || e}`);
     }
   };
 
@@ -130,12 +129,21 @@ export default function SurveyResultsPage() {
             <span>상태: {data.survey.status === "active" ? "응답 중" : "마감"}</span>
           </div>
         </div>
-        <button
-          onClick={downloadCsv}
-          className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover whitespace-nowrap"
-        >
-          <Download size={12} /> CSV
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => downloadFile("xlsx")}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-[#107c41] text-white rounded hover:bg-[#0b6135] whitespace-nowrap"
+            title="Excel·구글시트·한컴 셀 호환"
+          >
+            <Download size={12} /> Excel
+          </button>
+          <button
+            onClick={() => downloadFile("csv")}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-bg-secondary text-text-secondary rounded hover:bg-cream-200 whitespace-nowrap border border-border-default"
+          >
+            <Download size={12} /> CSV
+          </button>
+        </div>
       </div>
 
       {/* 질문별 집계 */}

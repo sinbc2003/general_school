@@ -26,17 +26,20 @@ from app.modules.classroom_slides.schemas import (
 async def list_decks(
     course_id: int | None = Query(None),
     include_archived: bool = Query(False),
+    mine: bool = Query(False, description="True면 본인이 만든 deck만"),
     user: User = Depends(require_permission("classroom.deck.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """본인이 접근 가능한 deck 목록."""
+    """본인이 접근 가능한 deck 목록. mine=true면 본인 작성만."""
     base = select(ClassroomPresentation)
     if course_id is not None:
         base = base.where(ClassroomPresentation.course_id == course_id)
     if not include_archived:
         base = base.where(ClassroomPresentation.is_archived.is_(False))
 
-    if is_admin(user):
+    if mine:
+        q = base.where(ClassroomPresentation.owner_id == user.id)
+    elif is_admin(user):
         q = base
     else:
         teacher_course_ids = (await db.execute(

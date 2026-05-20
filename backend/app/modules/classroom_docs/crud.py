@@ -22,17 +22,21 @@ from app.modules.classroom_docs.schemas import DocumentCreate, DocumentUpdate
 async def list_docs(
     course_id: int | None = Query(None),
     include_archived: bool = Query(False),
+    mine: bool = Query(False, description="True면 본인이 만든 문서만"),
     user: User = Depends(require_permission("classroom.doc.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """본인이 접근 가능한 문서 목록."""
+    """본인이 접근 가능한 문서 목록. mine=true면 본인 작성만."""
     base = select(ClassroomDocument)
     if course_id is not None:
         base = base.where(ClassroomDocument.course_id == course_id)
     if not include_archived:
         base = base.where(ClassroomDocument.is_archived.is_(False))
 
-    if is_admin(user):
+    if mine:
+        # admin도 본인 작성만 보고 싶으면 mine=true (구글 식 "내 작업")
+        q = base.where(ClassroomDocument.owner_id == user.id)
+    elif is_admin(user):
         q = base
     else:
         teacher_course_ids = (await db.execute(

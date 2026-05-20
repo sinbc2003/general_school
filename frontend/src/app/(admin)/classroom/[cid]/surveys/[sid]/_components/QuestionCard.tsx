@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * 빌더에서 한 질문을 보여주는 카드.
+ * 빌더에서 한 질문을 보여주는 카드 — Google Forms 식.
  *
+ * 좌측 보라색 강조 보더, 큰 흰 카드, 우상단에 question 타입 표시.
  * canEdit이면 드래그 핸들·삭제 버튼 노출 (draft 상태에서만).
  */
 
@@ -19,25 +20,46 @@ interface QuestionCardProps {
 
 export function QuestionCard({ q, index, canEdit, onDelete }: QuestionCardProps) {
   return (
-    <div className="border border-border-default rounded-lg p-4 bg-bg-primary">
-      <div className="flex items-center gap-2 mb-2">
-        {canEdit && <GripVertical size={12} className="text-text-tertiary" />}
-        <span className="text-caption text-text-tertiary">Q{index + 1}.</span>
-        <span className="text-[10px] px-1.5 py-0.5 bg-cream-200 text-text-secondary rounded">
-          {TYPE_LABELS[q.question_type]}
-        </span>
-        {q.is_required && <span className="text-status-error text-caption">*</span>}
-        <div className="flex-1" />
-        {canEdit && (
-          <button onClick={onDelete} className="text-text-tertiary hover:text-status-error">
-            <Trash2 size={12} />
-          </button>
-        )}
+    // Google Forms 식 — 흰 카드 + 옅은 그림자. 좌측 보라색 두꺼운 보더(active 강조용)는
+    // 빌더에선 항상 표시 — 편집 가능성 시그널.
+    <div
+      className="bg-white rounded-lg shadow-sm overflow-hidden"
+      style={canEdit ? { borderLeft: "6px solid #673ab7" } : undefined}
+    >
+      <div className="px-6 py-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex-1 min-w-0">
+            {/* 드래그 핸들 (canEdit 시) — 그리드 위쪽 가로형 */}
+            {canEdit && (
+              <div className="flex justify-center mb-1">
+                <GripVertical size={14} className="text-text-tertiary -rotate-90" />
+              </div>
+            )}
+            <div className="text-[15.5px] text-text-primary whitespace-pre-wrap leading-snug">
+              <span className="text-text-tertiary mr-2">{index + 1}.</span>
+              {q.question_text}
+              {q.is_required && <span className="text-status-error ml-1">*</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-[11px] px-2 py-0.5 bg-[#ede7f6] text-[#673ab7] rounded font-medium">
+              {TYPE_LABELS[q.question_type]}
+            </span>
+            {canEdit && (
+              <button
+                onClick={onDelete}
+                className="text-text-tertiary hover:text-status-error p-1 rounded hover:bg-bg-secondary"
+                title="질문 삭제"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="text-text-secondary">
+          <QuestionPreview q={q} />
+        </div>
       </div>
-      <div className="text-body text-text-primary mb-2 whitespace-pre-wrap">
-        {q.question_text}
-      </div>
-      <QuestionPreview q={q} />
     </div>
   );
 }

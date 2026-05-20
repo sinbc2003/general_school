@@ -155,6 +155,14 @@ export const adminMenu: MenuItem[] = [
     excludeRoles: ["student"],
   },
   {
+    key: "workspace",
+    label: "내 작업물",
+    icon: Briefcase,
+    path: "/workspace",
+    permission: "classroom.course.view",
+    excludeRoles: ["student"],
+  },
+  {
     key: "research",
     label: "연구 프로젝트",
     icon: FlaskConical,
