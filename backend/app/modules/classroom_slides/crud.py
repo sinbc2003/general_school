@@ -176,6 +176,10 @@ async def update_deck(
         if v is not None:
             setattr(d, k, v)
     await db.flush()
+    # onupdate=func.now()로 updated_at이 expired 상태 — async refresh로
+    # 명시 reload 안 하면 deck_to_dict의 attribute access가 sync IO 시도해
+    # MissingGreenlet 발생.
+    await db.refresh(d)
     await log_action(db, user, "classroom.deck.update", target=f"deck:{did}", request=request)
     owner = await db.get(User, d.owner_id)
     return deck_to_dict(d, owner_name=owner.name if owner else None)

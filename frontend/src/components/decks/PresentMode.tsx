@@ -31,6 +31,7 @@ import { ChevronLeft, ChevronRight, X, Maximize } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
+import "./slide-canvas.css";
 
 const DEFAULT_HOCUSPOCUS_URL =
   process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
@@ -210,15 +211,14 @@ function PresentSlide({
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class:
-          "prose prose-lg max-w-none focus:outline-none " +
-          "h-full px-12 py-10",
+        // 편집 모드(SlideEditor)와 동일 slide-prose — 보는 느낌이 같도록
+        class: "slide-prose focus:outline-none w-full h-full",
       },
     },
   }, [doc, provider, fragmentName]);
 
   return (
-    <div className="h-full w-full">
+    <div className="slide-canvas h-full w-full">
       <EditorContent editor={editor} />
     </div>
   );

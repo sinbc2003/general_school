@@ -1,0 +1,197 @@
+/**
+ * 슬라이드 캔버스 본문 스타일 — 문서가 아닌 "슬라이드답게".
+ *
+ * 핵심:
+ *  - 큰 폰트 (h1 = 발표용 제목 크기, 본문도 16~18px 이상)
+ *  - 캔버스 내부 padding 5~6%
+ *  - 단락 간 적당한 간격 — 슬라이드는 정보가 적게
+ *  - 빈 본문의 placeholder도 슬라이드답게 큰 글씨
+ *
+ * 클래스 .slide-prose는 SlideEditor가 ProseMirror에 부여.
+ * 발표 모드(PresentMode)에서도 동일 적용 — 일관된 느낌.
+ */
+
+.slide-prose {
+  padding: clamp(28px, 4.5%, 64px) clamp(36px, 6%, 96px);
+  font-size: clamp(15px, 1.6cqi, 22px);
+  line-height: 1.55;
+  /* 컨테이너 쿼리 — 캔버스 폭이 클수록 폰트도 살짝 키움 */
+  container-type: inline-size;
+  /* 캔버스 색은 부모(slide-canvas)의 theme.slideStyle이 정함. 본문은 상속 */
+  color: inherit;
+  font-family: inherit;
+  /* 슬라이드는 보통 본문 위에서 시작 */
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.2%, 16px);
+}
+
+.slide-prose > * {
+  margin: 0;
+}
+
+.slide-prose h1 {
+  font-size: clamp(28px, 4.4cqi, 56px);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin-bottom: clamp(6px, 1%, 14px);
+}
+
+.slide-prose h2 {
+  font-size: clamp(22px, 3.2cqi, 40px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  margin-top: clamp(8px, 1.4%, 18px);
+  margin-bottom: clamp(4px, 0.8%, 10px);
+}
+
+.slide-prose h3 {
+  font-size: clamp(18px, 2.4cqi, 30px);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.slide-prose p {
+  font-size: inherit;
+  line-height: 1.55;
+}
+
+.slide-prose ul,
+.slide-prose ol {
+  padding-left: 1.4em;
+}
+.slide-prose ul { list-style: disc; }
+.slide-prose ol { list-style: decimal; }
+.slide-prose li {
+  margin: 0.15em 0;
+}
+.slide-prose li > p {
+  margin: 0;
+}
+
+.slide-prose blockquote {
+  border-left: 4px solid currentColor;
+  padding-left: 0.9em;
+  opacity: 0.85;
+  font-style: italic;
+  margin: 0.4em 0;
+}
+
+.slide-prose code {
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 3px;
+  padding: 0.05em 0.35em;
+  font-family: ui-monospace, "Cascadia Mono", "Menlo", monospace;
+  font-size: 0.92em;
+}
+
+.slide-prose pre {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  padding: 0.6em 0.9em;
+  overflow-x: auto;
+}
+
+.slide-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.slide-prose img {
+  max-width: 100%;
+  max-height: 70%;
+  object-fit: contain;
+  border-radius: 4px;
+  margin: 0 auto;
+  display: block;
+}
+
+.slide-prose a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1.5px;
+}
+
+/* 빈 본문 placeholder — 슬라이드답게 큰 글씨 + 옅은 색 */
+.slide-prose p.is-editor-empty:first-child::before {
+  color: rgba(127, 127, 127, 0.5);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  font-size: clamp(22px, 3cqi, 38px);
+  font-weight: 500;
+}
+
+/* 표 — 슬라이드 안에서는 약간 작고 깔끔하게 */
+.slide-prose table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9em;
+}
+.slide-prose table td,
+.slide-prose table th {
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  padding: 6px 9px;
+  vertical-align: top;
+}
+.slide-prose table th {
+  background-color: rgba(127, 127, 127, 0.1);
+  font-weight: 600;
+}
+
+/* YouTube embed — 슬라이드에서는 캔버스 가운데에 크게 */
+.slide-prose div[data-youtube-video] {
+  max-width: 80%;
+  margin: 0.4em auto;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+.slide-prose div[data-youtube-video] iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  display: block;
+}
+
+/* 링크 카드 — 슬라이드 안에서는 살짝 컴팩트 */
+.slide-prose a.link-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  margin: 0.4em 0;
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.85);
+  max-width: 80%;
+}
+
+/* ── 슬라이드 스테이지 (캔버스 주변 회색 영역) ──
+ * container-type: size — cqw/cqh로 자식 캔버스가 컨테이너 크기에 맞게 fit.
+ * 캔버스는 16:9 비율 유지하며 폭/높이 중 작은 쪽에 맞춤.
+ */
+.slide-stage {
+  container-type: size;
+  padding: clamp(12px, 2cqw, 28px);
+}
+
+/* 캔버스 — 16:9 고정. 폭은 컨테이너 폭, 높이는 폭*9/16.
+ * 만약 그 높이가 컨테이너 높이를 초과하면, 컨테이너 높이 기준으로 폭 재계산.
+ * = width: min(컨테이너폭, 컨테이너높이*16/9, 1100px)
+ */
+.slide-canvas {
+  width: min(100cqw - 32px, (100cqh - 32px) * 16 / 9, 1100px);
+  aspect-ratio: 16 / 9;
+  /* prose가 캔버스 안 100% 차지하도록 */
+  display: flex;
+}
+.slide-canvas > .ProseMirror,
+.slide-canvas .tiptap {
+  flex: 1;
+  min-width: 0;
+}

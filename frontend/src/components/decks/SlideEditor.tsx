@@ -3,6 +3,21 @@
 /**
  * 단일 슬라이드 본문 편집기 — TipTap × Yjs fragment.
  *
+ * 디자인 — Google Slides 스타일 편집 캔버스:
+ *   ┌──────────────────────────────┐
+ *   │  Toolbar (canWrite 시)       │
+ *   ├──────────────────────────────┤
+ *   │  [회색 스테이지 배경]         │
+ *   │   ┌─────────────────────┐    │
+ *   │   │ 16:9 slide canvas   │    │
+ *   │   │ (theme.slideStyle)   │    │
+ *   │   │  본문 + caret       │    │
+ *   │   └─────────────────────┘    │
+ *   └──────────────────────────────┘
+ *
+ * 캔버스는 컨테이너 폭에 맞춰 자동 크기, 16:9 비율 고정 (PresentMode와 일관).
+ * 슬라이드 본문은 큰 폰트·중앙 정렬 기조 — 슬라이드답게.
+ *
  * 같은 deck Y.Doc / HocuspocusProvider를 부모 (DeckEditor)에서 받아 공유.
  * 각 slide는 fragment 이름 `slide-{sid}` 단위로 분리 — slide별 별도 본문.
  *
@@ -15,6 +30,7 @@
  *     canWrite={canWrite}
  *     userName={user.name}
  *     userId={user.id}
+ *     themeId={themeId}
  *   />
  */
 
@@ -38,6 +54,7 @@ import * as Y from "yjs";
 import { Toolbar } from "../docs/Toolbar";
 import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
+import "./slide-canvas.css";
 
 interface SlideEditorProps {
   doc: Y.Doc;
@@ -78,7 +95,7 @@ export function SlideEditor({
       Highlight.configure({ multicolor: true }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({
-        placeholder: "슬라이드 내용을 작성하세요...",
+        placeholder: "제목 또는 본문을 입력하세요",
       }),
       // 핵심: fragment 옵션으로 slide별 본문 격리
       Collaboration.configure({
@@ -96,9 +113,8 @@ export function SlideEditor({
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class:
-          "prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[400px] " +
-          "px-8 py-6",
+        // 슬라이드 본문 — prose 기반, slide-canvas.css에서 폰트 사이즈 키움
+        class: "slide-prose focus:outline-none w-full h-full",
       },
     },
   }, [canWrite, doc, provider, fragmentName]);
@@ -106,9 +122,18 @@ export function SlideEditor({
   return (
     <div className="rounded-lg shadow-sm border border-border-default flex flex-col h-full overflow-hidden bg-white">
       {canWrite && <Toolbar editor={editor} />}
-      {/* 슬라이드 본문 — theme 적용 */}
-      <div className="flex-1 overflow-y-auto" style={theme.slideStyle}>
-        <EditorContent editor={editor} />
+
+      {/* 회색 스테이지 — Google Slides 식 빈 캔버스 주변 영역.
+          container-type: size로 cqw/cqh 사용 가능. */}
+      <div className="slide-stage flex-1 overflow-auto bg-[#f1f3f4] flex items-center justify-center">
+        {/* 16:9 슬라이드 캔버스 — 컨테이너 폭/높이 중 작은 쪽에 맞춤 (1100px 상한) */}
+        <div
+          className="slide-canvas shadow-xl rounded overflow-hidden relative"
+          style={theme.slideStyle}
+        >
+          {/* 본문 — 캔버스 내부 padding은 slide-canvas.css가 처리 */}
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </div>
   );

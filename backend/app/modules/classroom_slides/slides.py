@@ -82,6 +82,8 @@ async def update_slide(
         if v is not None:
             setattr(s, k, v)
     await db.flush()
+    # onupdate=func.now() expire 회피 (MissingGreenlet 방지)
+    await db.refresh(s)
     return slide_to_dict(s)
 
 
