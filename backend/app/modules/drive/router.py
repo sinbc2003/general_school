@@ -85,7 +85,11 @@ async def my_drive_info(
     expires_at = user.expires_at.isoformat() if user.expires_at else None
     days_until_expire = None
     if user.expires_at:
-        delta = user.expires_at - datetime.now(timezone.utc)
+        # SQLite는 naive datetime으로 저장 — 호환성을 위해 UTC로 가정.
+        exp = user.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        delta = exp - datetime.now(timezone.utc)
         days_until_expire = max(0, delta.days)
     return {
         "quota_bytes": quota,
