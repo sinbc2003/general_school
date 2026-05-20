@@ -124,6 +124,28 @@ async def _send_due_reminders(db: AsyncSession) -> int:
     return total_notified
 
 
+# 휴지통 purge tick — 하루 1회. 매 tick(시간) 마다 last_purge_at 비교.
+TRASH_PURGE_INTERVAL_HOURS = 24
+_last_purge_at: datetime | None = None
+
+
+async def _maybe_purge_trash(db: AsyncSession) -> int:
+    """24시간에 한 번 휴지통 30일 경과 자료 hard delete + quota 환원."""
+    global _last_purge_at
+    now = datetime.now(timezone.utc)
+    if _last_purge_at and (now - _last_purge_at) < timedelta(hours=TRASH_PURGE_INTERVAL_HOURS):
+        return 0
+    from app.modules.drive.router import purge_expired_trash
+    result = await purge_expired_trash(db)
+    _last_purge_at = now
+    if result["deleted_total"] > 0:
+        log.info(
+            "[NOTIF SCHED] 휴지통 자동 purge — %d개 삭제, %d MB 환원",
+            result["deleted_total"], result["freed_bytes_total"] // 1024 // 1024,
+        )
+    return result["deleted_total"]
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick."""
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
@@ -135,6 +157,7 @@ async def _scheduler_loop() -> None:
             async with async_session_factory() as db:
                 try:
                     cnt = await _send_due_reminders(db)
+                    await _maybe_purge_trash(db)
                     await db.commit()
                     if cnt > 0:
                         log.info("[NOTIF SCHED] 마감 임박 reminder %d건 발송", cnt)

@@ -29,6 +29,7 @@ import {
   FileArchive,
   Megaphone,
   Smartphone,
+  HardDrive,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -160,6 +161,14 @@ export const adminMenu: MenuItem[] = [
     icon: Briefcase,
     path: "/workspace",
     permission: "classroom.course.view",
+    excludeRoles: ["student"],
+  },
+  {
+    key: "drive",
+    label: "내 드라이브",
+    icon: HardDrive,
+    path: "/drive",
+    permission: "drive.use",
     excludeRoles: ["student"],
   },
   {

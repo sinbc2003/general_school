@@ -68,6 +68,8 @@ STAFF_KEYS = {
     "classroom.deck.view", "classroom.deck.edit",
     # 설문 응답
     "classroom.survey.respond",
+    # 드라이브 (개인 자료 + 휴지통)
+    "drive.use",
 }
 
 STUDENT_KEYS = {
@@ -105,6 +107,8 @@ STUDENT_KEYS = {
     "classroom.deck.create", "classroom.deck.share",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
+    # 드라이브 (본인 자료 + 휴지통)
+    "drive.use",
 }
 
 

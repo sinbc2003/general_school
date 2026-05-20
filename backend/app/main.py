@@ -154,6 +154,7 @@ from app.modules.classroom_links.router import (
 )
 from app.modules.notifications.router import router as notifications_router
 from app.modules.classroom_sheets.router import router as classroom_sheets_router
+from app.modules.drive.router import router as drive_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -188,6 +189,7 @@ app.include_router(classroom_links_router)
 app.include_router(classroom_links_public_router)
 app.include_router(notifications_router)
 app.include_router(classroom_sheets_router)
+app.include_router(drive_router)
 
 
 @app.get("/api/health")
