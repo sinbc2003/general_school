@@ -3,6 +3,7 @@
 import { useAuth } from "@/lib/auth-context";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
+import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import {
   Users,
   Shield,
@@ -201,22 +202,55 @@ function AdminDashboard() {
   const { user, isSuperAdmin, isAdmin } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [sem, setSem] = useState<CurrentSemester | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
 
   useEffect(() => {
     api.get("/api/users?per_page=1").then((data) => setStats({ totalUsers: data.total })).catch(() => {});
     api.get<CurrentSemester | null>("/api/timetable/semesters/current").then(setSem).catch(() => {});
-  }, []);
+    if (isSuperAdmin) {
+      api.get<{ completed_at: string | null }>("/api/system/onboarding/status")
+        .then((s) => setOnboardingDone(!!s.completed_at))
+        .catch(() => setOnboardingDone(true));
+    }
+  }, [isSuperAdmin]);
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-title text-text-primary">대시보드</h1>
-        {sem && (
-          <div className="text-caption text-text-tertiary mt-1 flex items-center gap-1">
-            <CalendarRange size={12} /> {sem.name}
-          </div>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-title text-text-primary">대시보드</h1>
+          {sem && (
+            <div className="text-caption text-text-tertiary mt-1 flex items-center gap-1">
+              <CalendarRange size={12} /> {sem.name}
+            </div>
+          )}
+        </div>
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowWizard(true)}
+            className={`px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 ${
+              onboardingDone === false
+                ? "bg-accent text-white hover:opacity-90 animate-pulse"
+                : "text-accent border border-accent/30 hover:bg-accent/5"
+            }`}
+            title="셋업 마법사 — 부서·학기·교사·학생 한 흐름으로 등록"
+          >
+            🧙 {onboardingDone === false ? "셋업 시작" : "셋업 마법사"}
+          </button>
         )}
       </div>
+      {showWizard && (
+        <OnboardingWizard
+          onClose={() => {
+            setShowWizard(false);
+            api.get<{ completed_at: string | null }>("/api/system/onboarding/status")
+              .then((s) => setOnboardingDone(!!s.completed_at))
+              .catch(() => {});
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard icon={Users} label="전체 사용자" value={stats?.totalUsers ?? "-"} color="text-accent" />

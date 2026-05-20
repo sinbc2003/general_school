@@ -30,6 +30,7 @@ import {
   Megaphone,
   Smartphone,
   HardDrive,
+  Building2,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -277,6 +278,7 @@ export const adminMenu: MenuItem[] = [
     icon: Settings,
     superAdminOnly: true,
     children: [
+      { key: "sys-departments", label: "부서 관리", icon: Building2, path: "/system/departments", permission: "department.manage" },
       { key: "sys-semesters", label: "학기 관리", icon: CalendarRange, path: "/system/semesters", permission: "system.semester.manage" },
       { key: "sys-enrollments", label: "학기별 명단", icon: UserPlus, path: "/system/enrollments", permission: "system.enrollment.manage" },
       { key: "sys-backup", label: "백업·복원", icon: FileArchive, path: "/system/backup", permission: null },
