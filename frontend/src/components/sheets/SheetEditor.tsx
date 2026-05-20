@@ -25,6 +25,8 @@ import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { api } from "@/lib/api/client";
+// fortune-sheet CSS — 누락 시 toolbar/grid가 raw HTML로 펼쳐져 보임
+import "@fortune-sheet/react/dist/index.css";
 
 const DEFAULT_HOCUSPOCUS_URL =
   process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
