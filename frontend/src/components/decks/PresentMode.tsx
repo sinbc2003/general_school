@@ -27,6 +27,7 @@ import Link from "@tiptap/extension-link";
 import Collaboration from "@tiptap/extension-collaboration";
 import { ChevronLeft, ChevronRight, X, Maximize } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
 
 const DEFAULT_HOCUSPOCUS_URL =
@@ -42,14 +43,16 @@ interface PresentModeProps {
   deckId: number;
   deckTitle: string;
   slides: SlideRef[];
+  themeId?: string | null;
   onExit: () => void;
   hocuspocusUrl?: string;
 }
 
 export function PresentMode({
-  deckId, deckTitle, slides, onExit,
+  deckId, deckTitle, slides, themeId, onExit,
   hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
 }: PresentModeProps) {
+  const theme = getTheme(themeId);
   const [idx, setIdx] = useState(0);
   const active = slides[idx];
 
@@ -144,8 +147,9 @@ export function PresentMode({
         </button>
 
         <div
-          className="bg-white text-text-primary rounded shadow-2xl overflow-hidden"
+          className="rounded shadow-2xl overflow-hidden"
           style={{
+            ...theme.slideStyle,
             aspectRatio: "16/9",
             width: "min(90vw, calc(90vh * 16/9))",
             maxHeight: "90vh",

@@ -38,6 +38,7 @@ interface DeckDetail {
   is_archived: boolean;
   slide_count: number;
   slides: Slide[];
+  settings: { theme_id?: string; [k: string]: any };
   permission: Permission;
 }
 
@@ -104,6 +105,7 @@ export default function CourseDeckEditorAdminPage() {
           canWrite={canWrite}
           userName={user.name}
           userId={user.id}
+          themeId={deck.settings?.theme_id}
           onReload={load}
         />
       ) : (

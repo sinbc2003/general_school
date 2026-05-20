@@ -10,6 +10,7 @@ interface DeckDetail {
   id: number;
   title: string;
   slides: Slide[];
+  settings: { theme_id?: string };
 }
 
 export default function PresentStudentPage() {
@@ -38,6 +39,7 @@ export default function PresentStudentPage() {
       deckId={did}
       deckTitle={deck.title}
       slides={deck.slides}
+      themeId={deck.settings?.theme_id}
       onExit={() => router.push(`/s/classroom/${cid}/decks/${did}`)}
     />
   );

@@ -19,9 +19,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
-import { Plus, Trash2, ChevronUp, ChevronDown, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Wifi, WifiOff, Loader2, Palette } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { SlideEditor } from "./SlideEditor";
+import { ThemePicker } from "./ThemePicker";
+import { getTheme } from "./themes";
 
 const DEFAULT_HOCUSPOCUS_URL =
   process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
@@ -39,13 +41,15 @@ interface DeckEditorProps {
   canWrite: boolean;
   userName: string;
   userId: number;
+  /** deck.settings.theme_id — 디자인 테마. 없으면 minimal. */
+  themeId?: string | null;
   /** 슬라이드 추가/삭제/순서 변경 후 부모가 reload */
   onReload: () => void;
   hocuspocusUrl?: string;
 }
 
 export function DeckEditor({
-  deckId, slides, canWrite, userName, userId,
+  deckId, slides, canWrite, userName, userId, themeId,
   onReload, hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
 }: DeckEditorProps) {
   const [activeSlideId, setActiveSlideId] = useState<number | null>(
@@ -53,6 +57,20 @@ export function DeckEditor({
   );
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showThemePicker, setShowThemePicker] = useState(false);
+
+  const currentTheme = getTheme(themeId);
+
+  const pickTheme = async (newId: string) => {
+    try {
+      await api.put(`/api/classroom/decks/${deckId}`, {
+        settings: { theme_id: newId },
+      });
+      onReload();
+    } catch (e: any) {
+      alert(e?.detail || "테마 변경 실패");
+    }
+  };
 
   // active slide 동기화 — slides prop 변경 시 첫 슬라이드 자동 선택 (삭제 등)
   useEffect(() => {
@@ -217,6 +235,15 @@ export function DeckEditor({
             <Plus size={12} /> 슬라이드 추가
           </button>
         )}
+        {canWrite && (
+          <button
+            onClick={() => setShowThemePicker(true)}
+            className="w-full flex items-center justify-center gap-1 py-2 mt-1 text-caption text-text-secondary border border-border-default rounded hover:bg-bg-secondary transition"
+            title={`현재 테마: ${currentTheme.label}`}
+          >
+            <Palette size={12} /> {currentTheme.label}
+          </button>
+        )}
       </aside>
 
       {/* 우측 메인 — active slide editor */}
@@ -230,6 +257,7 @@ export function DeckEditor({
             canWrite={canWrite}
             userName={userName}
             userId={userId}
+            themeId={themeId}
           />
         ) : (
           <div className="bg-bg-primary border border-border-default rounded-lg h-full flex items-center justify-center text-text-tertiary">
@@ -237,6 +265,14 @@ export function DeckEditor({
           </div>
         )}
       </main>
+
+      {showThemePicker && (
+        <ThemePicker
+          current={themeId}
+          onPick={pickTheme}
+          onClose={() => setShowThemePicker(false)}
+        />
+      )}
     </div>
   );
 }

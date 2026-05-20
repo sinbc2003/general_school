@@ -34,6 +34,7 @@ import Link from "@tiptap/extension-link";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Toolbar } from "../docs/Toolbar";
+import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
 
 interface SlideEditorProps {
@@ -43,6 +44,7 @@ interface SlideEditorProps {
   canWrite: boolean;
   userName: string;
   userId: number;
+  themeId?: string | null;
 }
 
 function userColor(userId: number): string {
@@ -51,8 +53,9 @@ function userColor(userId: number): string {
 }
 
 export function SlideEditor({
-  doc, provider, fragmentName, canWrite, userName, userId,
+  doc, provider, fragmentName, canWrite, userName, userId, themeId,
 }: SlideEditorProps) {
+  const theme = getTheme(themeId);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false }),
@@ -95,9 +98,10 @@ export function SlideEditor({
   }, [canWrite, doc, provider, fragmentName]);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-border-default flex flex-col h-full">
+    <div className="rounded-lg shadow-sm border border-border-default flex flex-col h-full overflow-hidden bg-white">
       {canWrite && <Toolbar editor={editor} />}
-      <div className="flex-1 overflow-y-auto">
+      {/* 슬라이드 본문 — theme 적용 */}
+      <div className="flex-1 overflow-y-auto" style={theme.slideStyle}>
         <EditorContent editor={editor} />
       </div>
     </div>
