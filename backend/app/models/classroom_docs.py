@@ -60,6 +60,13 @@ class ClassroomDocument(Base):
         String(30), default="course_members", nullable=False,
     )
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Soft delete (휴지통 30일 보관). NULL이면 활성.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    # quota 차감 캐시 (소유자 used_bytes 환원·복구 시 정확한 크기). 보통 yjs_state + plain_text 길이.
+    storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

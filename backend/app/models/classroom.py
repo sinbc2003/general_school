@@ -25,13 +25,24 @@ from app.core.database import Base
 
 
 class Course(Base):
-    """강좌 — 학기 단위 격리. 1교사 + 1과목 + (학급 or 선택)."""
+    """강좌 — 학기 단위 격리. teacher_id = owner(소유자). co_teacher는 CourseTeacher M2M.
+
+    course_type:
+      - subject: 교과 강좌 (기존 동작) — teacher_id=과목 담당 교사
+      - grade_office: 학년부 강좌 — teacher_id=학년부장 (is_grade_lead=True), co_teachers=담임
+      - class_homeroom: 학급 강좌 — teacher_id=담임, co_teachers=부담임
+
+    viewable_by:
+      - all_teachers: 모든 재직 교사가 본문/첨부 열람 (default, super_admin이 유동 조정)
+      - assigned_only: 강좌의 owner/co_teacher + 수강생만
+    """
     __tablename__ = "classroom_courses"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     semester_id: Mapped[int] = mapped_column(
         ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False
     )
+    # owner (소유자). CourseTeacher M2M에서 role='owner'로 자동 동기화.
     teacher_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -43,6 +54,24 @@ class Course(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # 강좌 타입
+    course_type: Mapped[str] = mapped_column(
+        String(30), default="subject", nullable=False, index=True,
+    )
+    # 학년부/학급 강좌에서 사용 (1/2/3). subject 강좌는 None.
+    grade_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # 카드 디자인 커스터마이징
+    banner_color: Mapped[str] = mapped_column(String(20), default="#7986CB", nullable=False)
+    banner_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    icon: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # 열람 권한 (super_admin이 강좌별 유동 조정)
+    viewable_by: Mapped[str] = mapped_column(
+        String(30), default="all_teachers", nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

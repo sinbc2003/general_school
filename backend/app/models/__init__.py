@@ -79,8 +79,13 @@ from app.models.position import PositionTemplate, EnrollmentPosition
 # ── Device (신뢰 장치 + 로그인 챌린지) ──
 from app.models.device import TrustedDevice, LoginChallenge
 
+# ── Department (학교 조직 단위 — 교무부/학생부/연구부 등) ──
+from app.models.department import Department
+
 # ── Classroom (구글 클래스룸 식 수업 운영) ──
 from app.models.classroom import Course, CourseStudent, CoursePost, CoursePostComment
+from app.models.course_teacher import CourseTeacher
+from app.models.user_favorite_course import UserFavoriteCourse
 
 # ── Classroom Docs (협업 문서 — Yjs CRDT) ──
 from app.models.classroom_docs import ClassroomDocument, DocumentMember, DocumentRevision
@@ -147,8 +152,11 @@ __all__ = [
     "PositionTemplate", "EnrollmentPosition",
     # Device
     "TrustedDevice", "LoginChallenge",
+    # Department
+    "Department",
     # Classroom
     "Course", "CourseStudent", "CoursePost", "CoursePostComment",
+    "CourseTeacher", "UserFavoriteCourse",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",
     # Classroom Slides
