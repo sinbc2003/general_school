@@ -23,6 +23,7 @@ from app.core.database import get_db
 from app.core.files import ensure_dir_async, write_bytes_async
 from app.core.permissions import require_permission
 from app.core.quota import check_quota, consume_quota, release_quota
+from app.core.upload import POLICY_IMAGE, validate_upload
 from app.models import Course, User
 from app.modules.classroom.router import router
 
@@ -109,12 +110,10 @@ async def upload_banner_image(
     if not (user.role in ("super_admin", "designated_admin") or course.teacher_id == user.id):
         raise HTTPException(403, "강좌 소유자만 이미지를 업로드할 수 있습니다")
 
-    # 1) 입력 읽기
-    raw = await file.read()
+    # 1) 입력 검증 + 읽기 (POLICY_IMAGE: ext/mime/size 일괄 검증)
+    raw = await validate_upload(file, POLICY_IMAGE)
     if len(raw) > MAX_IMAGE_BYTES:
         raise HTTPException(413, f"이미지가 너무 큽니다 (최대 5MB)")
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(400, "이미지 파일만 업로드 가능합니다")
 
     # 2) PIL 압축 (lazy import — 이 endpoint만 사용)
     try:

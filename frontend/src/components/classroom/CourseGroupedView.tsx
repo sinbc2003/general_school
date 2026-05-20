@@ -99,7 +99,7 @@ export function CourseGroupedView({
       const next = new Set(prev);
       if (next.has(sid)) next.delete(sid);
       else next.add(sid);
-      try { sessionStorage.setItem("classroom.expanded.semesters", JSON.stringify([...next])); } catch {}
+      try { sessionStorage.setItem("classroom.expanded.semesters", JSON.stringify(Array.from(next))); } catch {}
       return next;
     });
   };
@@ -111,7 +111,12 @@ export function CourseGroupedView({
         setFavorites((prev) => { const next = new Set(prev); next.delete(cid); return next; });
       } else {
         await api.post(`/api/classroom/courses/${cid}/favorite`, {});
-        setFavorites((prev) => new Set([...prev, cid]));
+        setFavorites((prev) => {
+          const next = new Set<number>();
+          prev.forEach((v) => next.add(v));
+          next.add(cid);
+          return next;
+        });
       }
     } catch {}
   };

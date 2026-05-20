@@ -151,7 +151,7 @@ export function Step7Courses() {
           <button
             type="button"
             onClick={doExecute}
-            disabled={busy || !semId || (preview && allSkip)}
+            disabled={busy || !semId || Boolean(preview && allSkip)}
             className="px-4 py-2 text-[13px] bg-accent text-white rounded hover:opacity-90 disabled:opacity-40 flex items-center gap-1"
           >
             <Sparkles size={14} /> {preview && !preview.dry_run ? "재실행" : "강좌 생성"}

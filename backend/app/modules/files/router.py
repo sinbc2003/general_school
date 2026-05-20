@@ -177,10 +177,49 @@ async def _guard_club(db: AsyncSession, user: User, path: str) -> None:
 async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
     """classroom: 강좌 멤버(교사·학생) 또는 admin만 다운로드.
 
-    storage/classroom/{uuid}.ext — CoursePost.attachments 또는 file_url에서 참조.
-    DB lookup으로 file_url 매칭되는 글이 있어야 통과 (path 추측 차단).
+    경로 종류:
+      - storage/classroom/banners/{file}.jpg → Course.banner_image_url
+      - storage/classroom/{uuid}.ext         → CoursePost.attachments / file_url
+
+    DB lookup으로 매칭되는 row가 있어야 통과 (path 추측 차단).
     """
     file_url = f"/storage/{path}"
+
+    # Banner 이미지: Course.banner_image_url 매칭
+    if path.startswith("classroom/banners/"):
+        from app.models import CourseTeacher
+        course = (await db.execute(
+            select(Course).where(Course.banner_image_url == file_url)
+        )).scalar_one_or_none()
+        if not course:
+            raise HTTPException(404)
+        if user.role in ("super_admin", "designated_admin"):
+            return
+        # viewable_by=all_teachers + 사용자가 교사/직원 → 허용
+        if course.viewable_by == "all_teachers" and user.role in ("teacher", "staff", "designated_admin"):
+            return
+        # owner / co_teacher / active 수강생 → 허용
+        if course.teacher_id == user.id:
+            return
+        ct = (await db.execute(
+            select(CourseTeacher).where(
+                CourseTeacher.course_id == course.id,
+                CourseTeacher.user_id == user.id,
+            )
+        )).scalar_one_or_none()
+        if ct:
+            return
+        cs = (await db.execute(
+            select(CourseStudent).where(
+                CourseStudent.course_id == course.id,
+                CourseStudent.student_id == user.id,
+                CourseStudent.status == "active",
+            )
+        )).scalar_one_or_none()
+        if cs:
+            return
+        raise HTTPException(403, "권한 없음")
+
     # CoursePost.attachments(JSON list)에 file_url이 포함된 글이 있는지 OR file_url 컬럼 직접 매칭
     # JSON에서 file_url 검색은 DB 종속이라 단순화: 모든 post의 attachments를 in-app로 검사.
     # 첨부가 많지 않다는 가정. 향후 성능 이슈 시 jsonb 인덱스 추가.
