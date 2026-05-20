@@ -17,10 +17,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Presentation, ClipboardList, Plus } from "lucide-react";
+import { FileText, Presentation, ClipboardList, FileSpreadsheet, Plus } from "lucide-react";
 import { api } from "@/lib/api/client";
 
-export type WorkspaceTab = "docs" | "decks" | "surveys";
+export type WorkspaceTab = "docs" | "decks" | "surveys" | "sheets";
 
 interface BaseItem {
   id: number;
@@ -34,6 +34,7 @@ interface BaseItem {
 interface DocItem extends BaseItem { access_mode: string; is_archived: boolean }
 interface DeckItem extends BaseItem { access_mode: string; is_archived: boolean; slide_count?: number }
 interface SurveyItem extends BaseItem { access_mode: string; status: string }
+interface SheetItem extends BaseItem { access_mode: string; is_archived: boolean; source_survey_id: number | null }
 
 interface MyWorkspaceViewProps {
   /** "admin" | "student" — 권한 + path 분기 */
@@ -46,6 +47,7 @@ const TAB_META: Record<WorkspaceTab, { label: string; icon: any; color: string; 
   docs: { label: "문서", icon: FileText, color: "#1d4ed8", bg: "linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%)" },
   decks: { label: "프리젠테이션", icon: Presentation, color: "#a16207", bg: "linear-gradient(135deg, #fde4b8 0%, #fbbf24 100%)" },
   surveys: { label: "설문지", icon: ClipboardList, color: "#7e22ce", bg: "linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)" },
+  sheets: { label: "스프레드시트", icon: FileSpreadsheet, color: "#107c41", bg: "linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%)" },
 };
 
 export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewProps) {
@@ -53,6 +55,7 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [decks, setDecks] = useState<DeckItem[]>([]);
   const [surveys, setSurveys] = useState<SurveyItem[]>([]);
+  const [sheets, setSheets] = useState<SheetItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const baseClassroom = mode === "admin" ? "/classroom" : "/s/classroom";
@@ -61,14 +64,16 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [d, p, s] = await Promise.all([
+      const [d, p, s, sh] = await Promise.all([
         api.get<{ items: DocItem[] }>("/api/classroom/docs?mine=true"),
         api.get<{ items: DeckItem[] }>("/api/classroom/decks?mine=true"),
         api.get<{ items: SurveyItem[] }>("/api/classroom/surveys?mine=true"),
+        api.get<{ items: SheetItem[] }>("/api/classroom/sheets?mine=true"),
       ]);
       setDocs(d.items);
       setDecks(p.items);
       setSurveys(s.items);
+      setSheets(sh.items);
     } catch (e) {
       console.error(e);
     } finally {
@@ -78,7 +83,7 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
 
   useEffect(() => { load(); }, [load]);
 
-  const counts = { docs: docs.length, decks: decks.length, surveys: surveys.length };
+  const counts = { docs: docs.length, decks: decks.length, surveys: surveys.length, sheets: sheets.length };
 
   return (
     <div>
@@ -91,7 +96,7 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
 
       {/* 탭 */}
       <div className="flex items-center gap-1 border-b border-border-default mb-5">
-        {(["docs", "decks", "surveys"] as WorkspaceTab[]).map((t) => {
+        {(["docs", "decks", "surveys", "sheets"] as WorkspaceTab[]).map((t) => {
           const m = TAB_META[t];
           const Icon = m.icon;
           const isActive = t === tab;
@@ -135,7 +140,7 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
           }
           extraInfo={(d) => (d.slide_count != null ? `슬라이드 ${d.slide_count}장` : null)}
         />
-      ) : (
+      ) : tab === "surveys" ? (
         <ItemGrid
           items={surveys}
           tabMeta={TAB_META.surveys}
@@ -146,6 +151,14 @@ export function MyWorkspaceView({ mode, initialTab = "docs" }: MyWorkspaceViewPr
               : `${baseDocs}/forms/${s.id}`
           }
           extraInfo={(s) => `상태: ${s.status === "active" ? "공개 중" : s.status === "draft" ? "초안" : "마감"}`}
+        />
+      ) : (
+        <ItemGrid
+          items={sheets}
+          tabMeta={TAB_META.sheets}
+          emptyText="아직 만든 스프레드시트가 없습니다"
+          hrefFor={(s) => mode === "admin" ? `/sheets/${s.id}` : `/s/sheets/${s.id}`}
+          extraInfo={(s) => s.source_survey_id ? "설문 응답 연동" : null}
         />
       )}
     </div>

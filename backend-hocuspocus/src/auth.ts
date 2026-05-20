@@ -34,7 +34,7 @@ export function verifyToken(token: string): TokenPayload {
   return decoded;
 }
 
-export type TargetKind = "doc" | "deck";
+export type TargetKind = "doc" | "deck" | "sheet";
 
 export interface TargetRef {
   kind: TargetKind;
@@ -43,13 +43,14 @@ export interface TargetRef {
 
 /**
  * documentName 형식:
- *   "doc-{id}"   — 협업 문서 (classroom_docs)
- *   "deck-{id}"  — 협업 프리젠테이션 deck (classroom_slides)
+ *   "doc-{id}"    — 협업 문서 (classroom_docs)
+ *   "deck-{id}"   — 협업 프리젠테이션 deck (classroom_slides)
+ *   "sheet-{id}"  — 협업 스프레드시트 (classroom_sheets, Univer 기반)
  *
  * frontend HocuspocusProvider의 name과 정확히 일치해야 함.
  */
 export function extractTarget(documentName: string): TargetRef {
-  const m = documentName.match(/^(doc|deck)-(\d+)$/);
+  const m = documentName.match(/^(doc|deck|sheet)-(\d+)$/);
   if (!m) {
     throw new Error(`invalid documentName: ${documentName}`);
   }
@@ -58,7 +59,9 @@ export function extractTarget(documentName: string): TargetRef {
 
 /** kind별 backend resource path. */
 export function resourcePath(kind: TargetKind): string {
-  return kind === "deck" ? "decks" : "docs";
+  if (kind === "deck") return "decks";
+  if (kind === "sheet") return "sheets";
+  return "docs";
 }
 
 export async function fetchTargetPermission(

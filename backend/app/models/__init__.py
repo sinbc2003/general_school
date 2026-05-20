@@ -96,6 +96,9 @@ from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse,
 # ── Classroom Short Links (설문·문서 공유용 단축 URL + QR) ──
 from app.models.classroom_links import ShortLink
 
+# ── Classroom Sheets (Univer 기반 협업 스프레드시트) ──
+from app.models.classroom_sheets import ClassroomSheet, SheetMember
+
 # ── Notifications (in-app + browser OS 알림) ──
 from app.models.notification import Notification
 
@@ -154,6 +157,8 @@ __all__ = [
     "Survey", "SurveyQuestion", "SurveyResponse", "SurveyAnswer",
     # Classroom Short Links
     "ShortLink",
+    # Classroom Sheets
+    "ClassroomSheet", "SheetMember",
     # Notifications
     "Notification",
 ]

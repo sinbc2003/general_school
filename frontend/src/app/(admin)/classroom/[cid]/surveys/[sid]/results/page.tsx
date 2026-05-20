@@ -14,9 +14,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, BarChart3, Download, Lock, Users, Star, CheckSquare, AlignLeft, Calendar,
+  FileSpreadsheet,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { downloadSecure } from "@/lib/api/download";
@@ -57,11 +58,23 @@ interface ResultData {
 
 export default function SurveyResultsPage() {
   const params = useParams();
+  const router = useRouter();
   const cid = Number(params.cid);
   const sid = Number(params.sid);
 
   const [data, setData] = useState<ResultData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const openInSpreadsheet = async () => {
+    try {
+      const sheet = await api.post<{ id: number }>(
+        `/api/classroom/sheets/_from-survey/${sid}`, {},
+      );
+      router.push(`/sheets/${sheet.id}?from-survey=${sid}`);
+    } catch (e: any) {
+      alert(e?.detail || "스프레드시트 생성 실패");
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,7 +142,14 @@ export default function SurveyResultsPage() {
             <span>상태: {data.survey.status === "active" ? "응답 중" : "마감"}</span>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={openInSpreadsheet}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover whitespace-nowrap"
+            title="응답을 협업 스프레드시트로 — 다른 교사와 공유·분석 가능"
+          >
+            <FileSpreadsheet size={12} /> 스프레드시트로 분석
+          </button>
           <button
             onClick={() => downloadFile("xlsx")}
             className="flex items-center gap-1 px-3 py-1.5 text-caption bg-[#107c41] text-white rounded hover:bg-[#0b6135] whitespace-nowrap"
