@@ -25,6 +25,7 @@ import {
   FileText, FileSpreadsheet, Presentation, ClipboardList,
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
+  LayoutGrid, List as ListIcon,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
@@ -81,6 +82,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [creating, setCreating] = useState(false);
   const router = useRouter();
+  // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
+  const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
+    if (typeof window === "undefined") return "list";
+    const saved = localStorage.getItem("drive.viewMode");
+    return saved === "grid" ? "grid" : "list";
+  });
+  const changeViewMode = (m: "list" | "grid") => {
+    setViewMode(m);
+    try { localStorage.setItem("drive.viewMode", m); } catch {}
+  };
 
   const baseClassroom = mode === "admin" ? "/classroom" : "/s/classroom";
   const baseDocs = mode === "admin" ? "/docs" : "/s/docs";
@@ -400,6 +411,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             휴지통 비우기
           </button>
         )}
+        {/* 보기 모드 토글 */}
+        <div className="ml-auto flex items-center border border-border-default rounded-md overflow-hidden">
+          <button
+            type="button"
+            onClick={() => changeViewMode("list")}
+            className={`p-1.5 ${viewMode === "list" ? "bg-accent text-white" : "text-text-tertiary hover:bg-bg-secondary"}`}
+            title="자세히 보기"
+          >
+            <ListIcon size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => changeViewMode("grid")}
+            className={`p-1.5 border-l border-border-default ${viewMode === "grid" ? "bg-accent text-white" : "text-text-tertiary hover:bg-bg-secondary"}`}
+            title="카드 보기"
+          >
+            <LayoutGrid size={14} />
+          </button>
+        </div>
       </div>
 
       {/* 본문 */}
@@ -417,6 +447,98 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               강좌 안에서 "+ 만들기" 메뉴로 생성 가능
             </div>
           )}
+        </div>
+      ) : viewMode === "list" ? (
+        /* 자세히(리스트) 뷰 — 구글 드라이브 식 */
+        <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary">
+              <tr>
+                <th className="px-4 py-2 text-left font-medium w-10"></th>
+                <th className="px-2 py-2 text-left font-medium">이름</th>
+                <th className="px-2 py-2 text-left font-medium w-32">유형</th>
+                <th className="px-2 py-2 text-left font-medium w-40">
+                  {tab === "trash" ? "삭제일" : "수정일"}
+                </th>
+                <th className="px-2 py-2 text-right font-medium w-24">크기</th>
+                <th className="px-2 py-2 w-12"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((it) => {
+                const m = TYPE_META[it.type];
+                const Icon = m.icon;
+                const menuKey = `${it.type}:${it.id}`;
+                const isMenuOpen = menuOpen === menuKey;
+                const dateStr = tab === "trash"
+                  ? it.deleted_at?.slice(0, 16).replace("T", " ") || ""
+                  : it.updated_at?.slice(0, 16).replace("T", " ") || "";
+                return (
+                  <tr key={menuKey} className="border-b border-border-default/50 hover:bg-bg-secondary/50">
+                    <td className="px-4 py-2">
+                      <Icon size={18} style={{ color: m.color }} />
+                    </td>
+                    <td className="px-2 py-2">
+                      {tab === "trash" ? (
+                        <span className="text-text-primary">{it.title}</span>
+                      ) : (
+                        <Link href={hrefFor(it)} className="text-text-primary hover:text-accent hover:underline">
+                          {it.title}
+                        </Link>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-text-secondary">{m.label}</td>
+                    <td className="px-2 py-2 text-text-tertiary">{dateStr}</td>
+                    <td className="px-2 py-2 text-right text-text-tertiary">{formatMB(it.storage_bytes)}</td>
+                    <td className="px-2 py-2 text-right">
+                      <div className="relative inline-block">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(isMenuOpen ? null : menuKey); }}
+                          className="p-1 rounded hover:bg-bg-secondary text-text-tertiary"
+                        >
+                          <MoreVertical size={14} />
+                        </button>
+                        {isMenuOpen && (
+                          <div
+                            className="absolute right-0 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[140px] py-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {tab === "trash" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => { setMenuOpen(null); doRestore(it); }}
+                                  className="w-full text-left px-3 py-2 text-[12px] hover:bg-bg-secondary flex items-center gap-2"
+                                >
+                                  <RotateCcw size={12} /> 복구
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setMenuOpen(null); doPermanent(it); }}
+                                  className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
+                                >
+                                  <Trash2 size={12} /> 영구 삭제
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => { setMenuOpen(null); doSoftDelete(it); }}
+                                className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
+                              >
+                                <Trash2 size={12} /> 휴지통으로 이동
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
