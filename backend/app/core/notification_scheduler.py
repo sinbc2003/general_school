@@ -146,6 +146,15 @@ async def _maybe_purge_trash(db: AsyncSession) -> int:
     return result["deleted_total"]
 
 
+async def _disable_expired_users(db: AsyncSession) -> int:
+    """매 tick 만료된 임시·대리 계정 비활성화."""
+    from app.modules.users.lifecycle import disable_expired_accounts
+    n = await disable_expired_accounts(db)
+    if n > 0:
+        log.info("[NOTIF SCHED] 만료 계정 자동 비활성화 — %d명", n)
+    return n
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick."""
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
@@ -158,6 +167,7 @@ async def _scheduler_loop() -> None:
                 try:
                     cnt = await _send_due_reminders(db)
                     await _maybe_purge_trash(db)
+                    await _disable_expired_users(db)
                     await db.commit()
                     if cnt > 0:
                         log.info("[NOTIF SCHED] 마감 임박 reminder %d건 발송", cnt)

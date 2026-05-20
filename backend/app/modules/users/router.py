@@ -22,3 +22,4 @@ from app.modules.users import bulk  # noqa: E402, F401
 from app.modules.users import cohort  # noqa: E402, F401
 from app.modules.users import sessions  # noqa: E402, F401
 from app.modules.users import crud  # noqa: E402, F401
+from app.modules.users import lifecycle  # noqa: E402, F401
