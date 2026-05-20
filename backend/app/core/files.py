@@ -17,26 +17,28 @@ import asyncio
 from pathlib import Path
 
 
-async def write_bytes_async(path: Path, data: bytes) -> None:
-    """파일 쓰기를 thread pool에 위임."""
-    await asyncio.to_thread(path.write_bytes, data)
+async def write_bytes_async(path: Path | str, data: bytes) -> None:
+    """파일 쓰기를 thread pool에 위임. str도 허용."""
+    await asyncio.to_thread(Path(path).write_bytes, data)
 
 
-async def ensure_dir_async(path: Path) -> None:
-    """디렉터리 생성 (parents=True, exist_ok=True)을 thread pool에 위임."""
-    await asyncio.to_thread(lambda: path.mkdir(parents=True, exist_ok=True))
+async def ensure_dir_async(path: Path | str) -> None:
+    """디렉터리 생성 (parents=True, exist_ok=True)을 thread pool에 위임. str도 허용."""
+    p = Path(path)
+    await asyncio.to_thread(lambda: p.mkdir(parents=True, exist_ok=True))
 
 
-async def read_bytes_async(path: Path) -> bytes:
-    """파일 읽기를 thread pool에 위임."""
-    return await asyncio.to_thread(path.read_bytes)
+async def read_bytes_async(path: Path | str) -> bytes:
+    """파일 읽기를 thread pool에 위임. str도 허용."""
+    return await asyncio.to_thread(Path(path).read_bytes)
 
 
-async def unlink_async(path: Path, missing_ok: bool = True) -> None:
-    """파일 삭제를 thread pool에 위임. 기본은 없어도 OK."""
+async def unlink_async(path: Path | str, missing_ok: bool = True) -> None:
+    """파일 삭제를 thread pool에 위임. 기본은 없어도 OK. str도 허용."""
+    p = Path(path)
     def _do():
         try:
-            path.unlink()
+            p.unlink()
         except FileNotFoundError:
             if not missing_ok:
                 raise
