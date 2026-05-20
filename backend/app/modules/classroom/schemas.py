@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 PostType = Literal["notice", "material", "assignment_ref"]
-AttachmentType = Literal["link", "file", "doc", "survey"]
+AttachmentType = Literal["link", "file", "doc", "survey", "sheet", "deck"]
 
 
 class Attachment(BaseModel):
@@ -15,6 +15,8 @@ class Attachment(BaseModel):
 
     예: {type: "link", url: "https://...", title: "참고 자료"}
         {type: "doc", doc_id: 42, title: "프로젝트 노트"}
+        {type: "sheet", sheet_id: 7, title: "성적"}
+        {type: "deck", deck_id: 12, title: "1차 보고"}
     """
     type: AttachmentType
     title: str = Field(..., min_length=1, max_length=255)
@@ -23,6 +25,8 @@ class Attachment(BaseModel):
     file_name: str | None = None
     doc_id: int | None = None
     survey_id: int | None = None
+    sheet_id: int | None = None
+    deck_id: int | None = None
 
 
 class CourseCreate(BaseModel):

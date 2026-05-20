@@ -25,20 +25,23 @@
 import { useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
-  Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip,
+  Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { DrivePicker } from "./DrivePicker";
 
 export type CreateKind = "assignment" | "material";
 
 interface AttachmentItem {
-  type: "link" | "file" | "doc" | "survey";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck";
   title: string;
   url?: string;
   file_url?: string;
   file_name?: string;
   doc_id?: number;
   survey_id?: number;
+  sheet_id?: number;
+  deck_id?: number;
 }
 
 /** 편집/복제 모드 시 prefill할 기존 post 데이터 */
@@ -119,12 +122,16 @@ export function AssignmentModal({
     setAttachments([...attachments, { type: "link", url, title: t }]);
   };
 
-  const addDoc = () => {
-    alert("협업 문서는 별도 페이지에서 만들고 URL을 [링크] 첨부로 추가하세요.");
-  };
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
 
-  const addSurvey = () => {
-    alert("설문은 별도 페이지에서 만들고 단축 링크를 [링크] 첨부로 추가하세요.");
+  const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
+    const next: AttachmentItem[] = picked.map((p) => {
+      // backend attachments format: doc → {type:"doc", doc_id, title}, survey → {type:"survey", survey_id, title}
+      // sheet/deck도 같은 패턴.
+      const idKey = `${p.type}_id`;
+      return { type: p.type as any, title: p.title, [idKey]: p.source_id } as any;
+    });
+    setAttachments([...attachments, ...next]);
   };
 
   const triggerFilePicker = () => {
@@ -276,9 +283,14 @@ export function AssignmentModal({
                   spin={uploading}
                 />
                 <AttachBtn icon={LinkIcon} label="링크" onClick={addLink} bg="#dbeafe" color="#1d4ed8" />
-                <AttachBtn icon={FileText} label="협업 문서" onClick={addDoc} bg="#fef3c7" color="#a16207" />
-                <AttachBtn icon={ClipboardCheck} label="설문" onClick={addSurvey} bg="#fce7f3" color="#be185d" />
+                <AttachBtn icon={HardDrive} label="내 드라이브" onClick={() => setShowDrivePicker(true)} bg="#ede9fe" color="#7c3aed" />
               </div>
+              {showDrivePicker && (
+                <DrivePicker
+                  onClose={() => setShowDrivePicker(false)}
+                  onSelect={addFromDrive}
+                />
+              )}
               <input
                 ref={fileInputRef}
                 type="file"

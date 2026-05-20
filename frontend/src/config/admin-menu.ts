@@ -158,14 +158,6 @@ export const adminMenu: MenuItem[] = [
     excludeRoles: ["student"],
   },
   {
-    key: "workspace",
-    label: "내 작업물",
-    icon: Briefcase,
-    path: "/workspace",
-    permission: "classroom.course.view",
-    excludeRoles: ["student"],
-  },
-  {
     key: "drive",
     label: "내 드라이브",
     icon: HardDrive,

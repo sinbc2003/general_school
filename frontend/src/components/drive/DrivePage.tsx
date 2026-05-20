@@ -20,10 +20,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FileText, FileSpreadsheet, Presentation, ClipboardList,
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
-  Globe, PanelRightOpen, PanelRightClose,
+  Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
@@ -77,6 +78,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showGooglePanel, setShowGooglePanel] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const router = useRouter();
 
   const baseClassroom = mode === "admin" ? "/classroom" : "/s/classroom";
   const baseDocs = mode === "admin" ? "/docs" : "/s/docs";
@@ -165,6 +169,42 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     }
   };
 
+  const createNew = async (type: ItemType) => {
+    setCreating(true);
+    setShowNewMenu(false);
+    try {
+      const endpoints: Record<ItemType, { url: string; body: any; redirect: (id: number) => string }> = {
+        docs: {
+          url: "/api/classroom/docs",
+          body: { title: "제목 없는 문서", course_id: null, access_mode: "specific_users" },
+          redirect: (id) => (mode === "admin" ? `/docs/${id}` : `/s/docs/${id}`),
+        },
+        sheets: {
+          url: "/api/classroom/sheets",
+          body: { title: "제목 없는 스프레드시트", course_id: null, access_mode: "specific_users" },
+          redirect: (id) => (mode === "admin" ? `/sheets/${id}` : `/s/sheets/${id}`),
+        },
+        decks: {
+          url: "/api/classroom/decks",
+          body: { title: "제목 없는 프리젠테이션", course_id: null, access_mode: "specific_users" },
+          redirect: (id) => (mode === "admin" ? `/docs/decks/${id}` : `/s/docs/decks/${id}`),
+        },
+        surveys: {
+          url: "/api/classroom/surveys",
+          body: { title: "제목 없는 설문지", course_id: null, access_mode: "link_public", description: null },
+          redirect: (id) => (mode === "admin" ? `/docs/forms/${id}` : `/s/docs/forms/${id}`),
+        },
+      };
+      const cfg = endpoints[type];
+      const r = await api.post<{ id: number }>(cfg.url, cfg.body);
+      router.push(cfg.redirect(r.id));
+    } catch (e: any) {
+      alert(e?.message || `${TYPE_META[type].label} 생성 실패`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const emptyTrash = async () => {
     if (!confirm("휴지통의 모든 자료를 영구 삭제합니다.\n복구 불가능. 진행하시겠습니까?")) return;
     try {
@@ -199,19 +239,54 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             본인이 만든 문서·스프레드시트·프리젠테이션·설문지. 휴지통은 30일 후 자동 영구 삭제됩니다.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowGooglePanel(!showGooglePanel)}
-          className={`px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 ${
-            showGooglePanel
-              ? "bg-accent text-white"
-              : "text-accent border border-accent/30 hover:bg-accent/5"
-          }`}
-          title="본인 Google Drive 연동"
-        >
-          {showGooglePanel ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
-          <Globe size={13} /> Google Drive
-        </button>
+        <div className="flex items-center gap-2">
+          {/* "+ 신규" 드롭다운 */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
+              disabled={creating}
+              className="px-4 py-2 text-[13px] bg-accent text-white rounded-md hover:opacity-90 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Plus size={14} /> 신규 <ChevronDown size={12} />
+            </button>
+            {showNewMenu && (
+              <div
+                className="absolute right-0 top-full mt-1 z-20 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[200px] py-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => {
+                  const m = TYPE_META[t];
+                  const Icon = m.icon;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => createNew(t)}
+                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-bg-secondary flex items-center gap-2 text-text-primary"
+                    >
+                      <Icon size={14} style={{ color: m.color }} />
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowGooglePanel(!showGooglePanel)}
+            className={`px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 ${
+              showGooglePanel
+                ? "bg-accent text-white"
+                : "text-accent border border-accent/30 hover:bg-accent/5"
+            }`}
+            title="본인 Google Drive 연동"
+          >
+            {showGooglePanel ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
+            <Globe size={13} /> Google Drive
+          </button>
+        </div>
       </div>
 
       {/* 만료 임박 배너 */}

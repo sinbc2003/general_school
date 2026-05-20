@@ -10,6 +10,7 @@ import {
   PenTool,
   Flame,
   Sparkles,
+  HardDrive,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,12 +41,19 @@ export const iconMap: Record<string, LucideIcon> = {
   PenTool,
   Flame,
   Sparkles,
+  HardDrive,
 };
 
 // admin items = adminMenu의 top-level key들
 // student items = studentMenu의 key들
 export const defaultCategories: MenuCategoriesConfig = {
   admin: [
+    {
+      id: "drive",
+      name: "드라이브",
+      icon: "HardDrive",
+      items: ["drive"],
+    },
     {
       id: "work",
       name: "업무",
@@ -94,6 +102,12 @@ export const defaultCategories: MenuCategoriesConfig = {
     },
   ],
   student: [
+    {
+      id: "drive",
+      name: "드라이브",
+      icon: "HardDrive",
+      items: ["my-drive"],
+    },
     {
       id: "main",
       name: "홈",
