@@ -19,13 +19,22 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Plus, Trash2, BarChart3, Lock, Unlock, Archive, Pencil,
-  Share2, Lock as LockIcon, Clock,
+  Share2, Lock as LockIcon, Clock, GripVertical,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import ShareLinkModal from "@/components/classroom/ShareLinkModal";
 import { QuestionCard } from "./_components/QuestionCard";
 import { AddQuestionModal } from "./_components/AddQuestionModal";
 import type { Question } from "./_components/_types";
+import {
+  DndContext, DragEndEvent, closestCenter, KeyboardSensor, PointerSensor,
+  useSensor, useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 
 interface SurveyDetail {
@@ -245,19 +254,36 @@ export default function SurveyBuilderPage() {
           </div>
         )}
 
-        {/* 질문 카드들 */}
+        {/* 질문 카드들 — 드래그로 순서 변경 (draft + canEdit 시만) */}
         <div className="space-y-3 mb-3">
           {survey.questions.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm py-16 text-center text-caption text-text-tertiary">
               아직 질문이 없습니다. {canEdit && "[질문 추가] 버튼으로 시작하세요."}
             </div>
+          ) : canEdit ? (
+            <SortableQuestions
+              questions={survey.questions}
+              onReorder={async (ids) => {
+                // 낙관적 업데이트 + API 호출
+                const map = new Map(survey.questions.map((q) => [q.id, q]));
+                const reordered = ids.map((id, i) => ({ ...map.get(id)!, order: i }));
+                setSurvey({ ...survey, questions: reordered });
+                try {
+                  await api.post(`/api/classroom/surveys/${sid}/questions/_reorder`, { question_ids: ids });
+                } catch (e: any) {
+                  alert(e?.detail || "순서 저장 실패");
+                  load();
+                }
+              }}
+              onDelete={deleteQuestion}
+            />
           ) : (
             survey.questions.map((q, idx) => (
               <QuestionCard
                 key={q.id}
                 q={q}
                 index={idx}
-                canEdit={canEdit}
+                canEdit={false}
                 onDelete={() => deleteQuestion(q.id)}
               />
             ))
@@ -299,3 +325,68 @@ export default function SurveyBuilderPage() {
     </div>
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────
+// 드래그 가능한 질문 list (draft 상태에서만 사용)
+// ─────────────────────────────────────────────────────────────
+function SortableQuestions({
+  questions,
+  onReorder,
+  onDelete,
+}: {
+  questions: Question[];
+  onReorder: (ids: number[]) => void;
+  onDelete: (id: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = questions.findIndex((q) => q.id === Number(active.id));
+    const newIdx = questions.findIndex((q) => q.id === Number(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const reordered = arrayMove(questions, oldIdx, newIdx);
+    onReorder(reordered.map((q) => q.id));
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={questions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
+        {questions.map((q, idx) => (
+          <SortableQuestionRow key={q.id} q={q} index={idx} onDelete={() => onDelete(q.id)} />
+        ))}
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableQuestionRow({ q, index, onDelete }: { q: Question; index: number; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="relative group">
+      {/* 좌측 드래그 핸들 */}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-tertiary hover:text-text-primary cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100"
+        title="드래그로 순서 변경"
+        aria-label="드래그로 순서 변경"
+      >
+        <GripVertical size={14} />
+      </button>
+      <QuestionCard q={q} index={index} canEdit onDelete={onDelete} />
+    </div>
+  );
+}
+

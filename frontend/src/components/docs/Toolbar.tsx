@@ -102,6 +102,25 @@ export function Toolbar({ editor }: ToolbarProps) {
     editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
   };
 
+  const promptMath = () => {
+    const sel = window.prompt(
+      "수식 (LaTeX 문법, 예: x^2 + y^2 = r^2 또는 \\sum_{i=1}^n i):",
+      "",
+    );
+    if (!sel) return;
+    // 본문에 인라인 수식 삽입 — Mathematics extension은 $...$ 구문 자동 인식
+    editor.chain().focus().insertContent(`$${sel}$`).run();
+  };
+
+  const promptMathBlock = () => {
+    const sel = window.prompt(
+      "수식 블록 (LaTeX, 예: \\frac{a}{b} 또는 \\int_0^\\infty e^{-x} dx):",
+      "",
+    );
+    if (!sel) return;
+    editor.chain().focus().insertContent(`$$${sel}$$`).run();
+  };
+
   const promptYouTube = () => {
     const url = window.prompt("YouTube URL (또는 video ID):", "https://www.youtube.com/watch?v=...");
     if (!url) return;
@@ -274,6 +293,12 @@ export function Toolbar({ editor }: ToolbarProps) {
       <Btn onClick={promptLinkCard} title="링크 카드 (OG 미리보기)"><Globe size={14} /></Btn>
       <Btn onClick={promptImage} title="이미지 (URL)"><ImageIcon size={14} /></Btn>
       <Btn onClick={promptYouTube} title="YouTube 임베드"><Youtube size={14} /></Btn>
+      <Btn onClick={promptMath} title="수식 인라인 ($...$)">
+        <span className="font-serif italic text-[12px]">∑x</span>
+      </Btn>
+      <Btn onClick={promptMathBlock} title="수식 블록 ($$...$$)">
+        <span className="font-serif text-[11px]">∫∫</span>
+      </Btn>
       <div className="relative inline-flex items-center">
         <Btn onClick={insertTable} title="표 삽입 (3×3)"><TableIcon size={14} /></Btn>
         {editor.isActive("table") && (

@@ -88,3 +88,40 @@ async def delete_question(
         raise HTTPException(409, "초안 상태에서만 질문 삭제 가능")
     await db.delete(q)
     return {"ok": True}
+
+
+from pydantic import BaseModel, Field
+
+
+class ReorderQuestions(BaseModel):
+    """문항 순서 일괄 변경 — frontend가 드래그 종료 시 전체 순서 list 전송."""
+    question_ids: list[int] = Field(..., min_length=1)
+
+
+@router.post("/{sid}/questions/_reorder")
+async def reorder_questions(
+    sid: int, body: ReorderQuestions,
+    user: User = Depends(require_permission("classroom.survey.edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """문항 순서 일괄 변경. 초안 상태에서만 가능. question_ids 순서대로 order 0,1,2,..."""
+    s = await db.get(Survey, sid)
+    if not s:
+        raise HTTPException(404)
+    if not can_manage(user, s):
+        raise HTTPException(403, "본인 설문만 순서 변경")
+    if s.status != "draft":
+        raise HTTPException(409, "초안 상태에서만 순서 변경 가능")
+
+    # 해당 설문의 모든 문항 검증
+    rows = (await db.execute(
+        select(SurveyQuestion).where(SurveyQuestion.survey_id == sid)
+    )).scalars().all()
+    by_id = {q.id: q for q in rows}
+    if set(body.question_ids) != set(by_id.keys()):
+        raise HTTPException(400, "question_ids가 이 설문의 문항 ID와 일치하지 않습니다")
+
+    for idx, qid in enumerate(body.question_ids):
+        by_id[qid].order = idx
+    await db.flush()
+    return {"ok": True, "count": len(body.question_ids)}

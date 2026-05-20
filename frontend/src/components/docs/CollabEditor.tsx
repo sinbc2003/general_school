@@ -35,6 +35,9 @@ import TableRow from "@tiptap/extension-table-row";
 import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
 import Youtube from "@tiptap/extension-youtube";
+import Typography from "@tiptap/extension-typography";
+// @ts-ignore — extension-mathematics type 미완 (런타임 OK)
+import Mathematics from "@tiptap/extension-mathematics";
 import { LinkCard } from "./LinkCardExtension";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
@@ -42,6 +45,7 @@ import { Wifi, WifiOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { Toolbar } from "./Toolbar";
 import "./collab-editor.css";
+import "katex/dist/katex.min.css";
 
 interface CollabEditorProps {
   docId: number;
@@ -182,8 +186,12 @@ export default function CollabEditor({
         modestBranding: true,
       }),
       LinkCard,
+      // 마크다운 typography — (c)→©, →, ←, 1/2→½, "...", 자동 따옴표 등
+      Typography,
+      // 수식 (KaTeX) — $E=mc^2$ inline 또는 $$\sum$$ block
+      Mathematics,
       Placeholder.configure({
-        placeholder: "여기에 함께 작성해보세요...",
+        placeholder: "여기에 함께 작성해보세요... ( $수식$ , $$수식블록$$ 도 가능 )",
       }),
       // v3: Collaboration은 document + provider 둘 다 받아야 양방향 sync 완성
       Collaboration.configure({
