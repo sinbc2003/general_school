@@ -1,0 +1,22 @@
+[Unit]
+Description=General School Hocuspocus (Yjs WebSocket)
+After=network.target gs-backend.service
+Wants=gs-backend.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__INSTALL_DIR__/backend-hocuspocus
+EnvironmentFile=__INSTALL_DIR__/.env
+Environment=NODE_ENV=production
+Environment=HOCUSPOCUS_PORT=1234
+ExecStart=/usr/bin/node __INSTALL_DIR__/backend-hocuspocus/dist/index.js
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

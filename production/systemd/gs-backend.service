@@ -1,0 +1,33 @@
+[Unit]
+Description=General School Backend (FastAPI/Gunicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__INSTALL_DIR__/backend
+EnvironmentFile=__INSTALL_DIR__/.env
+# gunicorn -w (worker 수) 는 보통 (CPU 코어 × 2) + 1. 4코어 노트북이면 4~9. 6 권장.
+# 더 늘리면 메모리·DB connection pool 부담. 줄이면 동시처리 부족.
+ExecStart=__INSTALL_DIR__/backend/venv/bin/gunicorn app.main:app \
+    --workers 6 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8002 \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --max-requests 2000 \
+    --max-requests-jitter 200 \
+    --access-logfile - \
+    --error-logfile -
+Restart=always
+RestartSec=5
+# 죽음 5회 이상이면 1분 대기 — 무한 재시작 폭주 방지
+StartLimitBurst=5
+StartLimitIntervalSec=60
+# 메모리 누수 보호 (장시간 운영 안전망)
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target

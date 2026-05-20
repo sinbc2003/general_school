@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# General School 자동 백업 — cron 매일 새벽 2시 실행 권장.
+#
+# 백업 대상:
+#   - PostgreSQL DB (pg_dump)
+#   - backend/storage/ 디렉터리 (사용자 업로드 파일)
+#
+# 보관 정책: 30일 이상 된 백업 자동 삭제.
+#
+# 설정:
+#   1. BACKUP_DEST를 외장 SSD/NAS 마운트 경로로 (없으면 ~/gs-backups 기본).
+#   2. .env의 DATABASE_URL이 postgresql+asyncpg://USER:PASS@HOST:PORT/DBNAME 형식이면 파싱.
+#
+# 실행:
+#   ./backup.sh
+#
+# crontab:
+#   0 2 * * * /home/sinbc/general_school/production/scripts/backup.sh >> /var/log/gs-backup.log 2>&1
+
+set -euo pipefail
+
+# ── 경로 ──
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_FILE="$INSTALL_DIR/.env"
+STORAGE_DIR="$INSTALL_DIR/backend/storage"
+
+# 백업 저장소 — 외장 SSD 마운트 또는 ~/gs-backups
+BACKUP_DEST="${BACKUP_DEST:-$HOME/gs-backups}"
+DATE="$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$BACKUP_DEST"
+
+# ── DATABASE_URL 파싱 ──
+if [ ! -f "$ENV_FILE" ]; then
+    echo "[ERROR] .env not found: $ENV_FILE" >&2
+    exit 1
+fi
+
+DB_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'")"
+
+if [[ "$DB_URL" =~ ^postgresql ]]; then
+    # postgresql+asyncpg://user:pass@host:port/dbname → 부분 추출
+    # 한 줄 정규식 파싱
+    DB_USER="$(echo "$DB_URL" | sed -E 's|^.*://([^:]+):.*|\1|')"
+    DB_PASS="$(echo "$DB_URL" | sed -E 's|^.*://[^:]+:([^@]+)@.*|\1|')"
+    DB_HOST="$(echo "$DB_URL" | sed -E 's|^.*@([^:/]+).*|\1|')"
+    DB_PORT="$(echo "$DB_URL" | sed -E 's|^.*@[^:]+:([0-9]+)/.*|\1|')"
+    DB_NAME="$(echo "$DB_URL" | sed -E 's|^.*/([^/?]+)(\?.*)?$|\1|')"
+
+    DB_FILE="$BACKUP_DEST/db_${DATE}.sql.gz"
+    echo "[$(date '+%F %T')] DB backup → $DB_FILE"
+    PGPASSWORD="$DB_PASS" pg_dump \
+        -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" \
+        --no-owner --no-acl \
+        "$DB_NAME" | gzip -9 > "$DB_FILE"
+    echo "  → $(du -h "$DB_FILE" | cut -f1)"
+elif [[ "$DB_URL" =~ ^sqlite ]]; then
+    # sqlite 경로 추출
+    SQLITE_PATH="$(echo "$DB_URL" | sed -E 's|^sqlite\+aiosqlite:///||')"
+    if [ ! -f "$SQLITE_PATH" ]; then
+        SQLITE_PATH="$INSTALL_DIR/backend/$SQLITE_PATH"
+    fi
+    DB_FILE="$BACKUP_DEST/db_${DATE}.sqlite.gz"
+    echo "[$(date '+%F %T')] SQLite backup → $DB_FILE"
+    gzip -c "$SQLITE_PATH" > "$DB_FILE"
+else
+    echo "[WARN] DATABASE_URL not recognized: $DB_URL — skipping DB backup" >&2
+fi
+
+# ── Storage 디렉터리 ──
+if [ -d "$STORAGE_DIR" ]; then
+    STORAGE_FILE="$BACKUP_DEST/storage_${DATE}.tar.gz"
+    echo "[$(date '+%F %T')] Storage backup → $STORAGE_FILE"
+    tar czf "$STORAGE_FILE" -C "$INSTALL_DIR/backend" storage
+    echo "  → $(du -h "$STORAGE_FILE" | cut -f1)"
+fi
+
+# ── 30일 이상 정리 ──
+echo "[$(date '+%F %T')] Cleaning backups older than 30 days..."
+find "$BACKUP_DEST" -name "db_*.sql.gz" -mtime +30 -delete 2>/dev/null || true
+find "$BACKUP_DEST" -name "db_*.sqlite.gz" -mtime +30 -delete 2>/dev/null || true
+find "$BACKUP_DEST" -name "storage_*.tar.gz" -mtime +30 -delete 2>/dev/null || true
+
+echo "[$(date '+%F %T')] Backup complete."
+df -h "$BACKUP_DEST" | tail -1
