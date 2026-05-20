@@ -3,19 +3,23 @@
 /**
  * 클래스룸 홈 강좌 카드 — Google Classroom 식.
  *
- * 구성:
+ * 구성 (실제 Google과 비슷한 비율):
  *   ┌──────────────────────────────┐
- *   │ ▓▓▓▓ (컬러 배너, 강좌명)      │
+ *   │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │  ← 컬러 배너 (강좌명 + 부제)
+ *   │ 강좌명                       │
+ *   │ 과목·반                       │
  *   │                              │
- *   │            [원형 일러스트]    │  ← 우하단
  *   ├──────────────────────────────┤
- *   │ [👥 N명] [Archive 표시]       │
- *   │ 담당 교사 (admin만)            │
+ *   │                              │  ← 흰 빈 영역 (스튜덴트 사진 자리)
+ *   │                              │
+ *   ├──────────────────────────────┤
+ *   │ [📈] [📁]              [⋮]   │  ← 액션 아이콘 row
  *   └──────────────────────────────┘
  */
 
 import Link from "next/link";
-import { Users, Archive, BookOpen } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Users, Archive, TrendingUp, Folder, MoreVertical } from "lucide-react";
 import { getCourseTone } from "./_color";
 
 interface CourseCardProps {
@@ -37,51 +41,85 @@ export function CourseCard({
   student_count, baseHref = "/classroom", showTeacher = false,
 }: CourseCardProps) {
   const tone = getCourseTone(id);
+  const router = useRouter();
 
   return (
     <Link
       href={`${baseHref}/${id}`}
-      className={`block bg-bg-primary border border-border-default rounded-xl overflow-hidden hover:shadow-md transition-shadow ${
+      className={`block bg-bg-primary border border-border-default rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col ${
         !is_active ? "opacity-70" : ""
       }`}
     >
-      {/* 컬러 배너 — 강좌명 / 부제 */}
+      {/* 컬러 배너 — 강좌명 / 부제 (실제 Google 비율: 약 160px) */}
       <div
-        className="relative p-4 pb-5 min-h-[110px]"
-        style={{ backgroundColor: tone.bg, color: tone.fg }}
+        className="relative px-5 pt-4 pb-5"
+        style={{ backgroundColor: tone.bg, color: tone.fg, minHeight: "160px" }}
       >
-        <div className="text-[18px] font-bold leading-tight pr-12 line-clamp-2">
+        <div className="text-[22px] font-bold leading-tight pr-12 line-clamp-2">
           {name}
         </div>
-        <div className="text-[12px] opacity-90 mt-1 line-clamp-1">
+        <div className="text-[13px] opacity-95 mt-1.5 line-clamp-1">
           {subject}{class_name && ` · ${class_name}`}
         </div>
         {showTeacher && teacher_name && (
-          <div className="text-[11px] opacity-80 mt-3 line-clamp-1">
+          <div className="text-[12px] opacity-85 mt-2 line-clamp-1">
             {teacher_name}
           </div>
         )}
-
-        {/* 우하단 원형 일러스트 (책 아이콘) */}
-        <div
-          className="absolute right-3 bottom-3 w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: "rgba(255,255,255,0.25)" }}
-        >
-          <BookOpen size={18} />
-        </div>
-      </div>
-
-      {/* 본문 — 학생 수 + archived 배지 */}
-      <div className="px-4 py-2.5 flex items-center gap-2 text-caption text-text-tertiary">
-        <span className="inline-flex items-center gap-1">
-          <Users size={12} /> {student_count}명
-        </span>
         {!is_active && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] rounded">
-            <Archive size={10} /> 보관
+          <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 bg-white/25 rounded inline-flex items-center gap-1">
+            <Archive size={9} /> 보관
           </span>
         )}
       </div>
+
+      {/* 흰 빈 영역 — 실제 Google은 학생 사진/일러스트. 우리는 여백만 */}
+      <div className="flex-1 min-h-[60px]"></div>
+
+      {/* 하단 액션 아이콘 row — 실제 Google 식 (작은 회색 아이콘들) */}
+      <div className="px-3 py-2 flex items-center justify-between text-text-tertiary border-t border-border-default">
+        <div className="flex items-center gap-1">
+          <IconBtn
+            title="진행 상황"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`${baseHref}/${id}?tab=coursework`); }}
+          >
+            <TrendingUp size={16} />
+          </IconBtn>
+          <IconBtn
+            title="강좌 폴더"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`${baseHref}/${id}/docs`); }}
+          >
+            <Folder size={16} />
+          </IconBtn>
+        </div>
+        <div className="flex items-center gap-3 text-[11.5px]">
+          <span className="inline-flex items-center gap-1">
+            <Users size={11} /> {student_count}
+          </span>
+          <IconBtn
+            title="더보기"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          >
+            <MoreVertical size={15} />
+          </IconBtn>
+        </div>
+      </div>
     </Link>
+  );
+}
+
+function IconBtn({ children, title, onClick }: {
+  children: React.ReactNode; title: string;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="w-8 h-8 rounded-full hover:bg-bg-secondary flex items-center justify-center transition"
+    >
+      {children}
+    </button>
   );
 }

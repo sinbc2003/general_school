@@ -9,11 +9,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Pin, Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
+import { Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
+import { PostStreamCard } from "@/components/classroom/PostStreamCard";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Attachment {
@@ -135,7 +136,13 @@ export default function StudentCourseDetailPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {posts.map((p) => <PostCard key={p.id} post={p} />)}
+                {posts.map((p) => (
+                  <PostStreamCard
+                    key={p.id}
+                    post={{ ...p, course_id: cid }}
+                    baseHref="/s/classroom"
+                  />
+                ))}
               </div>
             )}
           </main>
@@ -196,8 +203,20 @@ export default function StudentCourseDetailPage() {
 
 // ─── 학생용 수업 과제 list — Google Classroom 식 주제별 그룹 ───
 function StudentCourseworkList({ cid, posts }: { cid: number; posts: Post[] }) {
+  // 주제 옵션 (필터용)
+  const allTopics = Array.from(new Set(posts.map((p) => p.topic).filter(Boolean) as string[]))
+    .sort((a, b) => a.localeCompare(b, "ko"));
+  const [topicFilter, setTopicFilter] = useState<string>("__all__");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const filtered = topicFilter === "__all__"
+    ? posts
+    : topicFilter === "__none__"
+      ? posts.filter((p) => !p.topic)
+      : posts.filter((p) => p.topic === topicFilter);
+
   const groups: Record<string, Post[]> = {};
-  for (const p of posts) {
+  for (const p of filtered) {
     const key = p.topic || "주제 없음";
     groups[key] = groups[key] || [];
     groups[key].push(p);
@@ -207,6 +226,19 @@ function StudentCourseworkList({ cid, posts }: { cid: number; posts: Post[] }) {
     if (b === "주제 없음") return -1;
     return a.localeCompare(b, "ko");
   });
+
+  const toggleCollapse = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+  const allCollapsed = collapsed.size > 0 && collapsed.size >= topicOrder.length;
+  const toggleAll = () => {
+    if (allCollapsed) setCollapsed(new Set());
+    else setCollapsed(new Set(topicOrder));
+  };
 
   if (posts.length === 0) {
     return (
@@ -219,49 +251,105 @@ function StudentCourseworkList({ cid, posts }: { cid: number; posts: Post[] }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* 주제 필터 + 모두 접기 — Google Classroom 식 */}
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex-1 max-w-sm">
+          <label className="block text-[10.5px] text-text-tertiary mb-1 px-3">주제 필터</label>
+          <div className="relative">
+            <select
+              value={topicFilter}
+              onChange={(e) => setTopicFilter(e.target.value)}
+              className="w-full pl-3 pr-8 py-2.5 text-body bg-bg-primary border border-border-default rounded-md appearance-none cursor-pointer hover:border-text-tertiary"
+            >
+              <option value="__all__">모든 주제</option>
+              {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
+              <option value="__none__">주제 없음</option>
+            </select>
+            <svg
+              className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-text-tertiary"
+              width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="text-caption text-accent hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="18 15 12 9 6 15"></polyline>
+            <polyline points="6 21 12 15 18 21"></polyline>
+          </svg>
+          {allCollapsed ? "모두 펼치기" : "모두 접기"}
+        </button>
+      </div>
+
       {topicOrder.map((topicKey) => (
-        <div key={topicKey} className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
-          <div className="px-5 py-3 border-b border-border-default text-body font-semibold text-accent">
-            {topicKey}
-          </div>
-          <div className="divide-y divide-border-default">
-            {groups[topicKey].map((p) => {
-              const isAssignment = p.post_type === "assignment_ref";
-              return (
-                <Link
-                  key={p.id}
-                  href={`/s/classroom/${cid}/posts/${p.id}`}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer"
-                >
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{
-                      backgroundColor: isAssignment ? "#fef3c7" : "#dcfce7",
-                      color: isAssignment ? "#a16207" : "#15803d",
-                    }}
+        <div key={topicKey}>
+          {/* 큰 주제 헤더 */}
+          <button
+            type="button"
+            onClick={() => toggleCollapse(topicKey)}
+            className="w-full flex items-center justify-between py-2 px-1 border-b border-border-default text-left group"
+          >
+            <div className="text-[20px] font-medium text-text-primary group-hover:opacity-90">
+              {topicKey}
+            </div>
+            <svg
+              width="20" height="20" viewBox="0 0 24 24"
+              className={`text-text-tertiary transition-transform ${collapsed.has(topicKey) ? "" : "rotate-180"}`}
+              fill="none" stroke="currentColor" strokeWidth="2"
+            >
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+          </button>
+          {!collapsed.has(topicKey) && (
+            <div className="mt-2 space-y-2">
+              {groups[topicKey].map((p) => {
+                const isAssignment = p.post_type === "assignment_ref";
+                const dateStr = p.created_at
+                  ? new Date(p.created_at).toLocaleDateString("ko-KR", {
+                      year: "numeric", month: "numeric", day: "numeric",
+                    })
+                  : "";
+                return (
+                  <Link
+                    key={p.id}
+                    href={`/s/classroom/${cid}/posts/${p.id}`}
+                    className="bg-bg-primary border border-border-default rounded-lg flex items-center gap-3 px-5 py-3.5 hover:shadow-sm transition"
                   >
-                    <ClipboardList size={16} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-body font-medium text-text-primary truncate">{p.title}</div>
-                    {p.due_date && (
-                      <div className="text-[11.5px] text-status-error mt-0.5">
-                        기한 {new Date(p.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
-                        {p.max_score != null && ` · ${p.max_score}점`}
-                      </div>
-                    )}
-                    {!p.due_date && p.max_score != null && (
-                      <div className="text-[11.5px] text-text-tertiary mt-0.5">{p.max_score}점</div>
-                    )}
-                  </div>
-                  <div className="text-caption text-text-tertiary whitespace-nowrap">
-                    게시일: {p.created_at && new Date(p.created_at).toLocaleString("ko-KR", { hour: "numeric", minute: "2-digit" })}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{
+                        background: isAssignment
+                          ? "linear-gradient(135deg, #fde4b8 0%, #fbbf24 100%)"
+                          : "linear-gradient(135deg, #bbf7d0 0%, #4ade80 100%)",
+                        color: isAssignment ? "#a16207" : "#15803d",
+                      }}
+                    >
+                      <ClipboardList size={18} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14.5px] text-text-primary truncate">{p.title}</div>
+                      {p.due_date && (
+                        <div className="text-[11.5px] text-status-error mt-0.5">
+                          기한 {new Date(p.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
+                          {p.max_score != null && ` · ${p.max_score}점`}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-[12.5px] text-text-tertiary whitespace-nowrap">
+                      게시일: {dateStr}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -269,27 +357,4 @@ function StudentCourseworkList({ cid, posts }: { cid: number; posts: Post[] }) {
 }
 
 
-function PostCard({ post }: { post: Post }) {
-  const typeLabels: Record<string, { label: string; color: string }> = {
-    notice: { label: "공지", color: "bg-cream-200 text-blue-700" },
-    material: { label: "자료", color: "bg-green-100 text-green-700" },
-    assignment_ref: { label: "과제", color: "bg-purple-100 text-purple-700" },
-  };
-  const meta = typeLabels[post.post_type] || typeLabels.notice;
-  return (
-    <div className="bg-bg-primary border border-border-default rounded-lg p-4 hover:shadow-sm transition">
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`px-1.5 py-0.5 text-[10px] rounded ${meta.color}`}>{meta.label}</span>
-        {post.is_pinned && <Pin size={11} className="text-accent" />}
-        <span className="text-body font-medium flex-1 truncate">{post.title}</span>
-        <span className="text-caption text-text-tertiary">
-          {post.created_at && post.created_at.slice(0, 10)}
-        </span>
-      </div>
-      <div className="text-caption text-text-secondary whitespace-pre-wrap">{post.content}</div>
-      {post.author_name && (
-        <div className="text-caption text-text-tertiary mt-2">— {post.author_name}</div>
-      )}
-    </div>
-  );
-}
+// PostCard → components/classroom/PostStreamCard.tsx로 이동 (Google Classroom 식)

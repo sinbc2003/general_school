@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Users, MessageSquare, Trash2, Pin, X, UserPlus, BarChart3,
+  Users, MessageSquare, Trash2, X, UserPlus, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import Link from "next/link";
@@ -21,6 +21,7 @@ import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CreateMenu, type CreateActionKind } from "@/components/classroom/CreateMenu";
 import { PostComposer, type PostType } from "@/components/classroom/PostComposer";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
+import { PostStreamCard } from "@/components/classroom/PostStreamCard";
 import { AssignmentModal, type AssignmentModalInitial, type CreateKind } from "@/components/classroom/AssignmentModal";
 import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
@@ -246,11 +247,20 @@ export default function CourseDetailAdminPage() {
             ) : (
               <div className="space-y-2">
                 {posts.map((p) => (
-                  <PostCard
+                  <PostStreamCard
                     key={p.id}
                     post={p}
-                    onDelete={() => deletePost(p.id)}
+                    baseHref="/classroom"
                     canEdit={canEdit}
+                    onDelete={(pid) => deletePost(pid)}
+                    onEdit={(pid) => {
+                      const post = posts.find((x) => x.id === pid);
+                      if (post) handleEdit(post);
+                    }}
+                    onDuplicate={(pid) => {
+                      const post = posts.find((x) => x.id === pid);
+                      if (post) handleDuplicate(post);
+                    }}
                   />
                 ))}
               </div>
@@ -266,6 +276,7 @@ export default function CourseDetailAdminPage() {
           posts={posts}
           canEdit={canEdit}
           tone={tone}
+          studentCount={course.students.length}
           onCreate={(kind) => handleCreate(kind)}
           onDelete={deletePost}
           onEdit={handleEdit}
@@ -372,12 +383,15 @@ export default function CourseDetailAdminPage() {
 }
 
 
-// ─── 수업 과제 탭 — Google Classroom 식 주제별 그룹 + 항목 아이콘 + 더보기 메뉴 ───
+// ─── 수업 과제 탭 — Google Classroom 식 ───
+// (실 디자인: 상단 "주제 필터" 드롭다운 + "모두 접기" link / 주제별 큰 헤더 + chevron /
+//  항목 클릭 시 인라인 펼침 "기한 없음" + "N 제출함 / M 할당됨" 큰 숫자)
 function CourseworkTab({
-  cid, posts, canEdit, tone, onCreate, onDelete, onEdit, onDuplicate,
+  cid, posts, canEdit, tone, studentCount, onCreate, onDelete, onEdit, onDuplicate,
 }: {
   cid: number; posts: Post[]; canEdit: boolean;
   tone: { accent: string };
+  studentCount: number;
   onCreate: (kind: CreateActionKind) => void;
   onDelete: (pid: number) => void;
   onEdit: (post: Post) => void;
@@ -385,9 +399,21 @@ function CourseworkTab({
 }) {
   // 과제·자료만 (공지는 게시판 탭에서)
   const materials = posts.filter((p) => p.post_type !== "notice");
-  // 주제별 그룹화: topic null → "주제 없음"
+  // 주제 옵션 (필터용)
+  const allTopics = Array.from(new Set(materials.map((p) => p.topic).filter(Boolean) as string[]))
+    .sort((a, b) => a.localeCompare(b, "ko"));
+  // 필터 상태
+  const [topicFilter, setTopicFilter] = useState<string>("__all__"); // __all__ | topic | __none__
+
+  const filtered = topicFilter === "__all__"
+    ? materials
+    : topicFilter === "__none__"
+      ? materials.filter((p) => !p.topic)
+      : materials.filter((p) => p.topic === topicFilter);
+
+  // 주제별 그룹화
   const groups: Record<string, Post[]> = {};
-  for (const p of materials) {
+  for (const p of filtered) {
     const key = p.topic || "주제 없음";
     groups[key] = groups[key] || [];
     groups[key].push(p);
@@ -398,7 +424,6 @@ function CourseworkTab({
     return a.localeCompare(b, "ko");
   });
 
-  const [collapsedAll, setCollapsedAll] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = (key: string) => {
     setCollapsed((prev) => {
@@ -407,18 +432,14 @@ function CourseworkTab({
       return next;
     });
   };
+  const allCollapsed = collapsed.size > 0 && collapsed.size >= topicOrder.length;
   const toggleAll = () => {
-    if (collapsedAll || collapsed.size === topicOrder.length) {
-      setCollapsed(new Set());
-      setCollapsedAll(false);
-    } else {
-      setCollapsed(new Set(topicOrder));
-      setCollapsedAll(true);
-    }
+    if (allCollapsed) setCollapsed(new Set());
+    else setCollapsed(new Set(topicOrder));
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {canEdit && (
         <div className="flex items-center gap-3">
           <CreateMenu onAction={onCreate} accentColor={tone.accent} />
@@ -434,14 +455,6 @@ function CourseworkTab({
           >
             설문 →
           </Link>
-          {materials.length > 0 && (
-            <button
-              onClick={toggleAll}
-              className="ml-auto text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
-            >
-              {collapsed.size === topicOrder.length && topicOrder.length > 0 ? "모두 펼치기" : "모두 접기"}
-            </button>
-          )}
         </div>
       )}
 
@@ -453,58 +466,102 @@ function CourseworkTab({
           </div>
         </div>
       ) : (
-        topicOrder.map((topicKey) => (
-          <TopicGroup
-            key={topicKey}
-            topic={topicKey}
-            posts={groups[topicKey]}
-            collapsed={collapsed.has(topicKey)}
-            onToggle={() => toggleCollapse(topicKey)}
-            canEdit={canEdit}
-            onDelete={onDelete}
-            onEdit={onEdit}
-            onDuplicate={onDuplicate}
-            tone={tone}
-          />
-        ))
+        <>
+          {/* 주제 필터 + 모두 접기 — Google Classroom 식 */}
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div className="flex-1 max-w-sm">
+              <label className="block text-[10.5px] text-text-tertiary mb-1 px-3">주제 필터</label>
+              <div className="relative">
+                <select
+                  value={topicFilter}
+                  onChange={(e) => setTopicFilter(e.target.value)}
+                  className="w-full pl-3 pr-8 py-2.5 text-body bg-bg-primary border border-border-default rounded-md appearance-none cursor-pointer hover:border-text-tertiary"
+                >
+                  <option value="__all__">모든 주제</option>
+                  {allTopics.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                  <option value="__none__">주제 없음</option>
+                </select>
+                <svg
+                  className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-text-tertiary"
+                  width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+            </div>
+            {topicOrder.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="text-caption text-accent hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                  <polyline points="6 21 12 15 18 21"></polyline>
+                </svg>
+                {allCollapsed ? "모두 펼치기" : "모두 접기"}
+              </button>
+            )}
+          </div>
+
+          {topicOrder.map((topicKey) => (
+            <TopicGroup
+              key={topicKey}
+              topic={topicKey}
+              posts={groups[topicKey]}
+              collapsed={collapsed.has(topicKey)}
+              onToggle={() => toggleCollapse(topicKey)}
+              canEdit={canEdit}
+              onDelete={onDelete}
+              onEdit={onEdit}
+              onDuplicate={onDuplicate}
+              tone={tone}
+              studentCount={studentCount}
+              cid={cid}
+            />
+          ))}
+        </>
       )}
     </div>
   );
 }
 
 function TopicGroup({
-  topic, posts, collapsed, onToggle, canEdit, onDelete, onEdit, onDuplicate, tone,
+  topic, posts, collapsed, onToggle, canEdit, onDelete, onEdit, onDuplicate,
+  tone, studentCount, cid,
 }: {
   topic: string; posts: Post[]; collapsed: boolean; onToggle: () => void;
   canEdit: boolean; onDelete: (pid: number) => void;
   onEdit: (post: Post) => void;
   onDuplicate: (post: Post) => void;
   tone: { accent: string };
+  studentCount: number;
+  cid: number;
 }) {
   return (
-    <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
+    <div>
+      {/* 큰 주제 헤더 — Google Classroom 식. 박스 없이 본문 위에 직접 (subtle border만) */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-bg-secondary text-left"
+        className="w-full flex items-center justify-between py-2 px-1 border-b border-border-default text-left group"
       >
-        <div className="text-body font-semibold" style={{ color: tone.accent }}>
+        <div className="text-[20px] font-medium text-text-primary group-hover:opacity-90">
           {topic}
         </div>
         <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
+          width="20" height="20" viewBox="0 0 24 24"
           className={`text-text-tertiary transition-transform ${collapsed ? "" : "rotate-180"}`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
+          fill="none" stroke="currentColor" strokeWidth="2"
         >
           <polyline points="18 15 12 9 6 15"></polyline>
         </svg>
       </button>
       {!collapsed && (
-        <div className="divide-y divide-border-default border-t border-border-default">
+        <div className="mt-2 space-y-2">
           {posts.map((p) => (
             <CourseworkItem
               key={p.id}
@@ -513,6 +570,8 @@ function TopicGroup({
               onDelete={() => onDelete(p.id)}
               onEdit={() => onEdit(p)}
               onDuplicate={() => onDuplicate(p)}
+              studentCount={studentCount}
+              cid={cid}
             />
           ))}
         </div>
@@ -522,81 +581,143 @@ function TopicGroup({
 }
 
 function CourseworkItem({
-  post, canEdit, onDelete, onEdit, onDuplicate,
+  post, canEdit, onDelete, onEdit, onDuplicate, studentCount, cid,
 }: {
   post: Post; canEdit: boolean;
   onDelete: () => void; onEdit: () => void; onDuplicate: () => void;
+  studentCount: number;
+  cid: number;
 }) {
   const isAssignment = post.post_type === "assignment_ref";
-  const isMaterial = post.post_type === "material";
   const [menuOpen, setMenuOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const router = useRouter();
-  const go = () => router.push(`/classroom/${post.course_id}/posts/${post.id}`);
+
+  const dateStr = post.created_at
+    ? new Date(post.created_at).toLocaleDateString("ko-KR", {
+        year: "numeric", month: "numeric", day: "numeric",
+      })
+    : "";
+
+  const dueStr = post.due_date
+    ? `기한 ${new Date(post.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}`
+    : "기한 없음";
+
+  const goDetail = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/classroom/${cid}/posts/${post.id}`);
+  };
 
   return (
     <div
-      onClick={go}
-      className="group flex items-center gap-3 px-5 py-3 hover:bg-bg-secondary cursor-pointer"
+      className={`bg-bg-primary border rounded-lg overflow-hidden transition ${
+        expanded ? "border-accent shadow-sm" : "border-border-default hover:shadow-sm"
+      }`}
     >
+      {/* 헤더 row — 클릭 시 인라인 펼침 */}
       <div
-        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{
-          backgroundColor: isAssignment ? "#fef3c7" : isMaterial ? "#dcfce7" : "#dbeafe",
-          color: isAssignment ? "#a16207" : isMaterial ? "#15803d" : "#1d4ed8",
-        }}
+        onClick={() => setExpanded(!expanded)}
+        className="group flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-bg-secondary"
       >
-        {isAssignment ? <ClipboardListIcon /> : <FolderIcon />}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-body font-medium text-text-primary truncate">{post.title}</div>
-        {post.due_date && (
-          <div className="text-[11.5px] text-status-error mt-0.5">
-            기한 {new Date(post.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
-            {post.max_score != null && ` · ${post.max_score}점`}
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{
+            background: isAssignment
+              ? "linear-gradient(135deg, #fde4b8 0%, #fbbf24 100%)"
+              : "linear-gradient(135deg, #bbf7d0 0%, #4ade80 100%)",
+            color: isAssignment ? "#a16207" : "#15803d",
+          }}
+        >
+          {isAssignment ? <ClipboardListIcon /> : <FolderIcon />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[14.5px] text-text-primary truncate">{post.title}</div>
+        </div>
+        <div className="text-[12.5px] text-text-tertiary whitespace-nowrap">
+          게시일: {dateStr}
+        </div>
+        {canEdit && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+              className="w-7 h-7 rounded-full hover:bg-bg-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+              title="더보기"
+            >
+              <DotsIcon />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
+                <div className="absolute top-full right-0 mt-1 z-20 bg-bg-primary border border-border-default rounded shadow-lg w-32 py-1">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(); }}
+                    className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
+                  >
+                    수정
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDuplicate(); }}
+                    className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
+                  >
+                    복제
+                  </button>
+                  <div className="border-t border-border-default my-1" />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
+                    className="w-full text-left px-3 py-1.5 text-caption text-status-error hover:bg-bg-secondary"
+                  >
+                    삭제
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
-        {!post.due_date && post.max_score != null && (
-          <div className="text-[11.5px] text-text-tertiary mt-0.5">{post.max_score}점</div>
-        )}
       </div>
-      <div className="text-caption text-text-tertiary whitespace-nowrap">
-        게시일: {post.created_at && new Date(post.created_at).toLocaleString("ko-KR", { hour: "numeric", minute: "2-digit" })}
-      </div>
-      {canEdit && (
-        <div className="relative">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-            className="p-1.5 hover:bg-bg-primary rounded-full opacity-0 group-hover:opacity-100"
-            title="더보기"
-          >
-            <DotsIcon />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute top-full right-0 mt-1 z-20 bg-bg-primary border border-border-default rounded shadow-lg w-32 py-1">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(); }}
-                  className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
-                >
-                  수정
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDuplicate(); }}
-                  className="w-full text-left px-3 py-1.5 text-caption text-text-primary hover:bg-bg-secondary"
-                >
-                  복제
-                </button>
-                <div className="border-t border-border-default my-1" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
-                  className="w-full text-left px-3 py-1.5 text-caption text-status-error hover:bg-bg-secondary"
-                >
-                  삭제
-                </button>
+
+      {/* 펼친 상태 — Google Classroom 식 (기한 + 제출함/할당됨 큰 숫자 + 본문 + "과제 안내 보기" 링크) */}
+      {expanded && (
+        <div className="px-5 pb-4 border-t border-border-default">
+          <div className="flex items-start gap-4 pt-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-text-primary mb-1">
+                {dueStr}
               </div>
-            </>
-          )}
+              {post.content && (
+                <div className="text-caption text-text-secondary whitespace-pre-wrap line-clamp-6 mt-3">
+                  {post.content}
+                </div>
+              )}
+              {post.author_name && (
+                <div className="text-[11.5px] text-text-tertiary mt-3">— {post.author_name}</div>
+              )}
+            </div>
+            {isAssignment && (
+              <div className="flex items-stretch gap-0 text-center">
+                <div className="px-5 border-l border-border-default">
+                  <div className="text-[26px] font-light text-text-primary leading-tight">—</div>
+                  <div className="text-[11.5px] text-text-tertiary mt-1">제출함</div>
+                </div>
+                <div className="px-5 border-l border-border-default">
+                  <div className="text-[26px] font-light text-text-primary leading-tight">{studentCount}</div>
+                  <div className="text-[11.5px] text-text-tertiary mt-1">할당됨</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="mt-4 pt-3 border-t border-border-default">
+            <button
+              type="button"
+              onClick={goDetail}
+              className="text-caption text-accent hover:underline"
+            >
+              {isAssignment ? "과제 안내 보기" : "자료 보기"}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -632,39 +753,8 @@ function DotsIcon() {
 }
 
 
-// ─── 글 카드 ───
-function PostCard({ post, onDelete, canEdit }: { post: Post; onDelete: () => void; canEdit: boolean }) {
-  const typeLabels: Record<string, { label: string; color: string }> = {
-    notice: { label: "공지", color: "bg-cream-200 text-blue-700" },
-    material: { label: "자료", color: "bg-green-100 text-green-700" },
-    assignment_ref: { label: "과제", color: "bg-purple-100 text-purple-700" },
-  };
-  const meta = typeLabels[post.post_type] || typeLabels.notice;
-  return (
-    <div className="border border-border-default rounded p-3 hover:bg-bg-secondary">
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`px-1.5 py-0.5 text-[10px] rounded ${meta.color}`}>{meta.label}</span>
-        {post.is_pinned && <Pin size={11} className="text-accent" />}
-        <span className="text-body font-medium flex-1 truncate">{post.title}</span>
-        <span className="text-caption text-text-tertiary">
-          {post.created_at && post.created_at.slice(0, 10)}
-        </span>
-        {canEdit && (
-          <button onClick={onDelete} className="text-text-tertiary hover:text-status-error">
-            <Trash2 size={12} />
-          </button>
-        )}
-      </div>
-      <div className="text-caption text-text-secondary whitespace-pre-wrap">{post.content}</div>
-      {post.author_name && (
-        <div className="text-caption text-text-tertiary mt-1">— {post.author_name}</div>
-      )}
-    </div>
-  );
-}
-
-
-// PostForm은 components/classroom/PostComposer.tsx로 대체됨.
+// PostCard → components/classroom/PostStreamCard.tsx로 이동 (Google Classroom 식)
+// PostForm   → components/classroom/PostComposer.tsx로 이동
 
 
 // ─── 학생 일괄 등록 ───
