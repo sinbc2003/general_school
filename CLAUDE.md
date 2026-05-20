@@ -620,3 +620,97 @@ cd frontend && npm run build && npm start
 - 새 핵심 헬퍼: filename_normalize (render/preview/ensure_unique), downloadSecure
 - 자동화: convention invariants 5종, AI 회귀 테스트+rollback
 - alembic migrations: 2개 추가 (assignment.filename_template, classroom 3 테이블)
+
+---
+
+## 2026-05-20 세션 — 협업 슬라이드 + 1400명 1년 production 준비
+
+### 협업 프리젠테이션 (Phase P1~Q3 완성)
+- **모델**: `app/models/classroom_slides.py` — ClassroomPresentation / ClassroomSlide / PresentationMember
+  - Y.Doc 단위 deck (documentName=`deck-{id}`), slide마다 fragment(`slide-{sid}`)
+  - access_mode (course_members | specific_users | link_public), settings JSON (theme_id 등)
+- **모듈**: `app/modules/classroom_slides/` (sub-router 패턴) — crud / slides / members / hocuspocus
+- **권한**: `classroom.deck.create/view/edit`
+- **Hocuspocus 통합**: `backend-hocuspocus/src/auth.ts` extractTarget로 doc/deck 둘 다 지원,
+  storage URL은 `/api/classroom/{docs|decks}/{id}/yjs-snapshot`
+- **Frontend**:
+  - `components/decks/DeckEditor.tsx` — 좌 썸네일 list + 우 active slide editor, deck 단위 1개 provider
+  - `components/decks/SlideEditor.tsx` — 16:9 캔버스 + 회색 스테이지 (Google Slides 식)
+  - `components/decks/PresentMode.tsx` — 풀스크린 발표 모드 (좌우키/space/esc)
+  - `components/decks/ThemePicker.tsx` — 8종 디자인 테마 선택 모달
+  - `components/decks/themes.ts` — PPT-019 프로젝트 8개 디자인 CSS 변환
+    (Minimal, Monochrome, Seminar, Academic, Vivid, Blackboard, Notebook, Modern Grid)
+  - `components/decks/slide-canvas.css` — 슬라이드용 폰트 사이즈 (h1 = clamp(28~56px)),
+    container query(cqw/cqh)로 캔버스 폭/높이 자동 맞춤
+- **페이지**: `(admin)/classroom/[cid]/decks/{,[did]/{,present}}`, 학생 `(student)/s/...` 미러
+- alembic migration: classroom_slides 3개 테이블
+
+### YouTube / 링크 OG 미리보기 (Phase Q2+Q3)
+- TipTap @tiptap/extension-youtube 추가 (CollabEditor + SlideEditor + PresentMode 모두)
+- `components/docs/LinkCardExtension.ts` — 커스텀 Node, `setLinkCard` 명령으로 OG 메타 카드 삽입
+- `app/modules/embeds/router.py` — `GET /api/embeds/og-preview?url=...`
+  - SSRF 방어: DNS resolve 후 private/loopback/link-local IP 차단
+  - 1MB 응답 한도, 5초 timeout, max_redirects 3, https 강제 검증
+- Toolbar에 YouTube + 링크 카드 버튼 추가
+
+### 버그 fix
+- **테마 변경 500 (MissingGreenlet)**: `update_deck/doc/slide` 모두 `await db.flush()` 후
+  `await db.refresh(d)` 추가. 원인: `onupdate=func.now()`로 `updated_at` expired 상태에서
+  `deck_to_dict.isoformat()`이 sync IO 시도.
+- **슬라이드 UI 슬라이드답게**: 문서 .prose → 16:9 캔버스 + slide-prose CSS (큰 제목·중앙 정렬)
+
+### 성능 최적화 (1400명 × 1년 운영 준비)
+**검사**: Explore 에이전트 4개 병렬 (N+1, 페이지네이션, 동기IO, DB 인덱스).
+N+1는 깨끗 — 이미 batch pre-fetch 적용됨. 다른 3개 축은 모두 수정.
+
+**A. 동기 IO → asyncio.to_thread** (`app/core/files.py` 신규 + 13 파일):
+- PDF 생기부 (ReportLab 200~500ms) — 학기말/수시 자기소개서 시즌
+- Excel 일괄등록 (openpyxl 50~300ms) — `_parse_excel_sync` 분리
+- 비밀번호 해싱 루프 (1000명 = 100초 → 5~15초 비차단)
+- 파일 IO 6개 (classroom 첨부·branding 파비콘·과제 제출·연구 산출물·자료실·학생 산출물)
+- QR PNG/SVG (qrcode + PIL)
+- OG DNS resolve (socket.getaddrinfo → loop.getaddrinfo)
+- 신규 헬퍼: `write_bytes_async / ensure_dir_async / read_bytes_async / unlink_async`
+
+**B. 페이지네이션 6개 endpoint**:
+- timetable enrollments (학기 명단 — 1400명 5~10MB → page/per_page 2000)
+- chatbot sessions/all + sessions (limit/offset)
+- club activities/submissions (limit 50)
+- classroom course posts (limit 30)
+- 응답 shape: `{items, limit, offset, [total]}` — frontend는 Array.isArray로 후방 호환
+- frontend 업데이트: `/system/enrollments`, `/club admin`
+
+**C. DB 인덱스 15개** (`525376517c78_add_performance_indexes_1400_user_1year.py`):
+- HIGH: chat_messages, audit_logs(2), assignment_submissions, student_grades,
+  student_mock_exams, documents
+- MED: classroom_posts, contests, contest_submissions, classroom_doc_revisions,
+  classroom_survey_responses, problems, club_activities, club_submissions
+- 멱등 migration (인덱스/테이블/컬럼 없으면 skip)
+- dev DB 적용 검증 완료
+
+### Production 인프라 (`production/` + `scripts/setup-production.sh`)
+**우분투 헤드리스 서버 한 방 셋업** — 1400명 × 1년 단일 노트북 운영:
+
+- `production/systemd/` — gs-backend(gunicorn 6 worker, RAM 4GB) /
+  gs-frontend(Next standalone, RAM 2GB) / gs-hocuspocus(Yjs WS, RAM 2GB)
+  - 죽으면 5초 안에 자동 재시작, 부팅 시 자동 시작
+  - 메모리 누수 보호 (`--max-requests 2000`), 재시작 폭주 방지
+- `production/nginx/gs.conf` — 단일 진입점 (`/` frontend, `/api/` backend,
+  `/yjs` WebSocket), gzip + static cache + 보안 헤더
+- `production/scripts/backup.sh` — 매일 새벽 2시 pg_dump + storage tar.gz
+  (30일 보관, 외장 SSD `BACKUP_DEST` 지정 가능)
+- `production/scripts/generate-prod-keys.sh` — JWT/암호화/Hocuspocus token
+  약한값 검출 + 강한 랜덤 교체 (멱등)
+- `scripts/setup-production.sh` — 9단계 자동 (패키지 → venv → build → 키 →
+  systemd → nginx → ufw → cron)
+- `production/README.md` — 운영 명령, 동접 한계, 사고 대응, 점검 체크리스트
+
+**사용**: `bash scripts/setup-production.sh` 한 줄. 끝나면 학교 LAN에서
+`http://<노트북IP>/` 접속.
+
+### 통계 (2026-05-20)
+- Commit 5개: 슬라이드 버그fix · 동기IO · 페이지네이션 · 인덱스 · production 셋업
+- 새 파일: production/(7), backend/app/core/files.py, slide-canvas.css,
+  alembic migration, scripts/setup-production.sh
+- 수정: 약 25개 파일 (페이지네이션 6 + asyncio.to_thread 13 + 슬라이드 UI + 마이그레이션)
+- 1400명 × 1년 운영 준비 완료: dev → production 전환 1줄 + 4가지 직접 손볼 것
