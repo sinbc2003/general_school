@@ -184,7 +184,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     setCreating(true);
     setShowNewMenu(false);
     try {
-      const endpoints: Record<ItemType, { url: string; body: any; redirect: (id: number) => string }> = {
+      if (type === "surveys") {
+        // 단독 설문지 페이지는 추후 (설문 빌더 복잡도 큼) — 강좌 안 빌더로 안내
+        alert("단독 설문지 생성은 추후 지원 예정입니다.\n현재는 클래스룸 → 강좌 → '+ 만들기 → 설문지'로 만들어주세요.");
+        return;
+      }
+      const endpoints: Partial<Record<ItemType, { url: string; body: any; redirect: (id: number) => string }>> = {
         docs: {
           url: "/api/classroom/docs",
           body: { title: "제목 없는 문서", course_id: null, access_mode: "specific_users" },
@@ -200,13 +205,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           body: { title: "제목 없는 프리젠테이션", course_id: null, access_mode: "specific_users" },
           redirect: (id) => (mode === "admin" ? `/docs/decks/${id}` : `/s/docs/decks/${id}`),
         },
-        surveys: {
-          url: "/api/classroom/surveys",
-          body: { title: "제목 없는 설문지", course_id: null, access_mode: "link_public", description: null },
-          redirect: (id) => (mode === "admin" ? `/docs/forms/${id}` : `/s/docs/forms/${id}`),
-        },
       };
-      const cfg = endpoints[type];
+      const cfg = endpoints[type]!;
       const r = await api.post<{ id: number }>(cfg.url, cfg.body);
       router.push(cfg.redirect(r.id));
     } catch (e: any) {

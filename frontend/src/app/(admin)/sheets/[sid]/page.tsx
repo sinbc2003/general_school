@@ -78,7 +78,7 @@ export default function SheetEditorPage() {
       }
     } catch (e: any) {
       alert(e?.detail || "시트 조회 실패");
-      router.push("/workspace?tab=sheets");
+      router.push("/drive");
     } finally {
       setLoading(false);
     }
@@ -90,10 +90,10 @@ export default function SheetEditorPage() {
   if (!sheet) return null;
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="w-full">
       <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
         <Link
-          href="/workspace?tab=sheets"
+          href="/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
         >
           <ArrowLeft size={12} /> 시트 목록

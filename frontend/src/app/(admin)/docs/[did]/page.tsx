@@ -1,10 +1,8 @@
 "use client";
 
 /**
- * 학생용 단독 협업 문서 편집기 — course_id 없는 문서용.
- *
- * /s/classroom/[cid]/docs/[did] 와 동일 CollabEditor + ShareDocModal 재사용.
- * 다른 점: 강좌 컨텍스트 없음 → 헤더에 "내 문서로" 링크.
+ * 관리자/교사용 단독 협업 문서 편집기 — course_id 없는 문서.
+ * 사이드바 제외 전체 화면 사용.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -35,7 +33,7 @@ interface DocDetail {
   permission: Permission;
 }
 
-export default function StudentStandaloneDocPage() {
+export default function AdminStandaloneDocPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
@@ -52,7 +50,7 @@ export default function StudentStandaloneDocPage() {
       setDoc(d);
     } catch (e: any) {
       alert(e?.detail || "문서 조회 실패");
-      router.push("/s/docs");
+      router.push("/drive");
     } finally {
       setLoading(false);
     }
@@ -71,34 +69,29 @@ export default function StudentStandaloneDocPage() {
 
   return (
     <div className="w-full">
-      <div className="mb-3">
+      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
         <Link
-          href="/s/drive"
+          href="/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
         >
           <ArrowLeft size={12} /> 내 드라이브
         </Link>
+        <div className="flex items-center gap-3 text-caption text-text-tertiary flex-wrap">
+          <span>만든이 <b>{doc.owner_name || `#${doc.owner_id}`}</b></span>
+          <button
+            onClick={() => setShowShare(true)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-secondary"
+          >
+            <Share2 size={11} /> {accessLabel[doc.access_mode] || doc.access_mode}
+          </button>
+          <span>수정 {doc.updated_at?.slice(0, 16).replace("T", " ")}</span>
+          <span>권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
+            {!doc.permission.can_write && " (읽기 전용)"}
+          </span>
+        </div>
       </div>
 
-      <h1 className="text-title text-text-primary mb-2">{doc.title}</h1>
-
-      <div className="text-caption text-text-tertiary mb-4 flex items-center gap-3 flex-wrap">
-        <span>
-          만든이 <b>{doc.owner_name || `#${doc.owner_id}`}</b>
-        </span>
-        <button
-          onClick={() => setShowShare(true)}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-secondary"
-          title="공유 정보"
-        >
-          <Share2 size={11} /> {accessLabel[doc.access_mode] || doc.access_mode}
-        </button>
-        <span>수정 {doc.updated_at?.slice(0, 16).replace("T", " ")}</span>
-        <span className="ml-auto">
-          내 권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
-          {!doc.permission.can_write && " (읽기 전용)"}
-        </span>
-      </div>
+      <h1 className="text-title text-text-primary mb-3">{doc.title}</h1>
 
       {user ? (
         <CollabEditor
