@@ -11,15 +11,23 @@ import Link from "next/link";
 import { GraduationCap, Archive } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { CourseCard } from "@/components/classroom/CourseCard";
+import { CourseGroupedView } from "@/components/classroom/CourseGroupedView";
 
 interface Course {
   id: number;
+  semester_id: number;
+  teacher_id: number;
   subject: string;
   class_name: string | null;
   name: string;
   description: string | null;
   is_active: boolean;
   student_count: number;
+  created_at: string | null;
+  course_type?: string;
+  banner_color?: string;
+  banner_image_url?: string | null;
+  icon?: string | null;
 }
 
 export default function StudentClassroomPage() {
@@ -69,20 +77,10 @@ export default function StudentClassroomPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {courses.map((c) => (
-            <CourseCard
-              key={c.id}
-              id={c.id}
-              name={c.name}
-              subject={c.subject}
-              class_name={c.class_name}
-              is_active={c.is_active !== false}
-              student_count={c.student_count}
-              baseHref="/s/classroom"
-            />
-          ))}
-        </div>
+        <CourseGroupedView
+          courses={courses as any}
+          baseHref="/s/classroom"
+        />
       )}
     </div>
   );

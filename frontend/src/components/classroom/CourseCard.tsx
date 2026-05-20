@@ -34,14 +34,23 @@ interface CourseCardProps {
   baseHref?: string;
   /** admin이면 담당 교사명 표시 */
   showTeacher?: boolean;
+  /** 카드 커스터마이징 (Phase 1.0-I) */
+  bannerColor?: string;
+  bannerImageUrl?: string | null;
+  icon?: string | null;
+  courseType?: string;
 }
 
 export function CourseCard({
   id, name, subject, class_name, teacher_name, is_active,
   student_count, baseHref = "/classroom", showTeacher = false,
+  bannerColor, bannerImageUrl, icon, courseType,
 }: CourseCardProps) {
   const tone = getCourseTone(id);
   const router = useRouter();
+  // 커스텀 색 우선, 없으면 기본 tone
+  const bgColor = bannerColor || tone.bg;
+  const fgColor = tone.fg;  // 텍스트 색은 기존 로직 유지 (대비 자동)
 
   return (
     <Link
@@ -53,24 +62,41 @@ export function CourseCard({
       {/* 컬러 배너 — 강좌명 / 부제 (실제 Google 비율: 약 160px) */}
       <div
         className="relative px-5 pt-4 pb-5"
-        style={{ backgroundColor: tone.bg, color: tone.fg, minHeight: "160px" }}
+        style={{
+          backgroundColor: bgColor,
+          color: fgColor,
+          minHeight: "160px",
+          backgroundImage: bannerImageUrl
+            ? `url(${bannerImageUrl.startsWith("/") ? bannerImageUrl : `/api/files${bannerImageUrl}`})`
+            : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
       >
-        <div className="text-[22px] font-bold leading-tight pr-12 line-clamp-2">
-          {name}
-        </div>
-        <div className="text-[13px] opacity-95 mt-1.5 line-clamp-1">
-          {subject}{class_name && ` · ${class_name}`}
-        </div>
-        {showTeacher && teacher_name && (
-          <div className="text-[12px] opacity-85 mt-2 line-clamp-1">
-            {teacher_name}
+        {bannerImageUrl && (
+          <div className="absolute inset-0 bg-black/30" />
+        )}
+        <div className={`relative ${bannerImageUrl ? "text-white" : ""}`}>
+          <div className="text-[22px] font-bold leading-tight pr-12 line-clamp-2 flex items-center gap-2">
+            {icon && <span className="text-[18px]">{icon}</span>}
+            {name}
           </div>
-        )}
-        {!is_active && (
-          <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 bg-white/25 rounded inline-flex items-center gap-1">
-            <Archive size={9} /> 보관
-          </span>
-        )}
+          <div className="text-[13px] opacity-95 mt-1.5 line-clamp-1">
+            {subject}{class_name && ` · ${class_name}`}
+            {courseType === "grade_office" && " · 학년부"}
+            {courseType === "class_homeroom" && " · 학급"}
+          </div>
+          {showTeacher && teacher_name && (
+            <div className="text-[12px] opacity-85 mt-2 line-clamp-1">
+              {teacher_name}
+            </div>
+          )}
+          {!is_active && (
+            <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 bg-white/25 rounded inline-flex items-center gap-1">
+              <Archive size={9} /> 보관
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 흰 빈 영역 — 실제 Google은 학생 사진/일러스트. 우리는 여백만 */}

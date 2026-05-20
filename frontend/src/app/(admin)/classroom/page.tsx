@@ -16,6 +16,7 @@ import { Plus, GraduationCap, Wand2, X, Save, Archive } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { CourseCard } from "@/components/classroom/CourseCard";
+import { CourseGroupedView } from "@/components/classroom/CourseGroupedView";
 import { useToast } from "@/components/ui/Toast";
 
 interface Course {
@@ -30,6 +31,11 @@ interface Course {
   is_active: boolean;
   student_count: number;
   created_at: string | null;
+  course_type?: string;
+  banner_color?: string;
+  banner_image_url?: string | null;
+  icon?: string | null;
+  grade_level?: number | null;
 }
 
 export default function ClassroomAdminPage() {
@@ -135,22 +141,11 @@ export default function ClassroomAdminPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {courses.map((c) => (
-            <CourseCard
-              key={c.id}
-              id={c.id}
-              name={c.name}
-              subject={c.subject}
-              class_name={c.class_name}
-              teacher_name={c.teacher_name}
-              is_active={c.is_active}
-              student_count={c.student_count}
-              baseHref="/classroom"
-              showTeacher={isAdmin}
-            />
-          ))}
-        </div>
+        <CourseGroupedView
+          courses={courses}
+          baseHref="/classroom"
+          showTeacher={isAdmin}
+        />
       )}
     </div>
   );

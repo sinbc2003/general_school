@@ -70,6 +70,13 @@ def _course_to_dict(c: Course, student_count: int = 0) -> dict:
         "is_active": c.is_active,
         "student_count": student_count,
         "created_at": c.created_at.isoformat() if c.created_at else None,
+        # Phase 1.0 확장 (카드 디자인 + 강좌 타입 + 열람 권한)
+        "course_type": getattr(c, "course_type", "subject"),
+        "grade_level": getattr(c, "grade_level", None),
+        "banner_color": getattr(c, "banner_color", None),
+        "banner_image_url": getattr(c, "banner_image_url", None),
+        "icon": getattr(c, "icon", None),
+        "viewable_by": getattr(c, "viewable_by", "all_teachers"),
     }
 
 
@@ -1031,3 +1038,9 @@ async def upload_attachment(
         "file_name": original_name,
         "byte_size": len(data),
     }
+
+# Sub-modules — 등록 강제 (마지막에 import해 순환 회피)
+from app.modules.classroom import teachers  # noqa: E402, F401
+from app.modules.classroom import course_seed  # noqa: E402, F401
+from app.modules.classroom import favorites  # noqa: E402, F401
+from app.modules.classroom import customize  # noqa: E402, F401
