@@ -44,6 +44,7 @@ TEACHER_EXCLUDE_PREFIXES = (
 TEACHER_EXCLUDE_KEYS = {
     "chatbot.usage.view_all",   # 다른 사람 사용량 조회
     "papers.keyword.manage",    # 크롤링 키워드 관리
+    "department.manage",        # 부서 CRUD는 admin 전용 (부서장 권한 위임은 Phase 1.5-R)
 }
 
 # prefix로 제외됐지만 교사에게 명시적으로 부여할 권한 (예외 화이트리스트).

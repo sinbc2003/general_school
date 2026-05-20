@@ -115,6 +115,14 @@ async def create_user(
 
     password = body.password or settings.DEFAULT_USER_PASSWORD
 
+    from datetime import datetime
+    expires_at = None
+    if body.expires_at:
+        try:
+            expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "expires_at 형식이 잘못됨 (ISO 8601 필요)")
+
     new_user = User(
         email=body.email,
         name=body.name,
@@ -126,6 +134,14 @@ async def create_user(
         class_number=body.class_number,
         student_number=body.student_number,
         department=body.department,
+        department_id=body.department_id,
+        is_grade_lead=body.is_grade_lead,
+        lead_grade=body.lead_grade,
+        user_type=body.user_type or "regular",
+        expires_at=expires_at,
+        phone=body.phone,
+        google_email=body.google_email,
+        lifecycle_status=body.lifecycle_status or "active",
         must_change_password=True,
     )
     assign_default_quota(new_user)
@@ -191,6 +207,31 @@ async def update_user(
         target.student_number = body.student_number
     if body.department is not None:
         target.department = body.department
+    if body.department_id is not None:
+        target.department_id = body.department_id if body.department_id > 0 else None
+    if body.is_grade_lead is not None:
+        target.is_grade_lead = body.is_grade_lead
+    if body.lead_grade is not None:
+        target.lead_grade = body.lead_grade if body.lead_grade > 0 else None
+    if body.user_type is not None:
+        target.user_type = body.user_type
+    if body.expires_at is not None:
+        from datetime import datetime
+        if body.expires_at == "":
+            target.expires_at = None
+        else:
+            try:
+                target.expires_at = datetime.fromisoformat(body.expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(400, "expires_at 형식이 잘못됨 (ISO 8601 필요)")
+    if body.phone is not None:
+        target.phone = body.phone
+    if body.google_email is not None:
+        target.google_email = body.google_email
+    if body.lifecycle_status is not None:
+        target.lifecycle_status = body.lifecycle_status
+    if body.quota_mb is not None:
+        target.quota_bytes = max(0, body.quota_mb) * 1024 * 1024
 
     await db.flush()
 
