@@ -183,6 +183,9 @@ async def update_google_config(
 # ── OAuth flow ────────────────────────────────────────────────
 
 
+STATE_TTL_SECONDS = 600  # OAuth state 10분 만료
+
+
 @router.get("/auth-url")
 async def get_auth_url(
     user: User = Depends(require_permission("google.integration.use")),
@@ -193,9 +196,12 @@ async def get_auth_url(
         raise HTTPException(503, "Google 연동이 설정되지 않았습니다 (관리자에게 문의)")
     cid = await _get_config(db, "oauth.google.client_id")
     redirect_uri = await _get_config(db, "oauth.google.redirect_uri")
-    state = secrets.token_urlsafe(24) + f":{user.id}"
-    # state는 1회용 — DB에 저장 (간단히 SchoolConfig로)
-    await _set_config(db, f"oauth.google.state.{state}", str(user.id), encrypt_it=False)
+    # state는 secrets.token_urlsafe만 — user_id 평문 노출 차단
+    state = secrets.token_urlsafe(32)
+    # SchoolConfig에 value="user_id|timestamp"로 저장 — callback에서 TTL 검증
+    from datetime import datetime, timezone
+    ts = int(datetime.now(timezone.utc).timestamp())
+    await _set_config(db, f"oauth.google.state.{state}", f"{user.id}|{ts}", encrypt_it=False)
     params = {
         "client_id": cid,
         "redirect_uri": redirect_uri,
@@ -215,13 +221,23 @@ async def callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Google이 redirect로 호출. code → 토큰 교환 → DB 저장."""
-    # state 검증
-    saved_user_id = await _get_config(db, f"oauth.google.state.{state}")
-    if not saved_user_id:
+    # state 검증 (TTL + 1회용)
+    saved = await _get_config(db, f"oauth.google.state.{state}")
+    if not saved:
         raise HTTPException(400, "잘못된 state (재시도 필요)")
-    user_id = int(saved_user_id)
-    # state 1회용 — 삭제
+    # value format: "user_id|timestamp"
+    try:
+        uid_str, ts_str = saved.split("|", 1)
+        user_id = int(uid_str)
+        issued_at = int(ts_str)
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "state 형식 오류")
+    from datetime import datetime, timezone
+    now = int(datetime.now(timezone.utc).timestamp())
+    # state 1회용 — 즉시 삭제 (TTL 초과여도 삭제)
     await _set_config(db, f"oauth.google.state.{state}", None, encrypt_it=False)
+    if now - issued_at > STATE_TTL_SECONDS:
+        raise HTTPException(400, "state 만료 (10분 초과 — 재시도 필요)")
 
     cid = await _get_config(db, "oauth.google.client_id")
     cs = await _get_config(db, "oauth.google.client_secret")
@@ -254,6 +270,21 @@ async def callback(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "사용자 없음")
+
+    # 같은 google_email이 이미 다른 사용자에게 연결돼있으면 차단 (1 google_email = 1 학교 계정)
+    if google_email:
+        dup = (await db.execute(
+            select(GoogleConnection).where(
+                GoogleConnection.google_email == google_email,
+                GoogleConnection.user_id != user_id,
+            )
+        )).scalar_one_or_none()
+        if dup:
+            raise HTTPException(
+                409,
+                f"이 Google 계정({google_email})은 이미 다른 학교 계정에 연결되어 있습니다",
+            )
+
     existing = (await db.execute(
         select(GoogleConnection).where(GoogleConnection.user_id == user_id)
     )).scalar_one_or_none()
@@ -275,11 +306,11 @@ async def callback(
     await db.flush()
     await log_action(db, user, "google_connect", detail=f"email={google_email}")
 
-    # frontend로 close window (또는 success page)
+    # frontend로 close window — postMessage origin은 본 서버 자체(opener와 동일 origin) 명시
     from fastapi.responses import HTMLResponse
     return HTMLResponse(
         "<html><body><script>"
-        "window.opener && window.opener.postMessage({type:'google_connected'},'*');"
+        "try { window.opener && window.opener.postMessage({type:'google_connected'}, window.location.origin); } catch(e){}"
         "window.close();"
         "</script>"
         "<p>Google 계정 연결 완료. 이 창은 자동으로 닫힙니다.</p>"

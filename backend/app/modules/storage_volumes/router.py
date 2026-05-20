@@ -100,6 +100,11 @@ async def list_volumes(
     return {"items": items}
 
 
+def _normalize_path(p: str) -> str:
+    """경로 정규화 — 끝 슬래시 제거 + 절대경로."""
+    return os.path.normpath(os.path.abspath(p))
+
+
 @router.post("/volumes")
 async def create_volume(
     body: VolumeCreate,
@@ -107,18 +112,26 @@ async def create_volume(
     user: User = Depends(require_permission("storage.volume.manage")),
     db: AsyncSession = Depends(get_db),
 ):
+    # name 중복 차단
     dup = (await db.execute(
         select(StorageVolume).where(StorageVolume.name == body.name)
     )).scalar_one_or_none()
     if dup:
         raise HTTPException(409, "이미 등록된 이름")
-    st, total, free = await _check_path(body.path)
+    # path 정규화 + 중복 차단 (서로 다른 표기지만 같은 디렉터리 가리키는 경우 잡음)
+    normalized = _normalize_path(body.path)
+    path_dup = (await db.execute(
+        select(StorageVolume).where(StorageVolume.path == normalized)
+    )).scalar_one_or_none()
+    if path_dup:
+        raise HTTPException(409, f"이미 등록된 경로 (볼륨: {path_dup.name})")
+    st, total, free = await _check_path(normalized)
     if st == "missing":
-        raise HTTPException(400, f"경로 없음: {body.path}")
+        raise HTTPException(400, f"경로 없음: {normalized}")
     v = StorageVolume(
         name=body.name,
         description=body.description,
-        path=body.path,
+        path=normalized,
         capacity_bytes=body.capacity_bytes or total,
         priority=body.priority,
         last_status=st,
@@ -143,7 +156,19 @@ async def update_volume(
         raise HTTPException(404, "볼륨 없음")
     if body.name is not None: v.name = body.name
     if body.description is not None: v.description = body.description
-    if body.path is not None: v.path = body.path
+    if body.path is not None:
+        new_path = _normalize_path(body.path)
+        if new_path != v.path:
+            # 변경 시 다른 볼륨과 충돌 차단
+            other = (await db.execute(
+                select(StorageVolume).where(
+                    StorageVolume.path == new_path,
+                    StorageVolume.id != vid,
+                )
+            )).scalar_one_or_none()
+            if other:
+                raise HTTPException(409, f"이미 등록된 경로 (볼륨: {other.name})")
+            v.path = new_path
     if body.capacity_bytes is not None: v.capacity_bytes = body.capacity_bytes
     if body.is_active is not None: v.is_active = body.is_active
     if body.priority is not None: v.priority = body.priority

@@ -10,6 +10,7 @@
   - 소유자(owner) quota 차감 (storage_bytes 추적)
 """
 
+import asyncio
 from io import BytesIO
 import os
 import uuid
@@ -26,6 +27,34 @@ from app.core.quota import check_quota, consume_quota, release_quota
 from app.core.upload import POLICY_IMAGE, validate_upload
 from app.models import Course, User
 from app.modules.classroom.router import router
+
+
+def _delete_banner_file_sync(file_url: str | None) -> int:
+    """기존 banner 파일 삭제 후 사이즈 반환 (없으면 0). sync — caller가 to_thread."""
+    if not file_url:
+        return 0
+    try:
+        fname = file_url.split("/")[-1]
+        fpath = os.path.join(BANNER_DIR, fname)
+        if not os.path.exists(fpath):
+            return 0
+        size = os.path.getsize(fpath)
+        os.unlink(fpath)
+        return size
+    except Exception:
+        return 0
+
+
+async def _cleanup_banner(db: AsyncSession, course: Course) -> None:
+    """현재 course.banner_image_url의 파일·quota 모두 환원. (DB 값 nullify는 caller)"""
+    old_url = course.banner_image_url
+    if not old_url:
+        return
+    size = await asyncio.to_thread(_delete_banner_file_sync, old_url)
+    if size > 0 and course.teacher_id:
+        owner = await db.get(User, course.teacher_id)
+        if owner:
+            await release_quota(db, owner, size)
 
 
 PALETTE = [
@@ -68,6 +97,8 @@ async def customize_course(
     if body.icon is not None:
         course.icon = body.icon or None
     if body.clear_banner_image:
+        # 기존 파일 삭제 + quota 환원 후 nullify
+        await _cleanup_banner(db, course)
         course.banner_image_url = None
     if body.viewable_by is not None:
         # viewable_by 변경은 super_admin/designated_admin 전용
@@ -142,26 +173,18 @@ async def upload_banner_image(
     fpath = os.path.join(BANNER_DIR, fname)
     await write_bytes_async(fpath, compressed)
 
-    # 기존 이미지 quota 환원
+    # 기존 이미지 파일 삭제 + quota 환원 (async, best-effort)
     old_url = course.banner_image_url
+    if old_url:
+        old_size = await asyncio.to_thread(_delete_banner_file_sync, old_url)
+        if old_size > 0 and owner:
+            await release_quota(db, owner, old_size)
+
     file_url = f"/storage/classroom/banners/{fname}"
     course.banner_image_url = file_url
 
     if owner:
         await consume_quota(db, owner, len(compressed), check=False, notify_threshold=False)
-
-    # 기존 이미지 파일 삭제 + storage_bytes 환원은 best-effort
-    if old_url:
-        try:
-            old_fname = old_url.split("/")[-1]
-            old_path = os.path.join(BANNER_DIR, old_fname)
-            if os.path.exists(old_path):
-                old_size = os.path.getsize(old_path)
-                os.unlink(old_path)
-                if owner:
-                    await release_quota(db, owner, old_size)
-        except Exception:
-            pass
 
     await db.flush()
     await log_action(

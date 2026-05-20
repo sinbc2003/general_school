@@ -190,6 +190,10 @@ async def grant_delegation(
 
     db.add(UserPermission(user_id=target.id, permission_id=perm.id, granted_by=user.id))
     await db.flush()
+    # 위임 즉시 반영을 위해 대상 사용자의 세션 무효화 (다음 요청 시 token refresh)
+    from app.modules.permissions.router import _invalidate_user_sessions
+    await _invalidate_user_sessions(db, target.id)
+    await db.flush()
     await log_action(
         db, user, "department_delegate",
         target=f"user:{target.id}",
@@ -211,6 +215,12 @@ async def revoke_delegation(
     if not await _is_lead_or_admin(db, user, dept_id):
         raise HTTPException(403, "부장 또는 관리자만 회수할 수 있습니다")
 
+    # 부장이 다른 부서 사용자의 권한을 회수할 수 없도록 부서 일치 확인 (admin은 예외)
+    if user.role not in ("super_admin", "designated_admin"):
+        target_u = await db.get(User, user_id)
+        if not target_u or target_u.department_id != dept_id:
+            raise HTTPException(403, "해당 부서 소속이 아닌 사용자입니다")
+
     perm = (await db.execute(
         select(Permission).where(Permission.key == permission_key)
     )).scalar_one_or_none()
@@ -225,6 +235,10 @@ async def revoke_delegation(
     )).scalar_one_or_none()
     if up:
         await db.delete(up)
+        await db.flush()
+        # 즉시 반영을 위해 세션 무효화
+        from app.modules.permissions.router import _invalidate_user_sessions
+        await _invalidate_user_sessions(db, user_id)
         await db.flush()
     await log_action(
         db, user, "department_delegate_revoke",

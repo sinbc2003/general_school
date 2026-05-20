@@ -107,6 +107,11 @@ async def transfer_ownership(
         raise HTTPException(404, "후임자 사용자 없음")
     if source.id == successor.id:
         raise HTTPException(400, "동일 사용자에게 이관할 수 없습니다")
+    # 비활성화/만료된 사용자에게 이관하면 자료가 잠김 — 차단
+    if successor.status == "disabled":
+        raise HTTPException(400, "비활성화된 사용자에게 이관할 수 없습니다")
+    if successor.lifecycle_status in ("departed", "graduated", "transferred"):
+        raise HTTPException(400, "재직/재학 중인 사용자에게만 이관할 수 있습니다")
 
     transferred_count = 0
     transferred_bytes = 0

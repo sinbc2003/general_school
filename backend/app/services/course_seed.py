@@ -204,13 +204,14 @@ async def seed_class_homeroom_courses(
         db.add(course)
         await db.flush()
 
-        # 해당 학급 학생 자동 등록
+        # 해당 학급 학생 자동 등록 — 졸업·전학 학생은 제외
         students = (await db.execute(
             select(User).where(
                 User.role == "student",
                 User.grade == grade,
                 User.class_number == cls,
                 User.status != "disabled",
+                User.lifecycle_status == "active",
             )
         )).scalars().all()
         for st in students:
