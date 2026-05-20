@@ -9,7 +9,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
-import { Building2, Plus, Trash2, Save, ChevronUp, ChevronDown, X } from "lucide-react";
+import Link from "next/link";
+import { Building2, Plus, Trash2, Save, ChevronUp, ChevronDown, X, Shield } from "lucide-react";
 
 interface Department {
   id: number;
@@ -229,14 +230,23 @@ export default function DepartmentsPage() {
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => remove(d)}
-                      className="p-1 rounded hover:bg-red-50 text-red-500"
-                      title="삭제"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <Link
+                        href={`/system/departments/${d.id}/delegations`}
+                        className="p-1 rounded hover:bg-accent/10 text-accent"
+                        title="권한 위임"
+                      >
+                        <Shield size={14} />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => remove(d)}
+                        className="p-1 rounded hover:bg-red-50 text-red-500"
+                        title="삭제"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

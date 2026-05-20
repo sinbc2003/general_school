@@ -4,11 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 import { PermissionGate } from "@/components/common/permission-gate";
-import { Upload, Download, Search, RotateCcw } from "lucide-react";
+import { Upload, Download, Search, RotateCcw, UserX } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { InlineCell } from "@/components/ui/InlineCell";
 import type { UserItem } from "@/types";
 import { CsvBulkImportModal } from "./_components/CsvBulkImportModal";
+import { LifecycleModal } from "./_components/LifecycleModal";
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "최고관리자",
@@ -33,6 +34,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<UserItem | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
 
   const fetchUsers = useCallback(async () => {
@@ -296,13 +298,22 @@ export default function UsersPage() {
           {
             key: "actions", label: "작업", align: "center",
             render: (u) => (
-              <button
-                onClick={() => handleResetPassword(u.id)}
-                title="비밀번호 초기화"
-                className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-status-warning"
-              >
-                <RotateCcw size={14} />
-              </button>
+              <div className="flex items-center justify-center gap-1">
+                <button
+                  onClick={() => handleResetPassword(u.id)}
+                  title="비밀번호 초기화"
+                  className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-status-warning"
+                >
+                  <RotateCcw size={14} />
+                </button>
+                <button
+                  onClick={() => setLifecycleTarget(u)}
+                  title="인사이동 (전출·졸업·전학)"
+                  className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-accent"
+                >
+                  <UserX size={14} />
+                </button>
+              </div>
             ),
           },
         ]}
@@ -315,6 +326,15 @@ export default function UsersPage() {
         totalCount={total}
         onPageChange={setPage}
       />
+
+      {lifecycleTarget && (
+        <LifecycleModal
+          user={lifecycleTarget}
+          allUsers={users}
+          onClose={() => setLifecycleTarget(null)}
+          onSaved={() => { setLifecycleTarget(null); fetchUsers(); }}
+        />
+      )}
     </div>
   );
 }

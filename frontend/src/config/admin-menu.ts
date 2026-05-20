@@ -288,6 +288,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-menu", label: "메뉴 관리", icon: LayoutList, path: "/system/menu", permission: "system.settings.edit" },
       { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
       { key: "sys-google", label: "Google 연동", icon: Globe, path: "/system/integrations/google", permission: "google.integration.configure" },
+      { key: "sys-storage", label: "스토리지", icon: HardDrive, path: "/system/storage", permission: "storage.volume.view" },
     ],
   },
 ];

@@ -50,6 +50,43 @@ async def _is_lead_or_admin(db: AsyncSession, user: User, dept_id: int) -> bool:
     return bool(dept and dept.lead_user_id == user.id)
 
 
+@router.get("/{dept_id}/available-permissions")
+async def available_permissions_for_delegation(
+    dept_id: int,
+    user: User = Depends(require_permission("department.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """부장이 위임할 수 있는 권한 목록.
+
+    - admin: 차단된 prefix 제외한 모든 권한
+    - 부장: 본인이 가진 권한 중 차단된 prefix 제외
+    """
+    if not await _is_lead_or_admin(db, user, dept_id):
+        raise HTTPException(403, "부장 또는 관리자만 접근 가능")
+
+    all_perms = (await db.execute(
+        select(Permission).order_by(Permission.category, Permission.key)
+    )).scalars().all()
+
+    if user.role in ("super_admin", "designated_admin"):
+        allowed_keys = {p.key for p in all_perms}
+    else:
+        allowed_keys = await resolve_permissions(db, user)
+
+    items = []
+    for p in all_perms:
+        if p.key not in allowed_keys:
+            continue
+        if any(p.key.startswith(prefix) for prefix in DELEGATION_BLOCKED_PREFIXES):
+            continue
+        items.append({
+            "key": p.key,
+            "display_name": p.display_name,
+            "category": p.category,
+        })
+    return {"items": items}
+
+
 @router.get("/{dept_id}/members")
 async def list_department_members(
     dept_id: int,

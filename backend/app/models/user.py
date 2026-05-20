@@ -57,8 +57,12 @@ class User(Base):
     # 교사/직원 전용 필드 — 부서명 (deprecated: department_id 사용 권장).
     # 신규 도입한 Department FK가 정식 source of truth.
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # use_alter=True: alembic이 별도 ALTER TABLE로 FK 추가.
+    # backup.py의 Base.metadata.sorted_tables에서 cycle 정렬 시 이 FK를 무시 → SAWarning 해소.
+    # 양방향 FK (Department.lead_user_id ↔ User.department_id) 중 한쪽만 alter면 충분.
     department_id: Mapped[int | None] = mapped_column(
-        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True,
+        ForeignKey("departments.id", ondelete="SET NULL", use_alter=True, name="fk_users_department_id"),
+        nullable=True, index=True,
     )
 
     # 학년부장 — Department의 lead_user_id와는 별개 (학년부장은 별도 개념).
