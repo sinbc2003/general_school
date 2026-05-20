@@ -80,7 +80,7 @@ from app.models.position import PositionTemplate, EnrollmentPosition
 from app.models.device import TrustedDevice, LoginChallenge
 
 # ── Classroom (구글 클래스룸 식 수업 운영) ──
-from app.models.classroom import Course, CourseStudent, CoursePost
+from app.models.classroom import Course, CourseStudent, CoursePost, CoursePostComment
 
 # ── Classroom Docs (협업 문서 — Yjs CRDT) ──
 from app.models.classroom_docs import ClassroomDocument, DocumentMember, DocumentRevision
@@ -145,7 +145,7 @@ __all__ = [
     # Device
     "TrustedDevice", "LoginChallenge",
     # Classroom
-    "Course", "CourseStudent", "CoursePost",
+    "Course", "CourseStudent", "CoursePost", "CoursePostComment",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",
     # Classroom Slides

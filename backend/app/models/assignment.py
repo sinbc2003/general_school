@@ -68,6 +68,11 @@ class Assignment(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # 마감 24시간 전 알림 발송 시각 — 중복 발송 차단용 (None이면 미발송).
+    # notification_scheduler에서 갱신.
+    due_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
 
     submissions: Mapped[list["AssignmentSubmission"]] = relationship(
         back_populates="assignment", cascade="all, delete-orphan"

@@ -68,19 +68,24 @@ async def lifespan(app: FastAPI):
         await db.commit()
 
     # 자동 백업 스케줄러 시작 (백그라운드 task)
-    from app.core.backup_scheduler import start_scheduler
-    bg_backup_task = start_scheduler()
+    from app.core.backup_scheduler import start_scheduler as start_backup
+    bg_backup_task = start_backup()
+
+    # 알림 스케줄러 (과제 마감 임박 reminder) — 1시간마다 tick
+    from app.core.notification_scheduler import start_scheduler as start_notif
+    bg_notif_task = start_notif()
 
     try:
         yield
     finally:
-        bg_backup_task.cancel()
-        try:
-            await bg_backup_task
-        except _asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[WARN] backup scheduler shutdown error: {e}")
+        for task, name in [(bg_backup_task, "backup"), (bg_notif_task, "notif")]:
+            task.cancel()
+            try:
+                await task
+            except _asyncio.CancelledError:
+                pass
+            except Exception as e:
+                print(f"[WARN] {name} scheduler shutdown error: {e}")
 
 
 app = FastAPI(

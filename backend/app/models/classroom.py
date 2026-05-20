@@ -150,3 +150,30 @@ class CoursePost(Base):
         Index("ix_classroom_posts_course_id", "course_id"),
         Index("ix_classroom_posts_post_type", "post_type"),
     )
+
+
+class CoursePostComment(Base):
+    """클래스룸 글 댓글 — Google Classroom "수업 댓글" 식.
+
+    글 작성자·다른 댓글 작성자에게 알림이 발송됨 (notification 모듈에서 처리).
+    삭제: 본인 또는 강좌 교사/admin.
+    """
+    __tablename__ = "classroom_post_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_posts.id", ondelete="CASCADE"), nullable=False,
+    )
+    author_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_classroom_post_comments_post_id", "post_id"),
+        Index("ix_classroom_post_comments_author_id", "author_id"),
+        Index("ix_classroom_post_comments_post_created", "post_id", "created_at"),
+    )

@@ -40,7 +40,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.semester import get_active_semester_id_or_404, resolve_semester_id
 from app.core.upload import POLICY_CLASSROOM, check_extension, validate_upload
-from app.models.classroom import Course, CoursePost, CourseStudent
+from app.models.classroom import Course, CoursePost, CoursePostComment, CourseStudent
 from app.models.timetable import Semester, SemesterEnrollment
 from app.models.user import User
 from app.modules.classroom.schemas import (
@@ -848,6 +848,128 @@ async def delete_course_post(
     if not _is_admin(user) and p.author_id != user.id:
         raise HTTPException(403, "본인 글만 삭제 가능")
     await db.delete(p)
+    return {"ok": True}
+
+
+# ── 글 댓글 (수업 댓글) ───────────────────────────────────────
+
+@router.get("/posts/{pid}/comments")
+async def list_post_comments(
+    pid: int,
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """글 댓글 목록 (최신순 아니라 시간순 — 채팅처럼)."""
+    p = await db.get(CoursePost, pid)
+    if not p:
+        raise HTTPException(404)
+    course = await db.get(Course, p.course_id)
+    if not course:
+        raise HTTPException(404)
+    await _assert_course_access(db, user, course)
+
+    rows = (await db.execute(
+        select(CoursePostComment, User.name)
+        .join(User, User.id == CoursePostComment.author_id, isouter=True)
+        .where(CoursePostComment.post_id == pid)
+        .order_by(CoursePostComment.created_at)
+    )).all()
+    return {
+        "items": [
+            {
+                "id": c.id, "post_id": c.post_id, "author_id": c.author_id,
+                "author_name": name, "content": c.content,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c, name in rows
+        ]
+    }
+
+
+@router.post("/posts/{pid}/comments")
+async def create_post_comment(
+    pid: int, request: Request,
+    body: dict,  # {"content": "..."}
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """댓글 작성. 본인 강좌 접근 권한이 있는 사용자 모두 가능 (학생도)."""
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(400, "댓글 내용을 입력하세요")
+    if len(content) > 5000:
+        raise HTTPException(400, "5000자 이하")
+
+    p = await db.get(CoursePost, pid)
+    if not p:
+        raise HTTPException(404)
+    course = await db.get(Course, p.course_id)
+    if not course:
+        raise HTTPException(404)
+    await _assert_course_access(db, user, course)
+    # 과거 학기 글에는 댓글 차단 (read-only)
+    active_sid = await get_active_semester_id_or_404(db)
+    if course.semester_id != active_sid:
+        raise HTTPException(409, "이전 학기 강좌의 글에는 댓글을 달 수 없습니다.")
+
+    c = CoursePostComment(post_id=pid, author_id=user.id, content=content)
+    db.add(c)
+    await db.flush()
+
+    # 알림 — 글 작성자 + 기존 댓글 작성자들에게 (본인 제외 자동)
+    try:
+        from app.services.notification import notify_users
+        targets: set[int] = set()
+        if p.author_id:
+            targets.add(p.author_id)
+        # 기존 댓글 작성자들 (중복 발송 방지를 위해 set)
+        prev_authors = (await db.execute(
+            select(CoursePostComment.author_id).where(
+                CoursePostComment.post_id == pid,
+                CoursePostComment.id != c.id,
+                CoursePostComment.author_id.is_not(None),
+            )
+        )).scalars().all()
+        targets.update([uid for uid in prev_authors if uid])
+        if targets:
+            await notify_users(
+                db, user_ids=list(targets),
+                type="classroom.post.commented",
+                title=f"[{course.name}] {user.name}님이 댓글을 남김",
+                body=content[:300],
+                # admin인지 student인지에 따라 다르지만 우선 학생 경로로 — 권한 있는 사용자만 보이게
+                link_url=f"/s/classroom/{course.id}/posts/{pid}",
+                source_user_id=user.id,
+                meta={"course_id": course.id, "post_id": pid, "comment_id": c.id},
+            )
+    except Exception as e:  # noqa: F841
+        import logging
+        logging.getLogger(__name__).warning("comment notify failed: %s", e)
+
+    return {
+        "id": c.id, "post_id": pid, "author_id": user.id,
+        "author_name": user.name, "content": c.content,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+@router.delete("/posts/comments/{cid}")
+async def delete_post_comment(
+    cid: int,
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """댓글 삭제 — 본인 또는 강좌 교사/admin만."""
+    c = await db.get(CoursePostComment, cid)
+    if not c:
+        raise HTTPException(404)
+    p = await db.get(CoursePost, c.post_id)
+    course = await db.get(Course, p.course_id) if p else None
+    is_owner = c.author_id == user.id
+    is_teacher = course and course.teacher_id == user.id
+    if not (is_owner or is_teacher or _is_admin(user)):
+        raise HTTPException(403, "본인 댓글 또는 강좌 교사·관리자만 삭제 가능")
+    await db.delete(c)
     return {"ok": True}
 
 

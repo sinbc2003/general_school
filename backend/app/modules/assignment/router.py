@@ -300,5 +300,29 @@ async def review_submission(
     sub.review_comment = body.review_comment
     sub.reviewed_by_id = user.id
     await db.flush()
+
+    # 알림: 제출 학생에게 — best-effort
+    try:
+        from app.services.notification import notify_users
+        a = await db.get(Assignment, aid)
+        if a and sub.user_id != user.id:
+            status_label = {
+                "approved": "승인",
+                "rejected": "반려",
+                "pending": "검토 중",
+            }.get(body.status, body.status)
+            await notify_users(
+                db, user_ids=[sub.user_id],
+                type="assignment.submission.reviewed",
+                title=f"과제 {status_label}: {a.title}",
+                body=(body.review_comment or "")[:300] or f"제출물이 {status_label}되었습니다.",
+                link_url=f"/s/assignments/{aid}",
+                source_user_id=user.id,
+                meta={"assignment_id": aid, "submission_id": sid, "status": body.status},
+            )
+    except Exception as e:  # noqa: F841
+        import logging
+        logging.getLogger(__name__).warning("review notify failed: %s", e)
+
     await log_action(db, user, "submission.review", f"submission:{sid}", request=request)
     return {"ok": True}
