@@ -3,7 +3,7 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import sessions'로 등록.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import AsyncIterator
 import json
 
@@ -341,7 +341,7 @@ async def _stream_response(sid: int, content: str, user_id: int) -> AsyncIterato
         s.total_input_tokens += input_tokens
         s.total_output_tokens += output_tokens
         s.total_cost_usd += cost
-        s.last_message_at = datetime.utcnow()
+        s.last_message_at = datetime.now(timezone.utc)
 
         # 자동 제목 생성 (첫 user msg 기준)
         if s.title == "새 대화" and content:

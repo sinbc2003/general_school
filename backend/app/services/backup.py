@@ -19,7 +19,7 @@ import io
 import json
 import tarfile
 import zipfile
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -115,7 +115,7 @@ async def export_all(db: AsyncSession) -> bytes:
     from app.core.config import settings as _settings
     manifest = {
         "format_version": 1,
-        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "alembic_revision": revision,
         "school_name": _settings.SCHOOL_NAME,
         "school_short": _settings.SCHOOL_SHORT,

@@ -47,7 +47,8 @@ async def export_backup(
     await verify_2fa_session(user, request, db)
     zip_bytes = await export_all(db)
     await log_action(db, user, "backup.export", f"size:{len(zip_bytes)}", request=request, is_sensitive=True)
-    filename = f"school_backup_{settings.SCHOOL_SHORT}_{__import__('datetime').datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
+    from datetime import datetime, timezone
+    filename = f"school_backup_{settings.SCHOOL_SHORT}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
     return FastResponse(
         content=zip_bytes,
         media_type="application/zip",

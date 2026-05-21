@@ -4,7 +4,7 @@ list / upsert / connection test.
 router 객체는 router.py에서 공유. router.py 끝의 'from . import admin_providers'로 등록.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
@@ -105,7 +105,7 @@ async def test_provider(
     if not adapter:
         raise HTTPException(500, "어댑터 생성 실패")
     ok, err = await adapter.test_connection()
-    p.last_tested_at = datetime.utcnow()
+    p.last_tested_at = datetime.now(timezone.utc)
     p.last_test_ok = ok
     p.last_test_error = err
     return {"ok": ok, "error": err}
