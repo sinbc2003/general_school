@@ -30,6 +30,8 @@ import {
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
+import { BulkActionBar } from "./BulkActionBar";
+import { DriveContextMenu } from "./DriveContextMenu";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys";
 type TabKey = "all" | ItemType | "trash";
@@ -1020,142 +1022,41 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         />
       )}
 
-      {/* 다중 선택 액션 바 — Google Drive 식 상단 sticky */}
-      {selected.size > 0 && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-30 bg-text-primary text-white rounded-full shadow-xl px-5 py-2 flex items-center gap-3">
-          <button
-            onClick={() => setSelected(new Set())}
-            className="text-white/70 hover:text-white"
-            title="선택 해제 (Esc)"
-          >
-            <X size={16} />
-          </button>
-          <span className="text-caption font-medium">{selected.size}개 선택됨</span>
-          <div className="w-px h-5 bg-white/20" />
-          {tab === "trash" ? (
-            <>
-              <button
-                onClick={doBulkRestore}
-                className="inline-flex items-center gap-1 text-caption text-white/90 hover:text-white"
-              >
-                <RotateCcw size={13} /> 복구
-              </button>
-              <button
-                onClick={doBulkPermanent}
-                className="inline-flex items-center gap-1 text-caption text-red-300 hover:text-red-200"
-              >
-                <Trash2 size={13} /> 영구 삭제
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={doBulkSoftDelete}
-              className="inline-flex items-center gap-1 text-caption text-white/90 hover:text-white"
-            >
-              <Trash2 size={13} /> 휴지통으로 이동
-            </button>
-          )}
-        </div>
-      )}
+      {/* 다중 선택 액션 바 */}
+      <BulkActionBar
+        count={selected.size}
+        trashTab={tab === "trash"}
+        onClear={() => setSelected(new Set())}
+        onSoftDelete={doBulkSoftDelete}
+        onRestore={doBulkRestore}
+        onPermanent={doBulkPermanent}
+      />
 
       {/* 우클릭 컨텍스트 메뉴 */}
       {ctx && (
-        <>
-          <div className="fixed inset-0 z-40" onMouseDown={() => setCtx(null)} />
-          <div
-            className="fixed z-50 w-[200px] bg-white border border-[#e8eaed] rounded-lg shadow-lg py-1.5 text-caption"
-            style={{
-              left: Math.min(ctx.x, (typeof window !== "undefined" ? window.innerWidth - 210 : ctx.x)),
-              top: Math.min(ctx.y, (typeof window !== "undefined" ? window.innerHeight - 280 : ctx.y)),
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {ctx.target ? (
-              <>
-                {/* 항목 우클릭 메뉴 */}
-                {tab !== "trash" && (
-                  <button
-                    onClick={() => { router.push(hrefFor(ctx.target!)); setCtx(null); }}
-                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
-                  >
-                    열기
-                  </button>
-                )}
-                {tab !== "trash" && selected.size <= 1 && (
-                  <button
-                    onClick={() => {
-                      const t = ctx.target!;
-                      window.open(`/embed/${t.type === "decks" ? "decks" : t.type === "sheets" ? "sheets" : "docs"}/${t.id}`, "_blank");
-                      setCtx(null);
-                    }}
-                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
-                  >
-                    새 창에서 열기
-                  </button>
-                )}
-                {tab !== "trash" && selected.size <= 1 && (
-                  <button
-                    onClick={() => { startRename(ctx.target!); setCtx(null); }}
-                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary flex items-center justify-between"
-                  >
-                    <span>이름 바꾸기</span>
-                    <span className="text-[10.5px] text-text-tertiary">F2</span>
-                  </button>
-                )}
-                {tab !== "trash" && selected.size <= 1 && (ctx.target.type === "docs" || ctx.target.type === "sheets" || ctx.target.type === "decks") && (
-                  <button
-                    onClick={() => { setShareTarget(ctx.target!); setCtx(null); }}
-                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
-                  >
-                    공유...
-                  </button>
-                )}
-                <div className="my-1 h-px bg-border-default" />
-                {tab === "trash" ? (
-                  <>
-                    <button
-                      onClick={() => { doBulkRestore(); setCtx(null); }}
-                      className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
-                    >
-                      복구 {selected.size > 1 ? `(${selected.size}개)` : ""}
-                    </button>
-                    <button
-                      onClick={() => { doBulkPermanent(); setCtx(null); }}
-                      className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
-                    >
-                      영구 삭제 {selected.size > 1 ? `(${selected.size}개)` : ""}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => { doBulkSoftDelete(); setCtx(null); }}
-                    className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
-                  >
-                    휴지통으로 이동 {selected.size > 1 ? `(${selected.size}개)` : ""}
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                {/* 빈 영역 우클릭 — 새로 만들기 */}
-                <div className="px-3 py-1.5 text-[11px] text-text-tertiary uppercase tracking-wide">새로 만들기</div>
-                {(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => {
-                  const m = TYPE_META[t];
-                  const Icon = m.icon;
-                  return (
-                    <button
-                      key={t}
-                      onClick={() => { setCtx(null); createNew(t); }}
-                      className="w-full text-left px-3 py-2 hover:bg-bg-secondary inline-flex items-center gap-2"
-                    >
-                      <Icon size={14} style={{ color: m.color }} /> {m.label}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </>
+        <DriveContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          target={ctx.target}
+          selectedCount={selected.size}
+          trashTab={tab === "trash"}
+          newMenu={(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => ({
+            type: t,
+            meta: { label: TYPE_META[t].label, icon: TYPE_META[t].icon, color: TYPE_META[t].color },
+          }))}
+          onOpen={(it) => router.push(hrefFor(it as DriveItem))}
+          onOpenNewWindow={(it) => {
+            const seg = it.type === "decks" ? "decks" : it.type === "sheets" ? "sheets" : "docs";
+            window.open(`/embed/${seg}/${it.id}`, "_blank");
+          }}
+          onRename={(it) => startRename(it as DriveItem)}
+          onShare={(it) => setShareTarget(it as DriveItem)}
+          onSoftDelete={doBulkSoftDelete}
+          onRestore={doBulkRestore}
+          onPermanent={doBulkPermanent}
+          onCreateNew={(t) => createNew(t)}
+          onClose={() => setCtx(null)}
+        />
       )}
 
       {/* 공유 모달 — 도구별 ShareDocModal 재사용 */}
