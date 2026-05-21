@@ -157,8 +157,8 @@ export default function CourseDocEditorPage() {
         />
         {savingTitle && <Save size={14} className="text-text-tertiary animate-pulse" />}
         <button
-          onClick={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}
-          title="새 창에서 열기"
+          onClick={() => window.open(`/embed/docs/${did}`, "_blank", "noopener,noreferrer")}
+          title="새 창에서 열기 (사이드바 없이 문서만 표시)"
           className="p-1.5 text-text-tertiary hover:text-accent hover:bg-bg-secondary rounded"
         >
           <ExternalLink size={16} />

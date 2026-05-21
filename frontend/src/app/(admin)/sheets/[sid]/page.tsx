@@ -130,9 +130,9 @@ export default function SheetEditorPage() {
           <span>·</span>
           <span>권한: <b className="text-accent">{sheet.permission.role || "없음"}</b></span>
           <button
-            onClick={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}
+            onClick={() => window.open(`/embed/sheets/${sid}`, "_blank", "noopener,noreferrer")}
             className="ml-2 inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
-            title="새 창에서 열기"
+            title="새 창에서 열기 (사이드바 없이 시트만 표시)"
           >
             <ExternalLink size={11} /> 새 창
           </button>
