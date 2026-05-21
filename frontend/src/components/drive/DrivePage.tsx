@@ -715,7 +715,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     data-drive-row
                     data-drive-key={menuKey}
                     className={`border-b border-border-default/50 ${
-                      isSelected ? "bg-accent/10 hover:bg-accent/15" : "hover:bg-bg-secondary/50"
+                      isSelected ? "bg-[#e8def8] hover:bg-[#d7c4f3]" : "hover:bg-bg-secondary/50"
                     }`}
                     onClick={(e) => handleItemClick(it, e)}
                     onContextMenu={(e) => handleItemContextMenu(it, e)}
@@ -802,8 +802,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 key={menuKey}
                 data-drive-card
                 data-drive-key={menuKey}
-                className={`group relative bg-bg-primary border rounded-xl overflow-hidden hover:shadow-md transition-shadow ${
-                  isSelected ? "border-accent ring-2 ring-accent/40" : "border-border-default"
+                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all ${
+                  isSelected
+                    ? "border-[#673ab7] bg-[#e8def8] shadow-md"
+                    : "border-border-default bg-bg-primary"
                 }`}
                 onClick={(e) => handleItemClick(it, e)}
                 onContextMenu={(e) => { e.stopPropagation(); handleItemContextMenu(it, e); }}
@@ -926,12 +928,14 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       {/* Rubber band drag 박스 — viewport 기준 fixed */}
       {dragBox && (
         <div
-          className="fixed border border-accent bg-accent/15 pointer-events-none z-20"
+          className="fixed pointer-events-none z-20"
           style={{
             left: Math.min(dragBox.x1, dragBox.x2),
             top: Math.min(dragBox.y1, dragBox.y2),
             width: Math.abs(dragBox.x2 - dragBox.x1),
             height: Math.abs(dragBox.y2 - dragBox.y1),
+            border: "1px solid #673ab7",
+            background: "rgba(103, 58, 183, 0.15)",
           }}
         />
       )}
