@@ -93,6 +93,7 @@ async def save_yjs_snapshot(
         raise HTTPException(400, "state_base64 디코딩 실패")
 
     d.yjs_state = state
+    d.storage_bytes = len(state) + (len(body.plain_text) if body.plain_text else 0)
     if body.plain_text is not None:
         d.plain_text = body.plain_text
 

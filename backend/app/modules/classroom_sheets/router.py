@@ -408,6 +408,7 @@ async def put_user_snapshot(
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, "snapshot이 너무 큽니다 (10MB 한도)")
     sh.yjs_state = data
+    sh.storage_bytes = len(data)
     await db.flush()
     return {"ok": True, "byte_size": len(data)}
 
@@ -475,6 +476,7 @@ async def put_yjs_snapshot(
     except Exception:
         raise HTTPException(400, "잘못된 base64")
     sh.yjs_state = data
+    sh.storage_bytes = len(data)
     await db.flush()
     return {"ok": True, "byte_size": len(data)}
 

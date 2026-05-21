@@ -29,6 +29,7 @@ import {
   Folder as FolderIcon, Lock, ChevronRight, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useToast } from "@/components/ui/Toast";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
@@ -88,8 +89,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 정렬
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  // 잘라내기 (Ctrl+X) — itemKey set. Ctrl+V로 현재 폴더에 붙여넣기.
+  // 잘라내기/복사 (Ctrl+X/C) — itemKey set. Ctrl+V로 현재 폴더에 붙여넣기.
+  // clipMode: 'cut' = 이동(move), 'copy' = 복제(copy)
   const [cutKeys, setCutKeys] = useState<Set<string>>(new Set());
+  const [clipMode, setClipMode] = useState<"cut" | "copy">("cut");
   // 드래그&드롭 — 현재 hover 중인 폴더 ID (visual highlight)
   const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
   const [info, setInfo] = useState<DriveInfo | null>(null);
@@ -135,6 +138,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [creating, setCreating] = useState(false);
   const router = useRouter();
+  const toast = useToast();
 
   // Google Drive 식 다중 선택 + 우클릭 메뉴 state
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -492,25 +496,51 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         if (trashMode) doBulkPermanent();
         else doBulkSoftDelete();
       } else if (mod && (e.key === "x" || e.key === "X")) {
-        // Ctrl+X — 잘라내기 표시. 자료만 (폴더는 잘라내기 안 함).
+        // Ctrl+X — 잘라내기. 자료만 (폴더는 X).
         if (trashMode || selected.size === 0) return;
         const targets = Array.from(selected).filter((k) => !k.startsWith("folder:"));
         if (targets.length === 0) return;
         e.preventDefault();
         setCutKeys(new Set(targets));
+        setClipMode("cut");
+        toast.show(`${targets.length}개 자료 잘라내기 — Ctrl+V로 붙여넣기`, "info");
+      } else if (mod && (e.key === "c" || e.key === "C")) {
+        // Ctrl+C — 복사. 자료만.
+        if (trashMode || selected.size === 0) return;
+        const targets = Array.from(selected).filter((k) => !k.startsWith("folder:"));
+        if (targets.length === 0) return;
+        e.preventDefault();
+        setCutKeys(new Set(targets));
+        setClipMode("copy");
+        toast.show(`${targets.length}개 자료 복사 — Ctrl+V로 붙여넣기`, "info");
       } else if (mod && (e.key === "v" || e.key === "V")) {
-        // Ctrl+V — 현재 폴더에 cut 자료 이동.
+        // Ctrl+V — 현재 폴더에 cut/copy 자료 적용.
         if (trashMode || cutKeys.size === 0) return;
         e.preventDefault();
         (async () => {
           try {
             const targets = items.filter((x) => cutKeys.has(itemKey(x)));
+            const endpoint = clipMode === "copy" ? "copy" : "move";
+            let okCount = 0;
+            let skipped: string[] = [];
             for (const x of targets) {
-              await api.post(`/api/drive/items/${x.type}/${x.id}/move`, { folder_id: currentFolderId });
+              try {
+                await api.post(`/api/drive/items/${x.type}/${x.id}/${endpoint}`, {
+                  folder_id: currentFolderId,
+                });
+                okCount++;
+              } catch (err: any) {
+                skipped.push(`${x.title}: ${err?.detail || err?.message || "실패"}`);
+              }
             }
             setCutKeys(new Set());
             setSelected(new Set());
             await fetchAll();
+            const verb = clipMode === "copy" ? "복사" : "이동";
+            if (okCount > 0) toast.show(`${okCount}개 ${verb} 완료`, "success");
+            if (skipped.length > 0) {
+              toast.show(`${skipped.length}개 ${verb} 실패: ${skipped[0]}`, "error");
+            }
           } catch (err: any) {
             alert(err?.detail || err?.message || "붙여넣기 실패");
           }
@@ -533,7 +563,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, trashMode, cutKeys, items, filtered, filteredFolders, currentFolderId]);
+  }, [selected, trashMode, cutKeys, clipMode, items, filtered, filteredFolders, currentFolderId]);
 
   // 이름 바꾸기
   const RENAME_PATH: Partial<Record<ItemType, string>> = {
@@ -922,8 +952,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           )}
         </div>
       ) : viewMode === "list" ? (
-        /* 자세히(리스트) 뷰 — 구글 드라이브 식 */
-        <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
+        /* 자세히(리스트) 뷰 — 구글 드라이브 식. overflow-visible로 ⋮ 메뉴 잘림 방지 */
+        <div className="bg-bg-primary border border-border-default rounded-lg">
           <table className="w-full text-[13px]">
             <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary sticky top-0 z-10">
               <tr>

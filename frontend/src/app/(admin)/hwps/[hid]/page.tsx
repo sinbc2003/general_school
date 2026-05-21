@@ -99,8 +99,7 @@ export default function AdminStandaloneHwpPage() {
 
   return (
     <div
-      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary transition-[padding] duration-200"
-      style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
+      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
     >
       <div className="flex-shrink-0 px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">

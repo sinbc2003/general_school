@@ -115,10 +115,9 @@ export default function SheetEditorPage() {
 
   return (
     // -m-6 + h-screen 으로 admin layout main p-6 padding 상쇄, viewport 가득 채움.
-    // AI 패널 열면 우측 padding으로 본문이 옆으로 밀려남.
+    // AI 패널 우측 padding은 admin layout이 처리 (이중 적용 방지).
     <div
-      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary transition-[padding] duration-200"
-      style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
+      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
     >
       <div className="flex-shrink-0 px-6 pt-5 pb-3">
         <div className="flex items-center justify-between gap-2 mb-2">

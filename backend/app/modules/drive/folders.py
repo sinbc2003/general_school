@@ -383,6 +383,121 @@ async def sync_my_folders(
     return result
 
 
+@router.post("/items/{type}/{item_id}/copy")
+async def copy_drive_item(
+    type: str,
+    item_id: int,
+    body: MoveItemReq | None = None,
+    user: User = Depends(require_permission("drive.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """자료 복사 (Ctrl+C → Ctrl+V).
+
+    docs/sheets/decks 지원. hwps/surveys는 별도 처리 필요(현재 미지원).
+    body.folder_id로 대상 폴더 지정. None이면 루트.
+    """
+    from app.core.quota import check_quota, consume_quota
+    from app.models import (
+        ClassroomDocument, ClassroomSheet, ClassroomPresentation, ClassroomSlide,
+    )
+
+    if type not in ITEM_TYPES:
+        raise HTTPException(404, f"알 수 없는 타입: {type}")
+    if type in ("hwps", "surveys"):
+        raise HTTPException(400, f"{type} 복사는 현재 지원되지 않습니다")
+
+    Model, owner_field, label = ITEM_TYPES[type]
+    src = await db.get(Model, item_id)
+    if not src:
+        raise HTTPException(404, f"{label}를 찾을 수 없습니다")
+    # 본인 자료만 복사 (단순화 — 권한 가드 strict)
+    if getattr(src, owner_field) != user.id and user.role != "super_admin":
+        raise HTTPException(403, "본인의 자료만 복사할 수 있습니다")
+
+    bytes_needed = src.storage_bytes or 0
+    if bytes_needed:
+        await check_quota(db, user, bytes_needed)
+
+    target_folder_id = body.folder_id if body else None
+    if target_folder_id is not None:
+        await _assert_my_folder(db, user, target_folder_id)
+
+    new_title = f"{src.title} (복사본)"
+
+    if type == "docs":
+        assert Model is ClassroomDocument
+        new_obj = ClassroomDocument(
+            owner_id=user.id,
+            course_id=None,
+            title=new_title,
+            yjs_state=src.yjs_state,
+            plain_text=src.plain_text,
+            access_mode="specific_users",
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+        )
+    elif type == "sheets":
+        assert Model is ClassroomSheet
+        new_obj = ClassroomSheet(
+            owner_id=user.id,
+            course_id=None,
+            title=new_title,
+            yjs_state=src.yjs_state,
+            access_mode="specific_users",
+            settings=src.settings,
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+        )
+    elif type == "decks":
+        assert Model is ClassroomPresentation
+        new_obj = ClassroomPresentation(
+            owner_id=user.id,
+            course_id=None,
+            title=new_title,
+            yjs_state=src.yjs_state,
+            access_mode="specific_users",
+            settings=src.settings,
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+        )
+    else:
+        raise HTTPException(400, f"{type} 복사 미지원")
+
+    db.add(new_obj)
+    await db.flush()
+
+    # decks는 ClassroomSlide row도 복제 (메타 + plain_text + settings)
+    if type == "decks":
+        src_slides = (await db.execute(
+            select(ClassroomSlide).where(ClassroomSlide.presentation_id == item_id)
+            .order_by(ClassroomSlide.order)
+        )).scalars().all()
+        for s in src_slides:
+            db.add(ClassroomSlide(
+                presentation_id=new_obj.id,
+                order=s.order,
+                title=s.title,
+                plain_text=s.plain_text,
+                settings=s.settings,
+            ))
+        await db.flush()
+
+    if bytes_needed:
+        await consume_quota(db, user, bytes_needed)
+
+    await log_action(
+        db, user, "drive.item.copy",
+        target=f"{type}:{item_id}->{new_obj.id}",
+        detail=f"folder_id={target_folder_id} title={new_title}",
+    )
+    return {
+        "id": new_obj.id,
+        "type": type,
+        "title": new_obj.title,
+        "folder_id": new_obj.folder_id,
+    }
+
+
 @router.post("/folders/_sync-all")
 async def sync_all_folders(
     semester_id: int | None = None,
