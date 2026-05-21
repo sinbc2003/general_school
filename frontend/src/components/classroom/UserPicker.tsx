@@ -76,7 +76,7 @@ export function UserPicker({ excludedUserIds = [], onPick }: Props) {
         if (classNumber !== "") params.set("class_number", String(classNumber));
       }
       if (search.trim()) params.set("search", search.trim());
-      const r = await api.get<{ items: UserRow[] }>(`/api/users?${params}`);
+      const r = await api.get<{ items: UserRow[] }>(`/api/users/peers?${params}`);
       setResults(r.items || []);
     } catch (e: any) {
       setResults([]);

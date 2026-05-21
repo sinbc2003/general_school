@@ -10,11 +10,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
-from app.core.auth import hash_password
+from app.core.auth import get_current_user, hash_password
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.quota import assign_default_quota
+from app.models.classroom import Course, CourseStudent
+from app.models.course_teacher import CourseTeacher
 from app.models.user import User
 from app.modules.users.schemas import UserCreate, UserUpdate
 
@@ -23,6 +25,80 @@ from app.modules.users._helpers import (
     ADMIN_ROLES, VALID_ROLES,
     _ensure_not_last_super_admin, _is_admin, _user_response,
 )
+
+
+@router.get("/peers")
+async def search_peers(
+    role: str | None = None,
+    grade: int | None = None,
+    class_number: int | None = None,
+    department_id: int | None = None,
+    search: str | None = None,
+    per_page: int = 30,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """공유 모달 / UserPicker 전용 검색 — 모든 role 호출 가능.
+
+    - admin/teacher/staff: 전체 검색 (user.manage.view 동일 정책)
+    - **student**: 본인 수강 강좌(active)의 다른 학생 + 그 강좌 교사 + 본인만
+      → 개인정보 노출 차단. 모르는 다른 학년/반 학생 검색 불가.
+    """
+    # role별 허용 user_id 사전 계산
+    allowed_ids: set[int] | None = None  # None = 제한 없음
+    if user.role == "student":
+        my_course_ids = (await db.execute(
+            select(CourseStudent.course_id).where(
+                CourseStudent.student_id == user.id,
+                CourseStudent.status == "active",
+            )
+        )).scalars().all()
+        if not my_course_ids:
+            return {"items": []}
+        course_id_list = list(my_course_ids)
+        peers = (await db.execute(
+            select(CourseStudent.student_id).where(
+                CourseStudent.course_id.in_(course_id_list),
+                CourseStudent.status == "active",
+            )
+        )).scalars().all()
+        owners = (await db.execute(
+            select(Course.teacher_id).where(Course.id.in_(course_id_list))
+        )).scalars().all()
+        co_teachers = (await db.execute(
+            select(CourseTeacher.user_id).where(CourseTeacher.course_id.in_(course_id_list))
+        )).scalars().all()
+        allowed_ids = set(peers) | set(owners) | set(co_teachers) | {user.id}
+    elif user.role == "designated_admin":
+        # 지정관리자는 super_admin 외 모두 (기존 list_users 정책 일관성)
+        pass
+    elif user.role not in ("super_admin", "teacher", "staff"):
+        # 알려지지 않은 role — 안전상 본인만
+        allowed_ids = {user.id}
+
+    query = select(User).where(User.status != "disabled")
+    if allowed_ids is not None:
+        if not allowed_ids:
+            return {"items": []}
+        query = query.where(User.id.in_(allowed_ids))
+    if role:
+        query = query.where(User.role == role)
+    if grade is not None:
+        query = query.where(User.grade == grade)
+    if class_number is not None:
+        query = query.where(User.class_number == class_number)
+    if department_id is not None:
+        query = query.where(User.department_id == department_id)
+    if search:
+        query = query.where(
+            (User.name.ilike(f"%{search}%")) | (User.email.ilike(f"%{search}%"))
+        )
+    if user.role == "designated_admin":
+        query = query.where(User.role.in_(["teacher", "staff", "student"]))
+
+    query = query.order_by(User.name).limit(per_page)
+    rows = (await db.execute(query)).scalars().all()
+    return {"items": [_user_response(u) for u in rows]}
 
 
 @router.get("")
