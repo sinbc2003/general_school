@@ -52,6 +52,7 @@ import { LinkCard } from "../docs/LinkCardExtension";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Toolbar } from "../docs/Toolbar";
+import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "../docs/SlashCommand";
 import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
 import "./slide-canvas.css";
@@ -75,9 +76,11 @@ export function SlideEditor({
   doc, provider, fragmentName, canWrite, userName, userId, themeId,
 }: SlideEditorProps) {
   const theme = getTheme(themeId);
+  const slash = useSlashCommand({ items: SLASH_ITEMS });
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false }),
+      slash.extension,
       Underline,
       Link.configure({
         openOnClick: false,
@@ -135,6 +138,14 @@ export function SlideEditor({
           <EditorContent editor={editor} />
         </div>
       </div>
+      {canWrite && (
+        <SlashMenu
+          state={slash.state}
+          items={slash.items}
+          editor={editor}
+          onClose={slash.close}
+        />
+      )}
     </div>
   );
 }

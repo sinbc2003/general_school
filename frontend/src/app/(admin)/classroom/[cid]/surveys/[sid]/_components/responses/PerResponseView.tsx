@@ -10,7 +10,7 @@ export function PerResponseView({ data }: { data: ResultData }) {
 
   if (data.responses.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-10 text-center text-text-tertiary">
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-10 text-center text-text-tertiary">
         아직 응답이 없습니다.
       </div>
     );
@@ -34,7 +34,7 @@ export function PerResponseView({ data }: { data: ResultData }) {
   return (
     <div>
       {/* 네비 — 이전/다음/번호 선택 */}
-      <div className="bg-white rounded-lg shadow-sm p-3 mb-3 flex items-center gap-3 flex-wrap">
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-3 mb-3 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setIdx(Math.max(0, idx - 1))}
           disabled={idx === 0}
@@ -89,7 +89,7 @@ export function PerResponseView({ data }: { data: ResultData }) {
         {data.questions.map((q, i) => {
           const a = answerByQ[q.id];
           return (
-            <div key={q.id} className="bg-white rounded-lg shadow-sm p-5">
+            <div key={q.id} className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-5">
               <div className="text-caption text-text-tertiary mb-1">Q{i + 1}</div>
               <div className="text-body font-medium text-text-primary mb-3 whitespace-pre-wrap">
                 {q.question_text}

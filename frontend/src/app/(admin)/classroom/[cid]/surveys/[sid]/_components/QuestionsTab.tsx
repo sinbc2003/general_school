@@ -14,6 +14,7 @@ import { Plus, GripVertical, Lock as LockIcon } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { QuestionCard } from "./QuestionCard";
 import { AddQuestionModal } from "./AddQuestionModal";
+import { FloatingToolbar } from "./FloatingToolbar";
 import type { Question } from "./_types";
 import {
   DndContext, DragEndEvent, closestCenter, KeyboardSensor, PointerSensor,
@@ -53,84 +54,91 @@ export function QuestionsTab({
   const isDraft = survey.status === "draft";
 
   return (
-    <div>
-      {/* 제목 카드 — Google Forms 식 (보라 상단 10px 바 + 큰 제목) */}
-      <div
-        className="bg-white rounded-lg shadow-sm overflow-hidden mb-3"
-        style={{ borderTop: "10px solid #673ab7" }}
-      >
-        <div className="px-6 py-5">
-          <input
-            type="text"
-            value={titleDraft}
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={saveTitle}
-            disabled={!canEdit}
-            placeholder="설문지 제목"
-            className="w-full text-[28px] font-normal bg-transparent border-0 outline-none focus:border-b-2 focus:border-[#673ab7] disabled:text-text-tertiary pb-1"
-          />
-          <input
-            type="text"
-            defaultValue={survey.description || ""}
-            disabled={!canEdit}
-            placeholder="설문지 설명"
-            onBlur={(e) => {
-              if (e.target.value !== (survey.description || "")) {
-                onUpdateMeta({ description: e.target.value });
-              }
-            }}
-            className="w-full text-[13px] text-text-secondary bg-transparent border-0 outline-none focus:border-b focus:border-[#673ab7] mt-3 pb-1"
-          />
-        </div>
-      </div>
-
-      {/* 질문 카드들 */}
-      <div className="space-y-3 mb-3">
-        {survey.questions.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-sm py-16 text-center text-caption text-text-tertiary">
-            아직 질문이 없습니다. {canEdit && "[질문 추가] 버튼으로 시작하세요."}
-          </div>
-        ) : canEdit ? (
-          <SortableQuestions
-            questions={survey.questions}
-            onReorder={onReorder}
-            onDelete={onDeleteQuestion}
-          />
-        ) : (
-          survey.questions.map((q, idx) => (
-            <QuestionCard
-              key={q.id}
-              q={q}
-              index={idx}
-              canEdit={false}
-              onDelete={() => onDeleteQuestion(q.id)}
+    <div className="flex items-start gap-0">
+      {/* 본문 — 제목 카드 + 질문 list + 질문 추가 큰 버튼 */}
+      <div className="flex-1 min-w-0">
+        {/* 제목 카드 — Google Forms 식 (보라 상단 10px 바 + 큰 제목) */}
+        <div
+          className="bg-white rounded-lg shadow-sm overflow-hidden mb-3"
+          style={{ borderTop: "10px solid #673ab7" }}
+        >
+          <div className="px-6 py-5">
+            <input
+              type="text"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={saveTitle}
+              disabled={!canEdit}
+              placeholder="설문지 제목"
+              className="w-full text-[28px] font-normal bg-transparent border-0 outline-none focus:border-b-2 focus:border-[#673ab7] disabled:text-text-tertiary pb-1"
             />
-          ))
+            <input
+              type="text"
+              defaultValue={survey.description || ""}
+              disabled={!canEdit}
+              placeholder="설문지 설명"
+              onBlur={(e) => {
+                if (e.target.value !== (survey.description || "")) {
+                  onUpdateMeta({ description: e.target.value });
+                }
+              }}
+              className="w-full text-[13px] text-text-secondary bg-transparent border-0 outline-none focus:border-b focus:border-[#673ab7] mt-3 pb-1"
+            />
+          </div>
+        </div>
+
+        {/* 질문 카드들 */}
+        <div className="space-y-3 mb-3">
+          {survey.questions.length === 0 ? (
+            <div className="bg-white rounded-lg shadow-sm py-16 text-center text-caption text-text-tertiary">
+              아직 질문이 없습니다. {canEdit && "우측 [+] 버튼으로 시작하세요."}
+            </div>
+          ) : canEdit ? (
+            <SortableQuestions
+              questions={survey.questions}
+              onReorder={onReorder}
+              onDelete={onDeleteQuestion}
+            />
+          ) : (
+            survey.questions.map((q, idx) => (
+              <QuestionCard
+                key={q.id}
+                q={q}
+                index={idx}
+                canEdit={false}
+                onDelete={() => onDeleteQuestion(q.id)}
+              />
+            ))
+          )}
+        </div>
+
+        {/* 모바일에서는 가로 큰 버튼 (md+ 에선 우측 플로팅으로 대체) */}
+        {canEdit && (
+          <button
+            onClick={() => setShowAddQ(true)}
+            className="md:hidden w-full bg-white rounded-lg shadow-sm py-3.5 text-caption text-[#673ab7] hover:bg-[#ede7f6] font-medium flex items-center justify-center gap-1.5"
+          >
+            <Plus size={16} /> 질문 추가
+          </button>
+        )}
+
+        {!canEdit && !isDraft && (
+          <div className="mt-4 text-caption text-text-tertiary p-3 bg-white border border-border-default rounded inline-flex items-center gap-1">
+            <LockIcon size={12} /> 활성/마감 상태에서는 질문을 편집할 수 없습니다. "초안으로" 되돌려서 편집하세요.
+          </div>
+        )}
+
+        {showAddQ && canEdit && (
+          <AddQuestionModal
+            sid={sid}
+            onClose={() => setShowAddQ(false)}
+            onSaved={() => { setShowAddQ(false); onReload(); }}
+          />
         )}
       </div>
 
-      {canEdit && (
-        <button
-          onClick={() => setShowAddQ(true)}
-          className="w-full bg-white rounded-lg shadow-sm py-3.5 text-caption text-[#673ab7] hover:bg-[#ede7f6] font-medium flex items-center justify-center gap-1.5"
-        >
-          <Plus size={16} /> 질문 추가
-        </button>
-      )}
-
-      {!canEdit && !isDraft && (
-        <div className="mt-4 text-caption text-text-tertiary p-3 bg-white border border-border-default rounded inline-flex items-center gap-1">
-          <LockIcon size={12} /> 활성/마감 상태에서는 질문을 편집할 수 없습니다. "초안으로" 되돌려서 편집하세요.
-        </div>
-      )}
-
-      {showAddQ && canEdit && (
-        <AddQuestionModal
-          sid={sid}
-          onClose={() => setShowAddQ(false)}
-          onSaved={() => { setShowAddQ(false); onReload(); }}
-        />
-      )}
+      {/* 우측 sticky 플로팅 툴바 (md+) */}
+      {canEdit && <FloatingToolbar onAddQuestion={() => setShowAddQ(true)} />}
     </div>
   );
 }

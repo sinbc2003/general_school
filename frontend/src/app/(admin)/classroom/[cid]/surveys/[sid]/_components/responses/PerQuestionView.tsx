@@ -11,7 +11,7 @@ export function PerQuestionView({ data }: { data: ResultData }) {
 
   if (data.questions.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-10 text-center text-caption text-text-tertiary">
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-10 text-center text-caption text-text-tertiary">
         질문이 없습니다.
       </div>
     );
@@ -20,7 +20,7 @@ export function PerQuestionView({ data }: { data: ResultData }) {
 
   return (
     <div>
-      <div className="bg-white rounded-lg shadow-sm p-3 mb-3 flex items-center gap-2">
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-3 mb-3 flex items-center gap-2">
         <button
           onClick={() => setIdx(Math.max(0, idx - 1))}
           disabled={idx === 0}

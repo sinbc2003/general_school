@@ -361,8 +361,8 @@ function TabButton({
       <span className="inline-flex items-center gap-1.5">
         {label}
         {badge !== undefined && badge > 0 && (
-          <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] rounded-full ${
-            active ? "bg-[#673ab7] text-white" : "bg-[#dadce0] text-text-secondary"
+          <span className={`inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 text-[11px] font-medium rounded-full ${
+            active ? "bg-[#673ab7] text-white" : "bg-[#e8def8] text-[#673ab7]"
           }`}>
             {badge}
           </span>

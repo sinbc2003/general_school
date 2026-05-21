@@ -47,15 +47,15 @@ export function QuestionResult({ q, index, totalResponseCount, showCopyButton = 
   }, [q.text_values]);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6 mb-3">
+    <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] p-6 mb-3">
       {/* 헤더 — 질문 텍스트 + 차트 복사 버튼 */}
       <div className="flex items-start justify-between gap-3 mb-1">
         <div className="flex-1 min-w-0">
-          <div className="text-body font-medium text-text-primary whitespace-pre-wrap">
+          <div className="text-[15px] font-medium text-text-primary whitespace-pre-wrap leading-snug">
             {q.question_text}
-            {q.is_required && <span className="text-red-500 ml-1">*</span>}
+            {q.is_required && <span className="text-[#d93025] ml-1">*</span>}
           </div>
-          <div className="flex items-center gap-2 text-caption text-text-tertiary mt-1">
+          <div className="flex items-center gap-2 text-[12px] text-text-tertiary mt-1.5">
             <Icon size={12} />
             <span>응답 {q.response_count}개</span>
           </div>

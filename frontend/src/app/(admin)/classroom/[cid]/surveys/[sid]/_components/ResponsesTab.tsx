@@ -110,8 +110,8 @@ export function ResponsesTab({
   return (
     <div>
       {/* 헤더 카드 — "응답 N개" + Sheets 연결 + ⋮ */}
-      <div className="bg-white rounded-lg shadow-sm p-6 mb-3">
-        <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] px-6 pt-5 pb-4 mb-3">
+        <div className="flex items-start justify-between gap-3 mb-1 flex-wrap">
           <h2 className="text-[28px] font-normal text-text-primary leading-snug">
             응답 {data.response_count}개
           </h2>
@@ -198,15 +198,18 @@ export function ResponsesTab({
           </div>
         )}
 
-        {/* sub-tabs (요약/질문/개별 보기) — 보라 underline */}
-        <div className="flex items-center gap-6 border-b border-border-default mt-4 -mx-6 px-6">
+      </div>
+
+      {/* sub-tabs (요약/질문/개별 보기) — Google Forms 식, 가운데 정렬, 분리된 카드 */}
+      <div className="bg-white rounded-lg border border-[#e8eaed] shadow-[0_1px_2px_0_rgba(60,64,67,0.08)] mb-3">
+        <div className="flex items-center justify-center gap-8 px-6">
           {SUB_TABS.map((t) => {
             const active = subTab === t.key;
             return (
               <button
                 key={t.key}
                 onClick={() => setSubTab(t.key)}
-                className={`text-body py-3 -mb-px border-b-2 transition-colors ${
+                className={`text-body py-3.5 border-b-2 transition-colors ${
                   active
                     ? "border-[#673ab7] text-[#673ab7] font-medium"
                     : "border-transparent text-text-secondary hover:text-text-primary"

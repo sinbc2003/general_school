@@ -44,6 +44,7 @@ import * as Y from "yjs";
 import { Wifi, WifiOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { Toolbar } from "./Toolbar";
+import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "./SlashCommand";
 import "./collab-editor.css";
 import "katex/dist/katex.min.css";
 
@@ -155,11 +156,15 @@ export default function CollabEditor({
     };
   }, [doc, provider]);
 
+  // 노션식 슬래시 명령 메뉴 (`/` 키 → floating popup)
+  const slash = useSlashCommand({ items: SLASH_ITEMS });
+
   const editor = useEditor({
     extensions: [
       // StarterKit의 undoRedo는 Yjs와 충돌 → 비활성화 (Yjs collaboration이 자체 undo 제공)
       // link/underline은 별도 extension으로 제공 (StarterKit는 v3에서 분리)
       StarterKit.configure({ undoRedo: false }),
+      slash.extension,
       Underline,
       Link.configure({
         openOnClick: false,
@@ -253,6 +258,14 @@ export default function CollabEditor({
       </div>
       {canWrite && <Toolbar editor={editor} />}
       <EditorContent editor={editor} />
+      {canWrite && (
+        <SlashMenu
+          state={slash.state}
+          items={slash.items}
+          editor={editor}
+          onClose={slash.close}
+        />
+      )}
     </div>
   );
 }
