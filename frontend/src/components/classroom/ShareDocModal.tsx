@@ -48,6 +48,14 @@ interface UserSuggest {
   role: string;
 }
 
+type EntityType = "doc" | "sheet" | "deck";
+
+const ENTITY_PATH: Record<EntityType, string> = {
+  doc: "docs",
+  sheet: "sheets",
+  deck: "decks",
+};
+
 interface ShareDocModalProps {
   docId: number;
   docTitle: string;
@@ -58,6 +66,8 @@ interface ShareDocModalProps {
   onClose: () => void;
   /** 변경 사항이 있어 부모가 reload해야 할 때 */
   onChanged: () => void;
+  /** 도구 종류 — URL base 결정. default "doc" (기존 호환). */
+  entityType?: EntityType;
 }
 
 const ACCESS_OPTIONS: { value: AccessMode; label: string; desc: string; icon: any }[] = [
@@ -68,7 +78,9 @@ const ACCESS_OPTIONS: { value: AccessMode; label: string; desc: string; icon: an
 
 export function ShareDocModal({
   docId, docTitle, ownerId, canShare, currentAccessMode, onClose, onChanged,
+  entityType = "doc",
 }: ShareDocModalProps) {
+  const basePath = `/api/classroom/${ENTITY_PATH[entityType]}`;
   const [members, setMembers] = useState<Member[]>([]);
   const [accessMode, setAccessMode] = useState<AccessMode>(currentAccessMode);
   const [search, setSearch] = useState("");
@@ -79,7 +91,7 @@ export function ShareDocModal({
 
   const load = async () => {
     try {
-      const data = await api.get<{ items: Member[] }>(`/api/classroom/docs/${docId}/members`);
+      const data = await api.get<{ items: Member[] }>(`${basePath}/${docId}/members`);
       setMembers(data.items);
     } catch {}
   };
@@ -109,7 +121,7 @@ export function ShareDocModal({
 
   const addMember = async (userId: number, userName: string) => {
     try {
-      await api.post(`/api/classroom/docs/${docId}/members`, {
+      await api.post(`${basePath}/${docId}/members`, {
         user_id: userId, role: "editor",
       });
       await load();
@@ -125,7 +137,7 @@ export function ShareDocModal({
   const removeMember = async (uid: number, name: string) => {
     if (!confirm(`${name}의 권한을 제거합니까?`)) return;
     try {
-      await api.delete(`/api/classroom/docs/${docId}/members/${uid}`);
+      await api.delete(`${basePath}/${docId}/members/${uid}`);
       await load();
       onChanged();
       toast.show(`${name} 제거됨`, "success");
@@ -137,7 +149,7 @@ export function ShareDocModal({
   const changeRole = async (uid: number, name: string, newRole: MemberRole) => {
     try {
       // POST same endpoint with role — backend가 dup 시 role 업데이트
-      await api.post(`/api/classroom/docs/${docId}/members`, {
+      await api.post(`${basePath}/${docId}/members`, {
         user_id: uid, role: newRole,
       });
       await load();
@@ -150,7 +162,7 @@ export function ShareDocModal({
   const changeAccessMode = async (mode: AccessMode) => {
     setAccessMode(mode);
     try {
-      await api.put(`/api/classroom/docs/${docId}`, { access_mode: mode });
+      await api.put(`${basePath}/${docId}`, { access_mode: mode });
       onChanged();
       const label = ACCESS_OPTIONS.find((o) => o.value === mode)?.label || mode;
       toast.show(`일반 액세스 → ${label}`, "success");
@@ -184,7 +196,7 @@ export function ShareDocModal({
                   onPick={async (ids) => {
                     for (const id of ids) {
                       try {
-                        await api.post(`/api/classroom/docs/${docId}/members`, {
+                        await api.post(`${basePath}/${docId}/members`, {
                           user_id: id, role: "editor",
                         });
                       } catch (e: any) {

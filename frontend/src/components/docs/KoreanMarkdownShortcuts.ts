@@ -19,6 +19,19 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "prosemirror-state";
 
+
+// 인라인 패턴 — 한국어 IME composition 종료 후 closing 마커가 들어오면 trigger.
+// lookbehind로 marker 중복 충돌 회피 (** vs *).
+const INLINE_RULES: Array<{ re: RegExp; mark: string; markerLen: number }> = [
+  { re: /\*\*([^*\n]{1,200})\*\*$/, mark: "bold", markerLen: 2 },
+  { re: /__([^_\n]{1,200})__$/, mark: "bold", markerLen: 2 },
+  { re: /~~([^~\n]{1,200})~~$/, mark: "strike", markerLen: 2 },
+  { re: /`([^`\n]{1,200})`$/, mark: "code", markerLen: 1 },
+  { re: /(?<!\*)\*([^*\n]{1,200})\*$/, mark: "italic", markerLen: 1 },
+  { re: /(?<!_)_([^_\n]{1,200})_$/, mark: "italic", markerLen: 1 },
+];
+
+
 export const KoreanMarkdownShortcuts = Extension.create({
   name: "koreanMarkdownShortcuts",
 
@@ -26,6 +39,41 @@ export const KoreanMarkdownShortcuts = Extension.create({
     return [
       new Plugin({
         key: new PluginKey("koreanMarkdownShortcuts"),
+
+        // 인라인 마크다운 — 텍스트 변경 후 cursor 앞 패턴 검사 + mark 적용
+        appendTransaction(transactions, _oldState, newState) {
+          if (!transactions.some((tr) => tr.docChanged)) return null;
+          const { $from, empty } = newState.selection;
+          if (!empty) return null;
+          if (!$from.parent.isTextblock) return null;
+          if ($from.parent.type.name === "codeBlock") return null;
+
+          const blockStart = $from.start();
+          const end = $from.pos;
+          const limit = Math.min(end - blockStart, 220);
+          const text = newState.doc.textBetween(end - limit, end, "\n", "\n");
+
+          for (const { re, mark, markerLen } of INLINE_RULES) {
+            const m = text.match(re);
+            if (!m) continue;
+            const markType = newState.schema.marks[mark];
+            if (!markType) continue;
+            const inner = m[1];
+            const fullLen = inner.length + 2 * markerLen;
+            const matchStart = end - fullLen;
+            if (matchStart < blockStart) continue;
+
+            const tr = newState.tr;
+            tr.delete(matchStart, end);
+            tr.insertText(inner, matchStart);
+            tr.addMark(matchStart, matchStart + inner.length, markType.create());
+            // 다음 입력에 mark 누적 안 되게 stored mark 제거
+            tr.removeStoredMark(markType);
+            return tr;
+          }
+          return null;
+        },
+
         props: {
           handleKeyDown(view, event) {
             // Space 또는 Enter 키 트리거

@@ -21,6 +21,7 @@ import type { SheetEditorHandle } from "@/components/sheets/SheetEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
+import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 
 interface Permission {
   can_read: boolean;
@@ -58,6 +59,7 @@ export default function SheetEditorPage() {
   const [seedData, setSeedData] = useState<SurveyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAI, setShowAI] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const sheetHandleRef = useRef<SheetEditorHandle | null>(null);
   const ai = useAIAssistant();
 
@@ -137,8 +139,9 @@ export default function SheetEditorPage() {
           </button>
           {sheet.permission.can_share && (
             <button
-              onClick={() => alert("공유 기능: SheetMember API 사용 (UI 추가 예정)")}
+              onClick={() => setShowShare(true)}
               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
+              title="공유 — 사용자 추가 + 액세스 모드"
             >
               <Share2 size={11} /> 공유
             </button>
@@ -194,6 +197,19 @@ export default function SheetEditorPage() {
         open={showAI}
         onClose={() => setShowAI(false)}
       />
+
+      {showShare && (
+        <ShareDocModal
+          entityType="sheet"
+          docId={sid}
+          docTitle={sheet.title}
+          ownerId={sheet.owner_id}
+          canShare={sheet.permission.can_share}
+          currentAccessMode={sheet.access_mode as any}
+          onClose={() => setShowShare(false)}
+          onChanged={load}
+        />
+      )}
     </div>
   );
 }

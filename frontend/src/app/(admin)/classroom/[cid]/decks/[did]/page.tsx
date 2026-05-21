@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Presentation, Play, Sparkles, ExternalLink } from "lucide-react";
+import { ArrowLeft, Presentation, Play, Sparkles, ExternalLink, Share2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
@@ -15,6 +15,7 @@ import { DeckEditor } from "@/components/decks/DeckEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
+import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 
 interface Permission {
   can_read: boolean;
@@ -56,6 +57,7 @@ export default function CourseDeckEditorAdminPage() {
   const [deck, setDeck] = useState<DeckDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAI, setShowAI] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -111,6 +113,15 @@ export default function CourseDeckEditorAdminPage() {
           >
             <ExternalLink size={11} /> 새 창
           </button>
+          {deck.permission.can_share && (
+            <button
+              onClick={() => setShowShare(true)}
+              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-text-tertiary border border-border-default rounded text-[11.5px] hover:bg-bg-secondary"
+              title="공유"
+            >
+              <Share2 size={11} /> 공유
+            </button>
+          )}
           {canWrite && (
             <button
               onClick={() => setShowAI(true)}
@@ -151,6 +162,19 @@ export default function CourseDeckEditorAdminPage() {
         />
       ) : (
         <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
+      )}
+
+      {showShare && (
+        <ShareDocModal
+          entityType="deck"
+          docId={did}
+          docTitle={deck.title}
+          ownerId={deck.owner_id}
+          canShare={deck.permission.can_share}
+          currentAccessMode={deck.access_mode as any}
+          onClose={() => setShowShare(false)}
+          onChanged={load}
+        />
       )}
 
       <AIAssistantPanel

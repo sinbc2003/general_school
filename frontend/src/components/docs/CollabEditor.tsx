@@ -47,6 +47,7 @@ import { Toolbar } from "./Toolbar";
 import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "./SlashCommand";
 import { KoreanMarkdownShortcuts } from "./KoreanMarkdownShortcuts";
 import { EditorContextMenu } from "./EditorContextMenu";
+import { TableBubbleMenu } from "./TableBubbleMenu";
 import "./collab-editor.css";
 import "katex/dist/katex.min.css";
 
@@ -280,6 +281,7 @@ export default function CollabEditor({
             onClose={slash.close}
           />
           <EditorContextMenu editor={editor} />
+          <TableBubbleMenu editor={editor} />
         </>
       )}
     </div>
