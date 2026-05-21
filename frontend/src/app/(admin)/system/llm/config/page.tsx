@@ -21,17 +21,33 @@ export default function LLMConfigPage() {
   const [providers, setProviders] = useState<string[]>([]);
   const [models, setModels] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const [toolAiStudent, setToolAiStudent] = useState(false);
+  const [toolAiSaving, setToolAiSaving] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.get("/api/chatbot/config"),
       api.get("/api/chatbot/models/all"),
-    ]).then(([c, m]) => {
+      api.get("/api/tool-ai/admin/config"),
+    ]).then(([c, m, t]) => {
       setCfg(c);
       setModels(m.items.filter((x: any) => x.is_active));
       setProviders(["openai", "anthropic", "google"]);
+      setToolAiStudent(!!t.student_allowed);
     });
   }, []);
+
+  const toggleToolAiStudent = async (v: boolean) => {
+    setToolAiSaving(true);
+    try {
+      await api.put("/api/tool-ai/admin/config", { student_allowed: v });
+      setToolAiStudent(v);
+    } catch (e: any) {
+      alert(e?.detail || "변경 실패");
+    } finally {
+      setToolAiSaving(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -124,6 +140,33 @@ export default function LLMConfigPage() {
         <Save size={16} />
         {saving ? "저장 중..." : "저장"}
       </button>
+
+      {/* AI 도우미 — 문서/시트/슬라이드/설문 작성 보조 (별도 endpoint, 즉시 반영) */}
+      <h2 className="text-title text-text-primary mt-10 mb-2">AI 도우미 (문서·시트·슬라이드·설문)</h2>
+      <p className="text-caption text-text-tertiary mb-4">
+        교사·직원은 기본 사용 가능. 학생은 기본 차단되어 있고, 아래 토글로 허용할 수 있습니다.
+        토글 변경 시 student role의 `tool.ai_assistant.use` 권한이 즉시 부여/회수됩니다.
+      </p>
+      <div className="bg-bg-primary border border-border-default rounded-lg p-4 flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="text-body font-medium text-text-primary">학생도 AI 도우미 사용 허용</div>
+          <div className="text-caption text-text-tertiary mt-0.5">
+            끄면 학생 페이지에서 AI 도우미 버튼이 노출되지 않고 endpoint도 403으로 차단됩니다.
+            켜면 비용 통제를 위해 학생 가능 모델은 `/system/llm/models`의 AI 도우미 토글에서
+            저렴한 것(haiku, gpt-4o-mini 등)만 켜는 것을 권장합니다.
+          </div>
+        </div>
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={toolAiStudent}
+            disabled={toolAiSaving}
+            onChange={(e) => toggleToolAiStudent(e.target.checked)}
+            className="w-5 h-5 accent-[#673ab7]"
+          />
+          <span className="text-caption text-text-secondary">{toolAiSaving ? "저장 중..." : (toolAiStudent ? "ON" : "OFF")}</span>
+        </label>
+      </div>
     </div>
   );
 }

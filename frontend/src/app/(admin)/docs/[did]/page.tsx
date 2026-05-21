@@ -5,14 +5,18 @@
  * 사이드바 제외 전체 화면 사용.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Share2 } from "lucide-react";
+import { ArrowLeft, Share2, Sparkles, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
+import type { Editor } from "@tiptap/react";
+import { marked } from "marked";
 
 interface Permission {
   can_read: boolean;
@@ -42,6 +46,20 @@ export default function AdminStandaloneDocPage() {
   const [doc, setDoc] = useState<DocDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShare, setShowShare] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const editorRef = useRef<Editor | null>(null);
+
+  const aiApply: ApplyHandler = async (call) => {
+    const editor = editorRef.current;
+    if (!editor) { alert("편집기가 아직 준비되지 않았습니다."); return; }
+    if (call.name === "doc_append_markdown") {
+      const html = await marked.parse(String(call.arguments.markdown || ""));
+      editor.chain().focus("end").insertContent(html as string).run();
+    } else if (call.name === "doc_replace_all") {
+      const html = await marked.parse(String(call.arguments.markdown || ""));
+      editor.chain().focus().setContent(html as string, { emitUpdate: true }).run();
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,6 +106,22 @@ export default function AdminStandaloneDocPage() {
           <span>권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
             {!doc.permission.can_write && " (읽기 전용)"}
           </span>
+          <button
+            onClick={() => window.open(`/embed/docs/${did}`, "_blank", "noopener,noreferrer")}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-text-tertiary border border-border-default rounded hover:bg-bg-secondary"
+            title="새 창에서 열기 (사이드바 없이 문서만 표시)"
+          >
+            <ExternalLink size={11} /> 새 창
+          </button>
+          {doc.permission.can_write && !doc.is_archived && (
+            <button
+              onClick={() => setShowAI(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#673ab7] border border-[#e8def8] rounded hover:bg-[#f3e5f5]"
+              title="AI 도우미"
+            >
+              <Sparkles size={11} /> AI
+            </button>
+          )}
         </div>
       </div>
 
@@ -99,12 +133,22 @@ export default function AdminStandaloneDocPage() {
           userId={user.id}
           userName={user.name}
           canWrite={doc.permission.can_write && !doc.is_archived}
+          onEditorReady={(e) => { editorRef.current = e; }}
         />
       ) : (
         <div className="border border-border-default rounded-lg p-8 text-center text-text-tertiary">
           사용자 정보 로딩 중...
         </div>
       )}
+
+      <AIAssistantPanel
+        toolKind="doc"
+        toolId={did}
+        applyHandler={aiApply}
+        getCurrentContent={() => editorRef.current ? editorRef.current.getText() : ""}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
 
       {showShare && (
         <ShareDocModal

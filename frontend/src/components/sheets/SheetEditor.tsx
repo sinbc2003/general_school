@@ -104,19 +104,28 @@ export function SheetEditor({
         // 초기 sync 완료 — Y.Map의 snapshot이 있으면 그대로 사용,
         // 없으면 seedData 또는 빈 시트로 시작
         const remote = yMap.get(SNAPSHOT_KEY);
+        let next: any[] | null = null;
         if (remote && Array.isArray(remote)) {
-          applyingRemoteRef.current = true;
-          setData(remote);
-          setTimeout(() => { applyingRemoteRef.current = false; }, 0);
+          next = remote;
         } else if (seedData) {
-          const initial = buildSheetFromSeed(seedData);
-          setData(initial);
-          // 최초 1명이 seed 박아넣음 (있으면 그대로 사용)
+          next = buildSheetFromSeed(seedData);
           if (canWrite) {
             applyingRemoteRef.current = true;
-            yMap.set(SNAPSHOT_KEY, initial);
+            yMap.set(SNAPSHOT_KEY, next);
             setTimeout(() => { applyingRemoteRef.current = false; }, 0);
           }
+        }
+        if (next) {
+          // URL hash(#sheet=이름)에 따라 active sheet 지정
+          const hashName = typeof window !== "undefined"
+            ? readHashSheetName()
+            : null;
+          if (hashName) {
+            next = next.map((s) => ({ ...s, status: s.name === hashName ? 1 : 0 }));
+          }
+          applyingRemoteRef.current = true;
+          setData(next);
+          setTimeout(() => { applyingRemoteRef.current = false; }, 0);
         }
         setReady(true);
       },
@@ -217,6 +226,16 @@ export function SheetEditor({
   // fortune-sheet onChange — 디바운스 후 Y.Map.set으로 broadcast
   const handleChange = (newData: any[]) => {
     setData(newData);
+    // 활성 sheet name → URL hash 동기화 (구글 #gid= 식)
+    try {
+      const active = (newData as any[]).find((s) => s && s.status === 1);
+      if (active && active.name && typeof window !== "undefined") {
+        const newHash = `#sheet=${encodeURIComponent(String(active.name))}`;
+        if (window.location.hash !== newHash) {
+          window.history.replaceState(null, "", newHash);
+        }
+      }
+    } catch {}
     if (applyingRemoteRef.current || !canWrite) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -317,6 +336,13 @@ function SheetLoading() {
 }
 
 // ── 데이터 헬퍼 ──
+
+function readHashSheetName(): string | null {
+  const h = window.location.hash || "";
+  const m = h.match(/^#sheet=(.+)$/);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch { return null; }
+}
 
 function makeEmptySheet(): any[] {
   return [

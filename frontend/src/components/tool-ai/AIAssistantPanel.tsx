@@ -78,6 +78,39 @@ export function AIAssistantPanel({
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 패널 폭 — drag로 동적 조절 + localStorage 저장
+  const [panelWidth, setPanelWidthLocal] = useState<number>(380);
+  const [resizing, setResizing] = useState(false);
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("ai-panel.width"));
+    if (saved && saved >= 320 && saved <= 1000) setPanelWidthLocal(saved);
+  }, []);
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const w = window.innerWidth - e.clientX;
+      const clamped = Math.max(320, Math.min(window.innerWidth - 400, w));
+      setPanelWidthLocal(clamped);
+    };
+    const onUp = () => {
+      setResizing(false);
+      setPanelWidthLocal((cur) => {
+        localStorage.setItem("ai-panel.width", String(cur));
+        return cur;
+      });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [resizing]);
+
   // open 상태를 layout에 전달 → main의 padding-right가 panel 폭만큼 늘어
   // 본문이 panel과 겹치지 않게 옆으로 밀림. open=true 진입 시 좌측 사이드바도
   // 한 번 접음 (사용자가 다시 펼치면 자동 복구 안 함).
@@ -94,6 +127,12 @@ export function AIAssistantPanel({
     // open 외 다른 deps 의도적으로 제외 — sidebar 재펼침/collapse 변화에 영향 X.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 패널 폭 변화를 layout(context)에 알려 main padding-right 재계산
+  useEffect(() => {
+    ai.setPanelWidth(panelWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelWidth]);
 
   // 모델 로드
   useEffect(() => {
@@ -168,7 +207,20 @@ export function AIAssistantPanel({
   if (!open) return null;
 
   return (
-    <aside className="fixed right-0 top-0 h-screen w-[380px] bg-white border-l border-[#e8eaed] shadow-xl flex flex-col z-40">
+    <aside
+      className="fixed right-0 top-0 h-screen bg-white border-l border-[#e8eaed] shadow-xl flex flex-col z-40"
+      style={{ width: panelWidth }}
+    >
+      {/* 좌측 splitter — 드래그로 폭 조절. 시트 페이지·드라이브와 동일 패턴. */}
+      <div
+        role="separator"
+        aria-label="AI 패널 크기 조절"
+        onMouseDown={(e) => { e.preventDefault(); setResizing(true); }}
+        className={`absolute left-0 top-0 h-full w-[6px] -ml-[3px] cursor-col-resize transition-colors ${
+          resizing ? "bg-[#673ab7]" : "bg-transparent hover:bg-[#673ab7]/40"
+        }`}
+        title="드래그하여 폭 조절"
+      />
       {/* 헤더 */}
       <div className="px-4 py-3 border-b border-[#e8eaed] flex items-center gap-2 flex-shrink-0">
         <Sparkles size={16} className="text-[#673ab7]" />

@@ -14,18 +14,23 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.chatbot import (
-    ChatUsageDaily, LLMModel, LLMProvider,
+    ChatbotConfig, ChatUsageDaily, LLMModel, LLMProvider,
 )
+from app.models.permission import Permission, RolePermission
 from app.models.user import User
 from app.modules.tool_ai.tools import TOOLS_BY_KIND, SYSTEM_PROMPT_BY_KIND
 from app.core.encryption import decrypt
+
+
+CONFIG_KEY_STUDENT_ALLOWED = "tool_ai.student_allowed"
+TOOL_AI_PERM_KEY = "tool.ai_assistant.use"
 
 
 router = APIRouter(prefix="/api/tool-ai", tags=["tool_ai"])
@@ -56,6 +61,73 @@ class ToolChatResponse(BaseModel):
     output_tokens: int = 0
     cost_usd: float = 0.0
     error: str | None = None
+
+
+class ConfigBody(BaseModel):
+    student_allowed: bool
+
+
+@router.get("/admin/config")
+async def get_tool_ai_config(
+    user: User = Depends(require_permission("chatbot.config.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 도우미 전역 설정 — super_admin/지정관리자."""
+    row = (await db.execute(
+        select(ChatbotConfig).where(ChatbotConfig.key == CONFIG_KEY_STUDENT_ALLOWED)
+    )).scalar_one_or_none()
+    return {"student_allowed": (row.value == "true") if row else False}
+
+
+@router.put("/admin/config")
+async def update_tool_ai_config(
+    body: ConfigBody, request: Request,
+    user: User = Depends(require_permission("chatbot.config.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 허용 토글. on이면 student role에 권한 grant, off면 revoke (멱등)."""
+    # config 저장
+    row = (await db.execute(
+        select(ChatbotConfig).where(ChatbotConfig.key == CONFIG_KEY_STUDENT_ALLOWED)
+    )).scalar_one_or_none()
+    if row:
+        row.value = "true" if body.student_allowed else "false"
+    else:
+        db.add(ChatbotConfig(
+            key=CONFIG_KEY_STUDENT_ALLOWED,
+            value="true" if body.student_allowed else "false",
+            description="학생도 AI 도우미를 사용할 수 있는지 (default false)",
+        ))
+
+    # student role에 권한 grant/revoke
+    perm = (await db.execute(
+        select(Permission).where(Permission.key == TOOL_AI_PERM_KEY)
+    )).scalar_one_or_none()
+    if not perm:
+        raise HTTPException(500, f"권한 {TOOL_AI_PERM_KEY} 가 시드되지 않음")
+
+    if body.student_allowed:
+        existing = (await db.execute(
+            select(RolePermission).where(
+                RolePermission.role == "student",
+                RolePermission.permission_id == perm.id,
+            )
+        )).scalar_one_or_none()
+        if not existing:
+            db.add(RolePermission(role="student", permission_id=perm.id))
+    else:
+        await db.execute(
+            delete(RolePermission).where(
+                RolePermission.role == "student",
+                RolePermission.permission_id == perm.id,
+            )
+        )
+
+    await log_action(
+        db, user, "tool_ai.config.update",
+        target=f"student_allowed={body.student_allowed}", request=request,
+    )
+    return {"ok": True, "student_allowed": body.student_allowed}
 
 
 @router.get("/models")
