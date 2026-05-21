@@ -187,6 +187,24 @@ backend/frontend만 켜면 "연결 끊김"이 표시된다.
 전제 조건: PostgreSQL이 떠있어야 함 (`pg_isready -h localhost -p 5432`로 확인).
 3개 모두 `run_in_background=true`로 띄우고 포트 listening 확인 후 사용자에게 보고.
 
+### dev 캐시 깨졌을 때 (`Cannot read properties of null (reading 'useContext')` 등)
+
+Next.js dev 서버가 hot reload 시 SSR/CSR bundle의 React reference가 어긋나
+"Cannot read properties of null" 에러로 SSR이 깨지는 경우가 있다. 발생 시:
+
+```bash
+# 1) frontend dev 종료 (pkill 또는 콘솔 창에서 Ctrl+C)
+wsl -d Ubuntu bash -c "pkill -f 'next dev'"
+
+# 2) .next 캐시 삭제
+wsl -d Ubuntu bash -c "rm -rf /home/sinbc/general_school/frontend/.next"
+
+# 3) 재시작 — start-frontend.bat 실행 (turbo 미사용, webpack 모드)
+```
+
+turbo 모드는 의도적으로 빼두었음 (`start-frontend.bat`에 주석 있음). 빠르지만
+캐시 corruption이 잦아 안정성 우선.
+
 ### PostgreSQL 부팅 (WSL에서 항상 먼저)
 ```bash
 sudo service postgresql start
