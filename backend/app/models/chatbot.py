@@ -53,6 +53,9 @@ class LLMModel(Base):
     output_per_1m_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # AI 도우미(문서/시트/슬라이드/설문 작성 도우미)에서 선택 가능 여부.
+    # 도구 호출(tool use) 지원 + 가격 적정한 모델만 super_admin이 활성화.
+    tool_ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

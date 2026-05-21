@@ -7,14 +7,18 @@
  * Phase A+B-4 에서 CollabEditor (TipTap + Yjs + Hocuspocus) 컴포넌트로 교체.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Save, Share2, Archive, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Share2, Archive, Trash2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
+import type { Editor } from "@tiptap/react";
+import { marked } from "marked";
 
 interface Permission {
   can_read: boolean;
@@ -48,6 +52,8 @@ export default function CourseDocEditorPage() {
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const editorRef = useRef<Editor | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +93,24 @@ export default function CourseDocEditorPage() {
       await load();
     } catch (e: any) {
       alert(e?.detail || "변경 실패");
+    }
+  };
+
+  const aiApply: ApplyHandler = async (call) => {
+    const editor = editorRef.current;
+    if (!editor) {
+      alert("편집기가 아직 준비되지 않았습니다.");
+      return;
+    }
+    if (call.name === "doc_append_markdown") {
+      const md = String(call.arguments.markdown || "");
+      const html = await marked.parse(md);
+      // 본문 끝으로 이동 후 삽입
+      editor.chain().focus("end").insertContent(html as string).run();
+    } else if (call.name === "doc_replace_all") {
+      const md = String(call.arguments.markdown || "");
+      const html = await marked.parse(md);
+      editor.chain().focus().setContent(html as string, { emitUpdate: true }).run();
     }
   };
 
@@ -132,6 +156,15 @@ export default function CourseDocEditorPage() {
           placeholder="제목 없음"
         />
         {savingTitle && <Save size={14} className="text-text-tertiary animate-pulse" />}
+        {doc.permission.can_write && !doc.is_archived && (
+          <button
+            onClick={() => setShowAI(true)}
+            title="AI 도우미 (수업안·가정통신문 등 자동 생성)"
+            className="p-1.5 text-[#673ab7] hover:bg-[#f3e5f5] rounded"
+          >
+            <Sparkles size={16} />
+          </button>
+        )}
         {doc.permission.can_share && (
           <>
             <button
@@ -180,12 +213,25 @@ export default function CourseDocEditorPage() {
           userId={user.id}
           userName={user.name}
           canWrite={doc.permission.can_write && !doc.is_archived}
+          onEditorReady={(e) => { editorRef.current = e; }}
         />
       ) : (
         <div className="border border-border-default rounded-lg p-8 text-center text-text-tertiary">
           사용자 정보 로딩 중...
         </div>
       )}
+
+      <AIAssistantPanel
+        toolKind="doc"
+        toolId={did}
+        applyHandler={aiApply}
+        getCurrentContent={() => {
+          const e = editorRef.current;
+          return e ? e.getText() : "";
+        }}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
 
       {showShare && (
         <ShareDocModal

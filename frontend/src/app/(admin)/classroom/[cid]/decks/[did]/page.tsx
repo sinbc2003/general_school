@@ -7,11 +7,13 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Presentation, Play } from "lucide-react";
+import { ArrowLeft, Presentation, Play, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
 import { DeckEditor } from "@/components/decks/DeckEditor";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
 
 interface Permission {
   can_read: boolean;
@@ -52,6 +54,7 @@ export default function CourseDeckEditorAdminPage() {
 
   const [deck, setDeck] = useState<DeckDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAI, setShowAI] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +69,14 @@ export default function CourseDeckEditorAdminPage() {
   }, [did, cid, router, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  const aiApply: ApplyHandler = async (call) => {
+    if (call.name === "slide_add") {
+      const title = String(call.arguments.title || "새 슬라이드").trim();
+      await api.post(`/api/classroom/decks/${did}/slides`, { title });
+      await load();
+    }
+  };
 
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!deck) return null;
@@ -95,6 +106,15 @@ export default function CourseDeckEditorAdminPage() {
           >
             <Play size={11} /> 발표
           </Link>
+          {canWrite && (
+            <button
+              onClick={() => setShowAI(true)}
+              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[#673ab7] border border-[#e8def8] rounded text-[11.5px] hover:bg-[#f3e5f5]"
+              title="AI 도우미 (슬라이드 자동 생성)"
+            >
+              <Sparkles size={11} /> AI
+            </button>
+          )}
         </div>
       </div>
 
@@ -111,6 +131,21 @@ export default function CourseDeckEditorAdminPage() {
       ) : (
         <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
       )}
+
+      <AIAssistantPanel
+        toolKind="slide"
+        toolId={did}
+        applyHandler={aiApply}
+        getCurrentContent={() => {
+          const lines = [`Deck 제목: ${deck.title}`, `슬라이드 ${deck.slides.length}개:`];
+          deck.slides.forEach((s, i) => {
+            lines.push(`${i + 1}. ${s.title || "(제목 없음)"}`);
+          });
+          return lines.join("\n");
+        }}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
     </div>
   );
 }

@@ -16,10 +16,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Trash2, Lock, Eye, Share2, MoreVertical, Pencil, Archive,
+  ArrowLeft, Trash2, Lock, Eye, Share2, MoreVertical, Pencil, Archive, Sparkles,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import ShareLinkModal from "@/components/classroom/ShareLinkModal";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
 import { QuestionsTab } from "./_components/QuestionsTab";
 import { ResponsesTab } from "./_components/ResponsesTab";
 import { SettingsTab } from "./_components/SettingsTab";
@@ -62,6 +64,7 @@ export default function SurveyBuilderPage() {
   const [titleDraft, setTitleDraft] = useState("");
   const [showShare, setShowShare] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showAI, setShowAI] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,6 +138,25 @@ export default function SurveyBuilderPage() {
     }
   };
 
+  const aiApply: ApplyHandler = async (call) => {
+    if (call.name === "survey_add_question") {
+      const a = call.arguments;
+      const body: Record<string, unknown> = {
+        question_text: String(a.question_text || "").trim(),
+        question_type: a.question_type,
+        is_required: !!a.is_required,
+      };
+      if (a.question_type === "single_choice" || a.question_type === "multi_choice") {
+        body.options = Array.isArray(a.options) ? a.options : [];
+      }
+      if (a.question_type === "rating" && a.rating_max) {
+        body.rating_max = Number(a.rating_max);
+      }
+      await api.post(`/api/classroom/surveys/${sid}/questions`, body);
+      await load();
+    }
+  };
+
   const toggleAccepting = async () => {
     if (!survey) return;
     if (survey.status === "draft") {
@@ -184,6 +206,14 @@ export default function SurveyBuilderPage() {
 
           {survey.is_author && (
             <div className="flex items-center gap-1">
+              {/* AI 도우미 토글 */}
+              <button
+                onClick={() => setShowAI(true)}
+                className="p-2 rounded hover:bg-white/60 text-[#673ab7]"
+                title="AI 도우미 (질문 자동 생성)"
+              >
+                <Sparkles size={16} />
+              </button>
               {/* 미리보기 (응답자 화면) */}
               <Link
                 href={respondUrl}
@@ -336,6 +366,23 @@ export default function SurveyBuilderPage() {
           />
         )}
       </div>
+
+      <AIAssistantPanel
+        toolKind="survey"
+        toolId={sid}
+        applyHandler={aiApply}
+        getCurrentContent={() => {
+          const lines = [`제목: ${survey.title}`];
+          if (survey.description) lines.push(`설명: ${survey.description}`);
+          lines.push(`현재 질문 ${survey.questions.length}개:`);
+          survey.questions.forEach((q, i) => {
+            lines.push(`${i + 1}. [${q.question_type}] ${q.question_text}`);
+          });
+          return lines.join("\n");
+        }}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
     </div>
   );
 }

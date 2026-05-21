@@ -76,6 +76,8 @@ STAFF_KEYS = {
     "drive.use",
     # Google 연동 (본인)
     "google.integration.use",
+    # AI 도우미 (문서/시트/슬라이드/설문 작성) — 교사·직원만, 학생 제외
+    "tool.ai_assistant.use",
 }
 
 STUDENT_KEYS = {

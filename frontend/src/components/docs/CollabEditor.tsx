@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -55,6 +55,8 @@ interface CollabEditorProps {
   canWrite: boolean;
   /** dev 기본은 ws://localhost:1234. production은 NEXT_PUBLIC_HOCUSPOCUS_URL. */
   hocuspocusUrl?: string;
+  /** 부모에 editor 인스턴스 노출 (AI 도우미가 commands 호출용). */
+  onEditorReady?: (editor: Editor | null) => void;
 }
 
 const DEFAULT_HOCUSPOCUS_URL =
@@ -69,6 +71,7 @@ function userColor(userId: number): string {
 export default function CollabEditor({
   docId, userId, userName, canWrite,
   hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
+  onEditorReady,
 }: CollabEditorProps) {
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -231,6 +234,13 @@ export default function CollabEditor({
       },
     },
   }, [canWrite, doc, provider]);
+
+  // editor 인스턴스를 부모에 노출 (AI 도우미용)
+  useEffect(() => {
+    onEditorReady?.(editor ?? null);
+    return () => onEditorReady?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   if (authError) {
     return (

@@ -13,6 +13,7 @@ interface ModelRow {
   output_per_1m_usd: number;
   context_window: number | null;
   is_active: boolean;
+  tool_ai_enabled: boolean;
   sort_order: number;
   notes: string | null;
 }
@@ -117,6 +118,7 @@ export default function LLMModelsPage() {
                 <th className="px-3 py-2 text-right text-caption text-text-secondary">Context</th>
                 <th className="px-3 py-2 text-center text-caption text-text-secondary">정렬</th>
                 <th className="px-3 py-2 text-center text-caption text-text-secondary">활성</th>
+                <th className="px-3 py-2 text-center text-caption text-text-secondary" title="문서/시트/슬라이드/설문 AI 도우미에서 사용 가능 (도구 호출 지원 모델만)">AI 도우미</th>
                 <th></th>
               </tr>
             </thead>
@@ -146,6 +148,14 @@ export default function LLMModelsPage() {
                   </td>
                   <td className="px-3 py-2 text-center">
                     <input type="checkbox" checked={m.is_active} onChange={(e) => update(m.id, { is_active: e.target.checked })} />
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={m.tool_ai_enabled}
+                      onChange={(e) => update(m.id, { tool_ai_enabled: e.target.checked })}
+                      title="AI 도우미(문서/시트/슬라이드/설문)에서 선택 가능"
+                    />
                   </td>
                   <td className="px-3 py-2">
                     <button onClick={() => remove(m.id)} className="text-text-tertiary hover:text-status-error">

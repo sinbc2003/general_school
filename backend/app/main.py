@@ -158,6 +158,7 @@ from app.modules.drive.router import router as drive_router
 from app.modules.departments.router import router as departments_router
 from app.modules.google_integration.router import router as google_router
 from app.modules.storage_volumes.router import router as storage_volumes_router
+from app.modules.tool_ai.router import router as tool_ai_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -196,6 +197,7 @@ app.include_router(drive_router)
 app.include_router(departments_router)
 app.include_router(google_router)
 app.include_router(storage_volumes_router)
+app.include_router(tool_ai_router)
 
 
 @app.get("/api/health")

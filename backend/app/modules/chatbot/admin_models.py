@@ -67,6 +67,7 @@ async def list_all_models(
             "output_per_1m_usd": m.output_per_1m_usd,
             "context_window": m.context_window,
             "is_active": m.is_active, "sort_order": m.sort_order,
+            "tool_ai_enabled": m.tool_ai_enabled,
             "notes": m.notes,
         } for m in rows
     ]}
@@ -88,6 +89,7 @@ async def create_model(
         context_window=body.context_window,
         is_active=body.is_active,
         sort_order=body.sort_order,
+        tool_ai_enabled=body.tool_ai_enabled,
     )
     db.add(m)
     await db.flush()

@@ -9,13 +9,16 @@
  *  - SheetEditor가 Univer SDK 동적 로드 (~1.5MB chunk)
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, FileSpreadsheet, Share2 } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, Share2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { SheetEditor } from "@/components/sheets/SheetEditor";
+import type { SheetEditorHandle } from "@/components/sheets/SheetEditor";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
 
 interface Permission {
   can_read: boolean;
@@ -52,6 +55,8 @@ export default function SheetEditorPage() {
   const [sheet, setSheet] = useState<SheetDetail | null>(null);
   const [seedData, setSeedData] = useState<SurveyData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAI, setShowAI] = useState(false);
+  const sheetHandleRef = useRef<SheetEditorHandle | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,6 +91,18 @@ export default function SheetEditorPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const aiApply: ApplyHandler = async (call) => {
+    if (call.name === "sheet_write_cells") {
+      const handle = sheetHandleRef.current;
+      if (!handle) {
+        alert("시트가 아직 준비되지 않았습니다.");
+        return;
+      }
+      const cells = Array.isArray(call.arguments.cells) ? call.arguments.cells : [];
+      handle.writeCells(cells);
+    }
+  };
+
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!sheet) return null;
 
@@ -113,6 +130,15 @@ export default function SheetEditorPage() {
               <Share2 size={11} /> 공유
             </button>
           )}
+          {sheet.permission.can_write && (
+            <button
+              onClick={() => setShowAI(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#673ab7] border border-[#e8def8] rounded hover:bg-[#f3e5f5]"
+              title="AI 도우미 (출석부·평가지 등 자동 생성)"
+            >
+              <Sparkles size={11} /> AI
+            </button>
+          )}
         </div>
       </div>
 
@@ -123,6 +149,7 @@ export default function SheetEditorPage() {
           userId={user.id}
           userName={user.name}
           seedData={seedData}
+          onReady={(h) => { sheetHandleRef.current = h; }}
         />
       ) : (
         <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
@@ -132,6 +159,15 @@ export default function SheetEditorPage() {
         ⓘ 동시 편집 활성 — 다른 사용자의 변경이 ~350ms 후 화면에 반영됩니다.
         같은 셀에 동시 입력 시 마지막 입력이 우선 (셀 LWW).
       </div>
+
+      <AIAssistantPanel
+        toolKind="sheet"
+        toolId={sid}
+        applyHandler={aiApply}
+        getCurrentContent={() => `시트 제목: ${sheet.title}`}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
     </div>
   );
 }

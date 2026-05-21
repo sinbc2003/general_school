@@ -37,6 +37,11 @@ const Workbook = dynamic(
   { ssr: false, loading: () => <SheetLoading /> },
 );
 
+export interface SheetEditorHandle {
+  /** 셀들을 일괄 write. AI 도우미가 호출. */
+  writeCells: (cells: Array<{ row: number; col: number; value: unknown }>) => void;
+}
+
 interface SheetEditorProps {
   sheetId: number;
   canWrite: boolean;
@@ -46,6 +51,8 @@ interface SheetEditorProps {
    *  형식: { headers, rows } */
   seedData?: { headers: string[]; rows: any[][] } | null;
   hocuspocusUrl?: string;
+  /** 부모가 셀 직접 쓰기 등 명령을 호출할 수 있도록 핸들 노출. */
+  onReady?: (handle: SheetEditorHandle) => void;
 }
 
 // Y.Map 안의 key 1개 — 시트 전체 snapshot. 셀별 분리는 추후 phase.
@@ -62,6 +69,7 @@ function userColor(uid: number): string {
 export function SheetEditor({
   sheetId, canWrite, userId, userName, seedData,
   hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
+  onReady,
 }: SheetEditorProps) {
   const [data, setData] = useState<any[]>(makeEmptySheet());
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
@@ -155,6 +163,56 @@ export function SheetEditor({
     }, 14 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
+
+  // 외부 핸들 (AI 도우미가 셀 직접 쓰기 위해)
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    if (!onReady) return;
+    onReady({
+      writeCells: (cells) => {
+        if (!canWrite) {
+          alert("읽기 전용 시트입니다.");
+          return;
+        }
+        const current = dataRef.current;
+        // deep clone — fortune-sheet가 props 비교로 re-render
+        const cloned = JSON.parse(JSON.stringify(current)) as any[];
+        if (cloned.length === 0) {
+          cloned.push({ name: "Sheet1", celldata: [], row: 80, column: 26 });
+        }
+        const sheet0 = cloned[0];
+        sheet0.celldata = sheet0.celldata || [];
+        for (const { row, col, value } of cells) {
+          const t = typeof value === "number" ? "n" : "g";
+          const cellValue = {
+            v: value,
+            m: String(value ?? ""),
+            ct: { fa: "General", t },
+          };
+          const existing = sheet0.celldata.find(
+            (cd: any) => cd.r === row && cd.c === col,
+          );
+          if (existing) {
+            existing.v = cellValue;
+          } else {
+            sheet0.celldata.push({ r: row, c: col, v: cellValue });
+          }
+          if (row + 1 > (sheet0.row || 80)) sheet0.row = row + 5;
+          if (col + 1 > (sheet0.column || 26)) sheet0.column = col + 2;
+        }
+        setData(cloned);
+        // 즉시 broadcast (handleChange의 디바운스 우회)
+        try {
+          yMapRef.current?.set(SNAPSHOT_KEY, cloned);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("[Sheet] writeCells broadcast failed", e);
+        }
+      },
+    });
+  }, [onReady, canWrite]);
 
   // fortune-sheet onChange — 디바운스 후 Y.Map.set으로 broadcast
   const handleChange = (newData: any[]) => {
