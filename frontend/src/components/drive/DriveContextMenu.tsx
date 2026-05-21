@@ -40,6 +40,7 @@ interface Props {
   onSoftDelete: () => void;
   onRestore: () => void;
   onPermanent: () => void;
+  onMove?: () => void;
   onCreateNew: (type: DriveItemType) => void;
   onClose: () => void;
 }
@@ -47,7 +48,7 @@ interface Props {
 export function DriveContextMenu({
   x, y, target, selectedCount, trashTab, newMenu,
   onOpen, onOpenNewWindow, onRename, onShare,
-  onSoftDelete, onRestore, onPermanent, onCreateNew, onClose,
+  onSoftDelete, onRestore, onPermanent, onMove, onCreateNew, onClose,
 }: Props) {
   const MENU_W = 200;
   const MENU_H = 280;
@@ -87,6 +88,11 @@ export function DriveContextMenu({
             {!trashTab && selectedCount <= 1 && target.type !== "surveys" && (
               <MenuItem onClick={() => { onShare(target); onClose(); }}>
                 공유...
+              </MenuItem>
+            )}
+            {!trashTab && onMove && (
+              <MenuItem onClick={() => { onMove(); onClose(); }}>
+                폴더로 이동...{selectedCount > 1 ? ` (${selectedCount}개)` : ""}
               </MenuItem>
             )}
             <div className="my-1 h-px bg-border-default" />

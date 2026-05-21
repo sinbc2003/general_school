@@ -32,6 +32,8 @@ import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
 import { DriveContextMenu } from "./DriveContextMenu";
+import { FolderSidebar } from "./FolderSidebar";
+import { MoveToFolderModal } from "./MoveToFolderModal";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
 type TabKey = "all" | ItemType | "trash";
@@ -42,6 +44,7 @@ interface DriveItem {
   title: string;
   course_id: number | null;
   owner_id: number | null;
+  folder_id: number | null;
   updated_at: string | null;
   created_at: string | null;
   deleted_at: string | null;
@@ -137,6 +140,20 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
+  // 폴더 — 현재 보기 폴더 (undefined=전체, null=폴더 밖, number=그 폴더 안)
+  const [currentFolderId, setCurrentFolderId] = useState<number | null | undefined>(undefined);
+  const [moveTargets, setMoveTargets] = useState<DriveItem[] | null>(null);
+  // 사이드바 표시 토글 (사용자 preference localStorage)
+  const [showFolderSidebar, setShowFolderSidebar] = useState<boolean>(true);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("drive.showFolderSidebar");
+    if (saved === "false") setShowFolderSidebar(false);
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("drive.showFolderSidebar", String(showFolderSidebar)); } catch {}
+  }, [showFolderSidebar]);
+
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
 
   // 박스 + 카드 rect intersect 검사
@@ -222,12 +239,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     setLoading(true);
     setError(null);
     try {
-      // counts가 모든 탭에서 정확하게 표시되도록 항상 type=all로 가져옴.
-      // 화면 표시는 filtered가 active 탭에 맞게 필터링.
+      const folderQS =
+        currentFolderId === undefined
+          ? ""
+          : currentFolderId === null
+          ? "&no_folder=true"
+          : `&folder_id=${currentFolderId}`;
       const [i, list] = await Promise.all([
         api.get<DriveInfo>("/api/drive/me"),
         api.get<{ items: DriveItem[] }>(
-          `/api/drive/items?trash=${tab === "trash" ? "true" : "false"}&type=all`
+          `/api/drive/items?trash=${tab === "trash" ? "true" : "false"}&type=all${folderQS}`
         ),
       ]);
       setInfo(i);
@@ -237,7 +258,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, currentFolderId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -546,6 +567,15 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       }}
       className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
     >
+      {/* 좌측 폴더 사이드바 */}
+      {showFolderSidebar && (
+        <FolderSidebar
+          currentFolderId={currentFolderId}
+          onSelect={(fid) => setCurrentFolderId(fid)}
+          onRefresh={fetchAll}
+        />
+      )}
+
       <div
         className="flex-1 min-w-0 flex flex-col p-6 relative select-none"
         onMouseDown={startRubberBand}
@@ -560,11 +590,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       {/* 헤더 영역 — 스크롤 안 됨 (flex-shrink-0) */}
       <div className="flex-shrink-0">
       <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-title text-text-primary">내 드라이브</h1>
-          <p className="text-caption text-text-tertiary mt-1">
-            본인이 만든 문서·스프레드시트·프리젠테이션·설문지·한컴 문서. 휴지통은 30일 후 자동 영구 삭제됩니다.
-          </p>
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFolderSidebar((v) => !v)}
+            className="mt-1 p-1.5 rounded hover:bg-bg-secondary text-text-tertiary"
+            title={showFolderSidebar ? "폴더 사이드바 숨기기" : "폴더 사이드바 보이기"}
+          >
+            <ListIcon size={16} />
+          </button>
+          <div>
+            <h1 className="text-title text-text-primary">내 드라이브</h1>
+            <p className="text-caption text-text-tertiary mt-1">
+              {currentFolderId === null
+                ? "폴더 밖 자료 — 좌측에서 폴더를 선택하세요."
+                : currentFolderId === undefined
+                ? "본인이 만든 문서·스프레드시트·프리젠테이션·설문지·한컴 문서. 휴지통은 30일 후 자동 영구 삭제됩니다."
+                : "선택된 폴더 안 자료입니다."}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* "+ 신규" 드롭다운 */}
@@ -1070,6 +1114,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           onSoftDelete={doBulkSoftDelete}
           onRestore={doBulkRestore}
           onPermanent={doBulkPermanent}
+          onMove={() => {
+            // 선택된 자료 모두 이동 모달로
+            const sel = items.filter((it) => selected.has(`${it.type}:${it.id}`));
+            const target = ctx?.target ? [ctx.target as DriveItem] : [];
+            setMoveTargets(sel.length > 0 ? sel : target);
+          }}
           onCreateNew={(t) => createNew(t)}
           onClose={() => setCtx(null)}
         />
@@ -1081,6 +1131,18 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           target={{ type: shareTarget.type, id: shareTarget.id, title: shareTarget.title }}
           onClose={() => setShareTarget(null)}
           onChanged={fetchAll}
+        />
+      )}
+
+      {/* 폴더 이동 모달 */}
+      {moveTargets && moveTargets.length > 0 && (
+        <MoveToFolderModal
+          targets={moveTargets.map((it) => ({ type: it.type, id: it.id, title: it.title }))}
+          onClose={() => setMoveTargets(null)}
+          onMoved={() => {
+            setSelected(new Set());
+            fetchAll();
+          }}
         />
       )}
     </div>
