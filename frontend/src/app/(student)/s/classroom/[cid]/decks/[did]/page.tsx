@@ -15,6 +15,7 @@ import { DeckEditor } from "@/components/decks/DeckEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Permission {
   can_read: boolean;
@@ -46,6 +47,7 @@ interface DeckDetail {
 }
 
 export default function StudentCourseDeckEditorPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const { user, hasPermission } = useAuth();

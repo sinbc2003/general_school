@@ -12,6 +12,7 @@ import { ArrowLeft, Play } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { DeckEditor } from "@/components/decks/DeckEditor";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Slide {
   id: number;
@@ -41,6 +42,7 @@ interface DeckDetail {
 }
 
 export default function AdminStandaloneDeckPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();

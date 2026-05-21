@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Send, CheckCircle, Lock, Pencil, Clock } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 type QType = "short_text" | "long_text" | "single_choice" | "multi_choice" | "rating" | "date";
 
@@ -65,6 +66,7 @@ interface AnswerDraft {
 }
 
 export default function StudentSurveyResponsePage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const cid = Number(params.cid);

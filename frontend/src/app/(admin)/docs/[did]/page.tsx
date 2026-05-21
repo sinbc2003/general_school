@@ -11,6 +11,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Share2, Sparkles, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 import CollabEditor from "@/components/docs/CollabEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
@@ -39,6 +40,7 @@ interface DocDetail {
 }
 
 export default function AdminStandaloneDocPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();

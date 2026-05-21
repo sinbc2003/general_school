@@ -27,6 +27,7 @@ import { QuestionsTab } from "./_components/QuestionsTab";
 import { ResponsesTab } from "./_components/ResponsesTab";
 import { SettingsTab } from "./_components/SettingsTab";
 import type { Question } from "./_components/_types";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 
 interface SurveyDetail {
@@ -52,6 +53,7 @@ type Tab = "questions" | "responses" | "settings";
 
 
 export default function SurveyBuilderPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();

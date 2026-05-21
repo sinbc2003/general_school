@@ -9,11 +9,17 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Share2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Share2, ExternalLink, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { HwpEditor } from "@/components/hwp/HwpEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 import { EditableTitle } from "@/components/ui/EditableTitle";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
+import { useToast } from "@/components/ui/Toast";
+import { useAIAssistant } from "@/lib/ai-assistant-context";
+import { useAuth } from "@/lib/auth-context";
 
 interface Permission {
   can_read: boolean;
@@ -38,13 +44,30 @@ interface HwpDetail {
 }
 
 export default function StudentStandaloneHwpPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const hid = Number(params.hid);
+  const toast = useToast();
+  const ai = useAIAssistant();
+  const { hasPermission } = useAuth();
+  const canUseAI = hasPermission("tool.ai_assistant.use");
 
   const [doc, setDoc] = useState<HwpDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShare, setShowShare] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+
+  const aiApply: ApplyHandler = async (call) => {
+    const md = String(call.arguments.markdown || "");
+    if (!md) return;
+    try {
+      await navigator.clipboard.writeText(md);
+      toast.show("AI 생성 내용 복사됨 — 한컴 문서에 Ctrl+V로 붙여넣으세요", "success");
+    } catch {
+      alert(`복사 실패. 아래 내용을 직접 복사하세요:\n\n${md.slice(0, 500)}${md.length > 500 ? "..." : ""}`);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +94,10 @@ export default function StudentStandaloneHwpPage() {
   };
 
   return (
-    <div className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary">
+    <div
+      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary transition-[padding] duration-200"
+      style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
+    >
       <div className="flex-shrink-0 px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
           <Link
@@ -101,6 +127,15 @@ export default function StudentStandaloneHwpPage() {
             >
               <ExternalLink size={11} /> 새 창
             </button>
+            {canUseAI && doc.permission.can_write && !doc.is_archived && (
+              <button
+                onClick={() => setShowAI(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-[#673ab7] border border-[#e8def8] rounded hover:bg-[#f3e5f5]"
+                title="AI 도우미 (생성된 내용을 클립보드 복사 후 한컴에 붙여넣기)"
+              >
+                <Sparkles size={11} /> AI
+              </button>
+            )}
           </div>
         </div>
 
@@ -138,6 +173,17 @@ export default function StudentStandaloneHwpPage() {
           entityType="hwp"
           onClose={() => setShowShare(false)}
           onChanged={load}
+        />
+      )}
+
+      {canUseAI && (
+        <AIAssistantPanel
+          toolKind="doc"
+          toolId={hid}
+          applyHandler={aiApply}
+          getCurrentContent={() => `한컴 문서 제목: ${doc.title}`}
+          open={showAI}
+          onClose={() => setShowAI(false)}
         />
       )}
     </div>

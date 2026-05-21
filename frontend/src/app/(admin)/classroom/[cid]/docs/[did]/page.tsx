@@ -20,6 +20,7 @@ import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
 import type { Editor } from "@tiptap/react";
 import { marked } from "marked";
+import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Permission {
   can_read: boolean;
@@ -42,6 +43,7 @@ interface DocDetail {
 }
 
 export default function CourseDocEditorPage() {
+  useAutoCollapseSidebar();
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
