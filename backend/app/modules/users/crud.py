@@ -230,6 +230,13 @@ async def create_user(
     db.add(new_user)
     await db.flush()
 
+    # 자동 폴더 동기화 (현재 학기 기준). 실패해도 사용자 생성은 막지 않음.
+    try:
+        from app.services.folder_seed import sync_user_folders
+        await sync_user_folders(db, new_user)
+    except Exception:
+        pass
+
     await log_action(db, user, "user_created", target=body.email, request=request)
     return _user_response(new_user)
 
@@ -263,6 +270,8 @@ async def update_user(
         raise HTTPException(403, "역할 변경은 관리자만 가능합니다")
 
     role_or_status_changed = False
+    # 자동 폴더 동기화 여부 판단용 — 영향 받는 필드 변경 시만 호출 (불필요한 작업 피함)
+    folder_relevant_changed = False
     if body.name is not None:
         target.name = body.name
     if body.role is not None:
@@ -274,6 +283,7 @@ async def update_user(
             # super_admin → 다른 role로 강등 시 마지막 super_admin 보호
             await _ensure_not_last_super_admin(db, target)
             role_or_status_changed = True
+            folder_relevant_changed = True
         target.role = body.role
     if body.status is not None:
         if body.status == "disabled" and target.status != "disabled":
@@ -281,20 +291,35 @@ async def update_user(
         if body.status != target.status:
             role_or_status_changed = True
         target.status = body.status
-    if body.grade is not None:
+    if body.grade is not None and body.grade != target.grade:
         target.grade = body.grade
-    if body.class_number is not None:
+        folder_relevant_changed = True
+    elif body.grade is not None:
+        target.grade = body.grade
+    if body.class_number is not None and body.class_number != target.class_number:
+        target.class_number = body.class_number
+        folder_relevant_changed = True
+    elif body.class_number is not None:
         target.class_number = body.class_number
     if body.student_number is not None:
         target.student_number = body.student_number
     if body.department is not None:
         target.department = body.department
     if body.department_id is not None:
-        target.department_id = body.department_id if body.department_id > 0 else None
-    if body.is_grade_lead is not None:
+        new_dept = body.department_id if body.department_id > 0 else None
+        if new_dept != target.department_id:
+            folder_relevant_changed = True
+        target.department_id = new_dept
+    if body.is_grade_lead is not None and body.is_grade_lead != target.is_grade_lead:
+        target.is_grade_lead = body.is_grade_lead
+        folder_relevant_changed = True
+    elif body.is_grade_lead is not None:
         target.is_grade_lead = body.is_grade_lead
     if body.lead_grade is not None:
-        target.lead_grade = body.lead_grade if body.lead_grade > 0 else None
+        new_lg = body.lead_grade if body.lead_grade > 0 else None
+        if new_lg != target.lead_grade:
+            folder_relevant_changed = True
+        target.lead_grade = new_lg
     if body.user_type is not None:
         target.user_type = body.user_type
     if body.expires_at is not None:
@@ -322,6 +347,14 @@ async def update_user(
         from app.modules.permissions.router import _invalidate_user_sessions
         await _invalidate_user_sessions(db, target.id)
         await db.flush()
+
+    # 자동 폴더 동기화 — 영향 필드 변경 시만 (best-effort).
+    if folder_relevant_changed:
+        try:
+            from app.services.folder_seed import sync_user_folders
+            await sync_user_folders(db, target)
+        except Exception:
+            pass
 
     await log_action(db, user, "user_updated", target=target.email, request=request)
     return _user_response(target)

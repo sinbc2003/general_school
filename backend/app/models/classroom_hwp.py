@@ -41,6 +41,9 @@ class ClassroomHwp(Base):
     # "hwp" | "hwpx" — file_path가 있으면 이게 채워짐
     file_format: Mapped[str | None] = mapped_column(String(8), nullable=True)
     storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     deleted_by: Mapped[int | None] = mapped_column(

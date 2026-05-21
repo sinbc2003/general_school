@@ -67,6 +67,10 @@ class ClassroomDocument(Base):
     )
     # quota 차감 캐시 (소유자 used_bytes 환원·복구 시 정확한 크기). 보통 yjs_state + plain_text 길이.
     storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 드라이브 폴더 (소유자 본인의 폴더만 가리킴). NULL=루트(폴더 없음).
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

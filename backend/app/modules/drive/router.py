@@ -64,6 +64,7 @@ def _serialize(item: Any, type_str: str) -> dict[str, Any]:
         "title": item.title,
         "course_id": getattr(item, "course_id", None),
         "owner_id": getattr(item, "owner_id", None) or getattr(item, "author_id", None),
+        "folder_id": getattr(item, "folder_id", None),
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "deleted_at": item.deleted_at.isoformat() if item.deleted_at else None,
@@ -114,6 +115,8 @@ async def my_drive_info(
 async def list_my_items(
     trash: bool = False,
     type: str = "all",
+    folder_id: int | None = None,
+    no_folder: bool = False,
     limit: int = 200,
     user: User = Depends(require_permission("drive.use")),
     db: AsyncSession = Depends(get_db),
@@ -121,7 +124,8 @@ async def list_my_items(
     """본인 자료 통합 조회.
 
     trash=False → 활성 자료만, trash=True → 휴지통(deleted_at IS NOT NULL).
-    type='all'이면 4가지 모두, 아니면 docs|sheets|decks|surveys 중 하나.
+    type='all'이면 5가지 모두, 아니면 docs|sheets|decks|surveys|hwps 중 하나.
+    folder_id 지정 시 그 폴더 안 자료만. no_folder=true면 폴더 밖(루트) 자료만.
     """
     types_to_query: list[str] = (
         list(ITEM_TYPES.keys()) if type == "all" else [type]
@@ -137,6 +141,10 @@ async def list_my_items(
             q = q.where(Model.deleted_at.isnot(None))
         else:
             q = q.where(Model.deleted_at.is_(None))
+        if folder_id is not None:
+            q = q.where(Model.folder_id == folder_id)
+        elif no_folder:
+            q = q.where(Model.folder_id.is_(None))
         q = q.order_by(Model.updated_at.desc()).limit(limit)
         rows = (await db.execute(q)).scalars().all()
         items.extend(_serialize(r, t) for r in rows)
@@ -145,7 +153,7 @@ async def list_my_items(
     key = "deleted_at" if trash else "updated_at"
     items.sort(key=lambda x: (x.get(key) or ""), reverse=True)
 
-    return {"items": items[:limit], "trash": trash}
+    return {"items": items[:limit], "trash": trash, "folder_id": folder_id}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -327,3 +335,7 @@ async def purge_expired_trash(db: AsyncSession) -> dict[str, int]:
                 await release_quota(db, owner, freed)
 
     return {"deleted_total": total_deleted, "freed_bytes_total": total_freed}
+
+
+# Sub-modules — endpoint 등록 강제 (마지막에 import해 순환 회피)
+from app.modules.drive import folders  # noqa: E402, F401

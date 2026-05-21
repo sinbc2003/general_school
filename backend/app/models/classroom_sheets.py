@@ -62,6 +62,9 @@ class ClassroomSheet(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
     storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

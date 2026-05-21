@@ -40,6 +40,13 @@ async def seed_auto(
         dry_run=body.dry_run,
     )
     if not body.dry_run:
+        # 자동 폴더 동기화 (best-effort).
+        try:
+            from app.services.folder_seed import sync_all_users
+            await sync_all_users(db, body.semester_id)
+        except Exception:
+            pass
+
         await log_action(
             db, user, "course_seed",
             target=f"semester:{body.semester_id}",

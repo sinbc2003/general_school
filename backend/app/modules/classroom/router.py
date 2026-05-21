@@ -328,6 +328,14 @@ async def create_course(
     )
     db.add(c)
     await db.flush()
+
+    # 자동 폴더 동기화 (owner의 subject_teaching). best-effort.
+    try:
+        from app.services.folder_seed import on_course_teacher_assigned
+        await on_course_teacher_assigned(db, course_id=c.id, user_id=body.teacher_id)
+    except Exception:
+        pass
+
     await log_action(db, user, "classroom.course.create", target=f"course:{c.id}", request=request)
     return _course_to_dict(c)
 
@@ -480,6 +488,15 @@ async def auto_generate_courses(
                 # 선택과목은 자동 학생 등록 불가 (교사가 명단 따로 등록)
 
     await db.flush()
+
+    # 자동 강좌 생성 후 영향 사용자 일괄 폴더 동기화 (best-effort).
+    if created or enrolled:
+        try:
+            from app.services.folder_seed import sync_all_users
+            await sync_all_users(db, sid)
+        except Exception:
+            pass
+
     await log_action(
         db, user, "classroom.course.auto_generate",
         target=f"sid:{sid} created:{created} enrolled:{enrolled} skipped:{skipped}",
@@ -586,6 +603,14 @@ async def add_student_to_course(
     cs = CourseStudent(course_id=cid, student_id=body.student_id)
     db.add(cs)
     await db.flush()
+
+    # 자동 폴더 동기화 (학생 수강과목 wrapper + 안 강좌 폴더). best-effort.
+    try:
+        from app.services.folder_seed import on_course_student_enrolled
+        await on_course_student_enrolled(db, course_id=cid, student_id=body.student_id)
+    except Exception:
+        pass
+
     await log_action(
         db, user, "classroom.student.add",
         target=f"course:{cid} student:{body.student_id}", request=request,
@@ -648,6 +673,16 @@ async def bulk_add_students(
             added += 1
 
     await db.flush()
+
+    # 자동 폴더 동기화 — 새로 추가/재활성화된 학생 모두 (best-effort).
+    if added or reactivated:
+        try:
+            from app.services.folder_seed import on_course_student_enrolled
+            for uid in target_user_ids:
+                await on_course_student_enrolled(db, course_id=cid, student_id=uid)
+        except Exception:
+            pass
+
     await log_action(
         db, user, "classroom.student.bulk_add",
         target=f"course:{cid} added:{added} reactivated:{reactivated} skipped:{skipped}",
@@ -1044,3 +1079,4 @@ from app.modules.classroom import teachers  # noqa: E402, F401
 from app.modules.classroom import course_seed  # noqa: E402, F401
 from app.modules.classroom import favorites  # noqa: E402, F401
 from app.modules.classroom import customize  # noqa: E402, F401
+from app.modules.classroom import student_enrollment  # noqa: E402, F401

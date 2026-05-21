@@ -116,6 +116,9 @@ from app.models.google_connection import GoogleConnection
 # ── 스토리지 볼륨 (Phase 2 — 외장 SSD multi-volume 기반) ──
 from app.models.storage_volume import StorageVolume
 
+# ── Drive Folder (사용자별 폴더 트리 — 자동/수동 생성, 다단계 중첩) ──
+from app.models.folder import Folder
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -182,4 +185,6 @@ __all__ = [
     "GoogleConnection",
     # Storage
     "StorageVolume",
+    # Drive Folder
+    "Folder",
 ]

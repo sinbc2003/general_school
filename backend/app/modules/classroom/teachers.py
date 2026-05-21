@@ -134,6 +134,14 @@ async def add_co_teacher(
     )
     db.add(ct)
     await db.flush()
+
+    # 자동 폴더 동기화 (best-effort).
+    try:
+        from app.services.folder_seed import on_course_teacher_assigned
+        await on_course_teacher_assigned(db, course_id=cid, user_id=target.id)
+    except Exception:
+        pass
+
     await log_action(
         db, user, "course_coteacher_add",
         target=f"course:{cid}",
