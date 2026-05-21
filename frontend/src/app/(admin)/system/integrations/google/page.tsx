@@ -12,8 +12,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Globe, Eye, EyeOff, ExternalLink, CheckCircle2 } from "lucide-react";
+import { Globe, Eye, EyeOff, ExternalLink, CheckCircle2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { GoogleSetupWizard } from "@/components/google/GoogleSetupWizard";
 
 export default function GoogleIntegrationPage() {
   const [configured, setConfigured] = useState(false);
@@ -25,6 +26,16 @@ export default function GoogleIntegrationPage() {
   const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+
+  const reloadConfig = async () => {
+    try {
+      const r = await api.get<any>("/api/google/config");
+      setConfigured(r.configured);
+      setEnabled(r.enabled);
+      setPreview(r.client_id_preview || "");
+    } catch {}
+  };
 
   useEffect(() => {
     (async () => {
@@ -73,8 +84,26 @@ export default function GoogleIntegrationPage() {
         </p>
       </div>
 
+      {/* 마법사 추천 — 처음이거나 다른 사람 인계 시 */}
+      <div className="mb-5 p-4 bg-[#ede7f6] border border-[#673ab7]/30 rounded-lg flex items-center gap-3">
+        <Sparkles size={20} className="text-[#673ab7] flex-shrink-0" />
+        <div className="flex-1">
+          <div className="text-body font-medium text-text-primary">처음 셋업하시나요?</div>
+          <div className="text-caption text-text-secondary">
+            마법사가 단계별로 안내합니다 (5~10분). Google Cloud Console 링크와 복사할 값을 자동으로 준비.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowWizard(true)}
+          className="px-4 py-2 text-caption bg-[#673ab7] text-white rounded hover:bg-[#5e35b1] inline-flex items-center gap-1.5 flex-shrink-0"
+        >
+          <Sparkles size={13} /> 마법사 시작
+        </button>
+      </div>
+
       <div className="bg-cream-100 border border-cream-200 rounded-lg p-4 mb-5">
-        <h3 className="text-body font-semibold text-text-primary mb-2">셋업 안내</h3>
+        <h3 className="text-body font-semibold text-text-primary mb-2">셋업 안내 (수동)</h3>
         <ol className="text-[13px] text-text-secondary space-y-1.5 list-decimal ml-4">
           <li>
             <a
@@ -177,6 +206,14 @@ export default function GoogleIntegrationPage() {
         💡 본 설정 후 모든 사용자가 본인 프로필에서 "Google 계정 연결" 버튼을 사용할 수 있습니다.
         Google Workspace를 쓰지 않는 학교도 일반 Gmail로 동일하게 동작합니다.
       </div>
+
+      {showWizard && (
+        <GoogleSetupWizard
+          initialRedirectUri={redirectUri || (typeof window !== "undefined" ? `${window.location.origin}/api/google/callback` : "")}
+          onClose={() => setShowWizard(false)}
+          onSaved={() => { reloadConfig(); }}
+        />
+      )}
     </div>
   );
 }
