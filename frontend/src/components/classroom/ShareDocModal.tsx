@@ -29,6 +29,7 @@ import {
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import ShareLinkModal from "./ShareLinkModal";
+import { UserPicker } from "./UserPicker";
 
 type AccessMode = "course_members" | "specific_users" | "link_public";
 type MemberRole = "editor" | "viewer";
@@ -175,51 +176,28 @@ export function ShareDocModal({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {/* 사용자 추가 */}
+            {/* 사용자 추가 — 교사/학생 탭 + 부서/학년/반 필터 + 그룹 일괄 추가 */}
             {canShare && (
-              <div className="px-5 py-4 border-b border-border-default relative">
-                <div className="flex items-center gap-2">
-                  <UserPlus size={14} className="text-text-tertiary" />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="이름·이메일로 사용자 검색..."
-                    className="flex-1 px-2 py-1.5 text-body bg-bg-secondary rounded outline-none focus:bg-bg-primary focus:border focus:border-accent border border-transparent"
-                  />
-                </div>
-                {(suggestions.length > 0 || loadingSearch) && (
-                  <div className="absolute left-5 right-5 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded shadow-lg max-h-56 overflow-y-auto">
-                    {loadingSearch ? (
-                      <div className="px-3 py-2 text-caption text-text-tertiary">검색 중...</div>
-                    ) : (
-                      suggestions.map((u) => {
-                        const already = members.some((m) => m.user_id === u.id);
-                        return (
-                          <button
-                            key={u.id}
-                            type="button"
-                            disabled={already}
-                            onClick={() => addMember(u.id, u.name)}
-                            className="w-full flex items-center justify-between px-3 py-2 hover:bg-bg-secondary disabled:opacity-50 disabled:cursor-default text-left"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="text-body text-text-primary truncate">{u.name}</div>
-                              <div className="text-[11px] text-text-tertiary truncate">
-                                {u.email || u.role}
-                              </div>
-                            </div>
-                            {already ? (
-                              <span className="text-[10px] text-text-tertiary">이미 추가됨</span>
-                            ) : (
-                              <span className="text-[10px] text-accent">추가</span>
-                            )}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
+              <div className="px-5 py-4 border-b border-border-default">
+                <UserPicker
+                  excludedUserIds={[ownerId, ...members.map((m) => m.user_id)]}
+                  onPick={async (ids) => {
+                    for (const id of ids) {
+                      try {
+                        await api.post(`/api/classroom/docs/${docId}/members`, {
+                          user_id: id, role: "editor",
+                        });
+                      } catch (e: any) {
+                        // 일부 실패해도 다음 user 진행 (예: 권한 부족)
+                        console.warn(`[share] add member ${id} failed`, e);
+                      }
+                    }
+                    await load();
+                    if (ids.length > 1) {
+                      toast.show(`${ids.length}명 추가 완료`, "success");
+                    }
+                  }}
+                />
               </div>
             )}
 

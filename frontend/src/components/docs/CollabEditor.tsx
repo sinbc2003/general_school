@@ -45,6 +45,8 @@ import { Wifi, WifiOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { Toolbar } from "./Toolbar";
 import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "./SlashCommand";
+import { KoreanMarkdownShortcuts } from "./KoreanMarkdownShortcuts";
+import { EditorContextMenu } from "./EditorContextMenu";
 import "./collab-editor.css";
 import "katex/dist/katex.min.css";
 
@@ -168,6 +170,7 @@ export default function CollabEditor({
       // link/underline은 별도 extension으로 제공 (StarterKit는 v3에서 분리)
       StarterKit.configure({ undoRedo: false }),
       slash.extension,
+      KoreanMarkdownShortcuts,
       Underline,
       Link.configure({
         openOnClick: false,
@@ -269,12 +272,15 @@ export default function CollabEditor({
       {canWrite && <Toolbar editor={editor} />}
       <EditorContent editor={editor} />
       {canWrite && (
-        <SlashMenu
-          state={slash.state}
-          items={slash.items}
-          editor={editor}
-          onClose={slash.close}
-        />
+        <>
+          <SlashMenu
+            state={slash.state}
+            items={slash.items}
+            editor={editor}
+            onClose={slash.close}
+          />
+          <EditorContextMenu editor={editor} />
+        </>
       )}
     </div>
   );

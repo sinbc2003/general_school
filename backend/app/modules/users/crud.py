@@ -29,6 +29,8 @@ from app.modules.users._helpers import (
 async def list_users(
     role: str | None = None,
     grade: int | None = None,
+    class_number: int | None = None,
+    department_id: int | None = None,
     status: str | None = None,
     search: str | None = None,
     page: int = 1,
@@ -42,6 +44,10 @@ async def list_users(
         query = query.where(User.role == role)
     if grade is not None:
         query = query.where(User.grade == grade)
+    if class_number is not None:
+        query = query.where(User.class_number == class_number)
+    if department_id is not None:
+        query = query.where(User.department_id == department_id)
     if status:
         query = query.where(User.status == status)
     if search:

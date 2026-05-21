@@ -53,6 +53,7 @@ import type { HocuspocusProvider } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Toolbar } from "../docs/Toolbar";
 import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "../docs/SlashCommand";
+import { KoreanMarkdownShortcuts } from "../docs/KoreanMarkdownShortcuts";
 import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
 import "./slide-canvas.css";
@@ -81,6 +82,7 @@ export function SlideEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false }),
       slash.extension,
+      KoreanMarkdownShortcuts,
       Underline,
       Link.configure({
         openOnClick: false,
