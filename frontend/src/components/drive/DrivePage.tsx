@@ -296,7 +296,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     }
   };
 
-  // ── 다중 선택 / 일괄 액션 ──
+  // ── 다중 선택 / 일괄 액션 — Google Drive 식: 클릭=선택, 더블클릭=열기 ──
   const handleItemClick = (it: DriveItem, e: React.MouseEvent) => {
     const key = itemKey(it);
     if (e.ctrlKey || e.metaKey) {
@@ -324,7 +324,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       }
       return;
     }
-    // 일반 클릭은 그대로 navigate (Link 동작), 선택은 우클릭이나 modifier로
+    // 일반 클릭 — 단일 선택 (열기는 더블 클릭)
+    e.preventDefault();
+    setSelected(new Set([key]));
+    setLastKey(key);
+  };
+
+  const handleItemDoubleClick = (it: DriveItem, e: React.MouseEvent) => {
+    if (tab === "trash") return; // 휴지통에선 더블클릭으로 안 열림
+    e.preventDefault();
+    router.push(hrefFor(it));
   };
 
   const handleItemContextMenu = (it: DriveItem | null, e: React.MouseEvent) => {
@@ -715,27 +724,18 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     key={menuKey}
                     data-drive-row
                     data-drive-key={menuKey}
-                    className={`border-b border-border-default/50 ${
+                    className={`border-b border-border-default/50 cursor-pointer ${
                       isSelected ? "bg-[#e8def8] hover:bg-[#d7c4f3]" : "hover:bg-bg-secondary/50"
                     }`}
                     onClick={(e) => handleItemClick(it, e)}
+                    onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                     onContextMenu={(e) => handleItemContextMenu(it, e)}
                   >
                     <td className="px-4 py-2">
                       <Icon size={18} style={{ color: m.color }} />
                     </td>
                     <td className="px-2 py-2">
-                      {tab === "trash" || isSelected || selected.size > 0 ? (
-                        <span className="text-text-primary">{it.title}</span>
-                      ) : (
-                        <Link
-                          href={hrefFor(it)}
-                          className="text-text-primary hover:text-accent hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {it.title}
-                        </Link>
-                      )}
+                      <span className="text-text-primary">{it.title}</span>
                     </td>
                     <td className="px-2 py-2 text-text-secondary">{m.label}</td>
                     <td className="px-2 py-2 text-text-tertiary">{dateStr}</td>
@@ -803,40 +803,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 key={menuKey}
                 data-drive-card
                 data-drive-key={menuKey}
-                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all ${
+                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all cursor-pointer ${
                   isSelected
                     ? "border-[#673ab7] bg-[#e8def8] shadow-md"
                     : "border-border-default bg-bg-primary"
                 }`}
                 onClick={(e) => handleItemClick(it, e)}
+                onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                 onContextMenu={(e) => { e.stopPropagation(); handleItemContextMenu(it, e); }}
               >
-                {tab === "trash" ? (
-                  <div className="px-4 py-6 flex items-center justify-center opacity-60" style={{ background: m.bg, minHeight: "100px" }}>
-                    <Icon size={36} style={{ color: m.color }} />
-                  </div>
-                ) : (
-                  <Link
-                    href={hrefFor(it)}
-                    className="block px-4 py-6 flex items-center justify-center"
-                    style={{ background: m.bg, minHeight: "100px" }}
-                  >
-                    <Icon size={36} style={{ color: m.color }} />
-                  </Link>
-                )}
+                <div
+                  className={`px-4 py-6 flex items-center justify-center ${tab === "trash" ? "opacity-60" : ""}`}
+                  style={{ background: m.bg, minHeight: "100px" }}
+                >
+                  <Icon size={36} style={{ color: m.color }} />
+                </div>
                 <div className="px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      {tab === "trash" ? (
-                        <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
-                      ) : (
-                        <Link
-                          href={hrefFor(it)}
-                          className="text-body font-medium text-text-primary truncate hover:text-accent block"
-                        >
-                          {it.title}
-                        </Link>
-                      )}
+                      <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
                       <div className="text-[11px] text-text-tertiary mt-1">
                         {tab === "trash" && it.deleted_at
                           ? `삭제 ${it.deleted_at.slice(0, 16).replace("T", " ")}`
