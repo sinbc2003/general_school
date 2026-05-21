@@ -273,13 +273,28 @@ async def _record_usage(
 # Provider별 tool use 호출
 # ─────────────────────────────────────────────────────────────────
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=4)
+def _anthropic_client(api_key: str):
+    """Provider별 client 재사용 — 매 호출 시 새로 생성 안 함 (HTTP keepalive)."""
+    from anthropic import AsyncAnthropic
+    return AsyncAnthropic(api_key=api_key)
+
+
+@lru_cache(maxsize=4)
+def _openai_client(api_key: str):
+    from openai import AsyncOpenAI
+    return AsyncOpenAI(api_key=api_key)
+
+
 async def _call_anthropic(
     api_key: str, model: str, system: str,
     messages: list[ToolChatMessage], tools: list[dict],
 ) -> ToolChatResponse:
     """Anthropic Messages API + tool use."""
-    from anthropic import AsyncAnthropic
-    client = AsyncAnthropic(api_key=api_key)
+    client = _anthropic_client(api_key)
     msgs = [{"role": m.role, "content": m.content} for m in messages]
     try:
         resp = await client.messages.create(
@@ -316,8 +331,7 @@ async def _call_openai(
     messages: list[ToolChatMessage], tools: list[dict],
 ) -> ToolChatResponse:
     """OpenAI Chat Completions + function calling."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=api_key)
+    client = _openai_client(api_key)
 
     # Anthropic 형식 → OpenAI 형식 변환
     oai_tools = [

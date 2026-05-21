@@ -70,7 +70,7 @@ def check_quota(user: User, additional_bytes: int) -> None:
         return
     if additional_bytes > FILE_SIZE_LIMIT:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail={
                 "code": "FILE_TOO_LARGE",
                 "message": f"단일 파일은 {FILE_SIZE_LIMIT // 1024 // 1024}MB까지입니다.",
@@ -82,7 +82,7 @@ def check_quota(user: User, additional_bytes: int) -> None:
     available = max(0, (user.quota_bytes or 0) - (user.used_bytes or 0))
     if additional_bytes > available:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail={
                 "code": "QUOTA_EXCEEDED",
                 "message": "드라이브 용량이 부족합니다. 휴지통을 정리하거나 관리자에게 용량 증설을 요청하세요.",

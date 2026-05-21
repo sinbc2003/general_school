@@ -257,7 +257,8 @@ async def restore_all(
         # 단순 처리: tar 풀기 (기존 파일 덮어씀)
         tar_bytes = zf.read("storage.tar.gz")
         with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
-            tar.extractall(path=str(STORAGE_DIR.parent))
+            # Python 3.12+ filter — symlink escape 차단. Python 3.14에서 default.
+            tar.extractall(path=str(STORAGE_DIR.parent), filter="data")
 
     await db.flush()
 
