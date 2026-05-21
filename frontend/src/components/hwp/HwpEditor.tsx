@@ -40,6 +40,21 @@ export function HwpEditor({
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
 
+  // ── iframe 크기 동기화 — 부모 div 변경 시 (AI 패널 열림/닫힘) 강제 reflow.
+  // rhwp iframe 안 한컴 ribbon이 viewport 단위로 측정하는 경우 회피.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const iframe = containerRef.current?.querySelector("iframe");
+      if (!iframe || !entries.length) return;
+      const rect = entries[0].contentRect;
+      iframe.style.width = `${Math.floor(rect.width)}px`;
+      iframe.style.height = `${Math.floor(rect.height)}px`;
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [status]);
+
   // ── 경과 시간 카운터 (loading 중에만)
   useEffect(() => {
     if (status !== "loading") return;
@@ -186,7 +201,7 @@ export function HwpEditor({
 
   return (
     <div className="flex flex-col h-full border border-border-default rounded-lg overflow-hidden bg-white">
-      <div className="flex-shrink-0 px-3 py-1.5 bg-bg-secondary border-b border-border-default flex items-center gap-2 text-caption">
+      <div className="flex-shrink-0 px-3 py-1.5 bg-bg-secondary border-b border-border-default flex flex-wrap items-center gap-2 text-caption">
         {status === "loading" && (
           <span className="text-text-tertiary inline-flex items-center gap-1.5">
             <Loader2 size={12} className="animate-spin" />
