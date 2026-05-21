@@ -11,10 +11,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Users, MessageSquare, Trash2, X, UserPlus, BarChart3,
+  MessageSquare, BarChart3,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
-import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
@@ -27,6 +26,8 @@ import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
 import { CourseworkTab } from "./_components/Coursework";
 import { BulkAddModal } from "./_components/BulkAddModal";
+import { ReadOnlyBanner } from "./_components/ReadOnlyBanner";
+import { PeopleTab } from "./_components/PeopleTab";
 import type { Post, CourseDetail } from "./_components/types";
 
 export default function CourseDetailAdminPage() {
@@ -161,18 +162,7 @@ export default function CourseDetailAdminPage() {
         tone={tone}
       />
 
-      {isReadOnly && (
-        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-caption text-amber-900">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-200 rounded text-[11px] font-medium">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
-            보관
-          </span>
-          <span>
-            <b>이전 학기</b>{course.semester ? ` (${course.semester.year}학년도 ${course.semester.term}학기)` : ""} 강좌입니다 — 읽기 전용.
-            새 글·과제는 현재 학기 강좌에서 작성하세요.
-          </span>
-        </div>
-      )}
+      {isReadOnly && <ReadOnlyBanner semester={course.semester} />}
 
       <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
 
@@ -255,58 +245,13 @@ export default function CourseDetailAdminPage() {
 
       {/* ── 사용자 ── */}
       {activeTab === "people" && (
-        <div className="bg-bg-primary border border-border-default rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-body font-semibold flex items-center gap-1">
-              <Users size={15} /> 수강 학생 ({course.students.length})
-            </h2>
-            {canEdit && (
-              <button
-                onClick={() => setShowBulk(true)}
-                className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
-              >
-                <UserPlus size={12} /> 학생 등록
-              </button>
-            )}
-          </div>
-          {course.teacher_name && (
-            <div className="text-caption text-text-tertiary mb-3 px-2 py-1.5 bg-bg-secondary rounded">
-              담당 교사: <span className="text-text-primary font-medium">{course.teacher_name}</span>
-            </div>
-          )}
-          {course.students.length === 0 ? (
-            <div className="text-caption text-text-tertiary py-8 text-center">
-              등록된 학생 없음
-            </div>
-          ) : (
-            <div className="divide-y divide-border-default">
-              {course.students.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between px-2 py-2 hover:bg-bg-secondary rounded group text-caption"
-                >
-                  <div>
-                    <span className="font-medium text-text-primary">{s.name}</span>
-                    <span className="text-text-tertiary ml-2">
-                      {s.grade && s.class_number && s.student_number
-                        ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
-                        : ""}
-                    </span>
-                  </div>
-                  {canEdit && (
-                    <button
-                      onClick={() => removeStudent(s.student_id, s.name)}
-                      className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
-                      title="제외"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <PeopleTab
+          students={course.students}
+          teacherName={course.teacher_name}
+          canEdit={canEdit}
+          onAdd={() => setShowBulk(true)}
+          onRemove={removeStudent}
+        />
       )}
 
       {/* ── 성적 (placeholder) ── */}
