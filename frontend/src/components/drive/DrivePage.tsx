@@ -22,10 +22,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  FileText, FileSpreadsheet, Presentation, ClipboardList,
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
-  LayoutGrid, List as ListIcon, FileType2,
+  LayoutGrid, List as ListIcon,
   Folder as FolderIcon, Lock, ChevronRight, ArrowUp, ArrowDown,
   Sparkles,
 } from "lucide-react";
@@ -41,49 +40,11 @@ import { DriveContextMenu } from "./DriveContextMenu";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { DriveProposalModal, type ProposalAction } from "./DriveProposalModal";
 import type { FolderNode } from "./FolderSidebar";
-
-type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
-type SortKey = "name" | "owner" | "updated" | "size";
-type SortDir = "asc" | "desc";
-
-interface DriveItem {
-  id: number;
-  type: ItemType;
-  title: string;
-  course_id: number | null;
-  owner_id: number | null;
-  folder_id: number | null;
-  updated_at: string | null;
-  created_at: string | null;
-  deleted_at: string | null;
-  storage_bytes: number;
-}
-
-interface DriveInfo {
-  quota_bytes: number;
-  used_bytes: number;
-  available_bytes: number | null;
-  usage_ratio: number;
-  unlimited: boolean;
-  expires_at: string | null;
-  days_until_expire: number | null;
-  user_type: string;
-  lifecycle_status: string;
-}
-
-const TYPE_META: Record<ItemType, { label: string; icon: any; color: string; bg: string }> = {
-  docs: { label: "문서", icon: FileText, color: "#1d4ed8", bg: "linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%)" },
-  decks: { label: "프리젠테이션", icon: Presentation, color: "#a16207", bg: "linear-gradient(135deg, #fde4b8 0%, #fbbf24 100%)" },
-  surveys: { label: "설문지", icon: ClipboardList, color: "#7e22ce", bg: "linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)" },
-  sheets: { label: "스프레드시트", icon: FileSpreadsheet, color: "#107c41", bg: "linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%)" },
-  hwps: { label: "한컴 문서", icon: FileType2, color: "#0891b2", bg: "linear-gradient(135deg, #cffafe 0%, #67e8f9 100%)" },
-};
-
-function formatMB(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
+import {
+  TYPE_META, formatMB, hrefForItem,
+  type ItemType, type SortKey, type SortDir,
+  type DriveItem, type DriveInfo,
+} from "./_drive-shared";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 휴지통 모드 (탭 대신 단순 boolean)
@@ -267,8 +228,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     try { localStorage.setItem("drive.viewMode", m); } catch {}
   };
 
-  const baseClassroom = mode === "admin" ? "/classroom" : "/s/classroom";
-  const baseDocs = mode === "admin" ? "/docs" : "/s/docs";
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -374,26 +333,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     }
   };
 
-  const hrefFor = (it: DriveItem): string => {
-    if (it.type === "sheets") {
-      return mode === "admin" ? `/sheets/${it.id}` : `/s/sheets/${it.id}`;
-    }
-    if (it.type === "hwps") {
-      return mode === "admin" ? `/hwps/${it.id}` : `/s/hwps/${it.id}`;
-    }
-    const segMap: Record<ItemType, string> = {
-      docs: "docs",
-      decks: "decks",
-      surveys: "surveys",
-      sheets: "sheets",
-      hwps: "hwps",
-    };
-    if (it.course_id) return `${baseClassroom}/${it.course_id}/${segMap[it.type]}/${it.id}`;
-    if (it.type === "docs") return `${baseDocs}/${it.id}`;
-    if (it.type === "decks") return `${baseDocs}/decks/${it.id}`;
-    if (it.type === "surveys") return `${baseDocs}/forms/${it.id}`;
-    return "#";
-  };
+  const hrefFor = (it: DriveItem): string => hrefForItem(it, mode);
 
   const doSoftDelete = async (it: DriveItem) => {
     if (!confirm(`"${it.title}"을(를) 휴지통으로 이동하시겠습니까? (30일 후 자동 영구 삭제)`)) return;

@@ -155,6 +155,67 @@ async def _disable_expired_users(db: AsyncSession) -> int:
     return n
 
 
+# Revision 정리 tick — 하루 1회. 문서당 최근 100 revision만 유지 + 90일 이상 일괄 삭제.
+REVISION_PURGE_INTERVAL_HOURS = 24
+REVISION_MAX_PER_DOC = 100
+REVISION_MAX_AGE_DAYS = 90
+_last_revision_purge_at: datetime | None = None
+
+
+async def _maybe_purge_old_revisions(db: AsyncSession) -> int:
+    """문서 revision 누적 방지 — 90일 이상 일괄 삭제 + 문서당 최근 100개만 유지.
+
+    Hocuspocus가 매 분 snapshot → 1년이면 한 문서당 ~500k revision 가능.
+    storage 폭주 차단.
+    """
+    global _last_revision_purge_at
+    now = datetime.now(timezone.utc)
+    if _last_revision_purge_at and (now - _last_revision_purge_at) < timedelta(
+        hours=REVISION_PURGE_INTERVAL_HOURS,
+    ):
+        return 0
+
+    from sqlalchemy import delete, select, func
+    from app.models import DocumentRevision
+
+    deleted = 0
+
+    # 1) 90일 이상 일괄 삭제
+    cutoff = now - timedelta(days=REVISION_MAX_AGE_DAYS)
+    r1 = await db.execute(
+        delete(DocumentRevision).where(DocumentRevision.created_at < cutoff)
+    )
+    deleted += r1.rowcount or 0
+
+    # 2) 문서당 최근 100 revision만 유지 — 오래된 것 cleanup
+    # PostgreSQL row_number 사용 — SQLite는 sub-query
+    docs_with_many = (await db.execute(
+        select(DocumentRevision.document_id, func.count())
+        .group_by(DocumentRevision.document_id)
+        .having(func.count() > REVISION_MAX_PER_DOC)
+    )).all()
+    for doc_id, total in docs_with_many:
+        keep_ids = (await db.execute(
+            select(DocumentRevision.id)
+            .where(DocumentRevision.document_id == doc_id)
+            .order_by(DocumentRevision.created_at.desc())
+            .limit(REVISION_MAX_PER_DOC)
+        )).scalars().all()
+        if keep_ids:
+            r2 = await db.execute(
+                delete(DocumentRevision).where(
+                    DocumentRevision.document_id == doc_id,
+                    DocumentRevision.id.notin_(keep_ids),
+                )
+            )
+            deleted += r2.rowcount or 0
+
+    _last_revision_purge_at = now
+    if deleted > 0:
+        log.info("[NOTIF SCHED] revision purge — %d개 삭제", deleted)
+    return deleted
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick."""
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
@@ -168,6 +229,7 @@ async def _scheduler_loop() -> None:
                     cnt = await _send_due_reminders(db)
                     await _maybe_purge_trash(db)
                     await _disable_expired_users(db)
+                    await _maybe_purge_old_revisions(db)
                     await db.commit()
                     if cnt > 0:
                         log.info("[NOTIF SCHED] 마감 임박 reminder %d건 발송", cnt)
