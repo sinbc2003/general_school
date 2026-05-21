@@ -8,6 +8,8 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.classroom import Course, CourseStudent
+from sqlalchemy import func as sa_func
+
 from app.models.classroom_surveys import Survey, SurveyQuestion, SurveyResponse
 from app.models.user import User
 from app.modules.classroom_surveys._helpers import (
@@ -146,12 +148,21 @@ async def get_survey(
             }
 
     author = await db.get(User, s.author_id)
+
+    # 작성자/관리자에게는 응답 카운트 노출 — 탭 배지 표시용
+    response_count: int | None = None
+    if is_author:
+        response_count = (await db.execute(
+            select(sa_func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == sid)
+        )).scalar_one()
+
     return {
         **survey_to_dict(s, author_name=author.name if author else None),
         "questions": [question_to_dict(q) for q in qs],
         "is_author": is_author,
         "can_respond": can_respond_now and (s.allow_multiple_responses or my_response is None),
         "my_response": my_response,
+        "response_count": response_count,
     }
 
 

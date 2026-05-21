@@ -1,40 +1,29 @@
 "use client";
 
 /**
- * 설문 빌더 + 상태 토글 + 결과 페이지 이동.
+ * 설문 빌더 + 응답 + 설정 — Google Forms 식 탭 통합 페이지.
  *
- * - status=draft: 질문 추가/편집/삭제 + 메타 편집 + Active 토글
- * - status=active: 질문 변경 잠금. 결과/공유 액션. Close 토글.
- * - status=closed: 결과 조회 + Draft로 되돌리기
+ * URL 쿼리 ?tab=questions|responses|settings (기본 questions).
+ * 기존 /results 페이지는 ?tab=responses로 자동 리다이렉트.
  *
  * 분할 (_components/):
- *   - _types.ts: QType / Question / TYPE_LABELS
- *   - QuestionCard.tsx: 빌더 카드
- *   - QuestionPreview.tsx: 유형별 미리보기
- *   - AddQuestionModal.tsx: 질문 추가 모달
+ *   - QuestionsTab.tsx : 빌더 본체
+ *   - ResponsesTab.tsx : 응답 sub-tabs (요약/질문/개별 보기)
+ *   - SettingsTab.tsx  : 설문 설정
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Plus, Trash2, BarChart3, Lock, Unlock, Archive, Pencil,
-  Share2, Lock as LockIcon, Clock, GripVertical,
+  ArrowLeft, Trash2, Lock, Eye, Share2, MoreVertical, Pencil, Archive,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import ShareLinkModal from "@/components/classroom/ShareLinkModal";
-import { QuestionCard } from "./_components/QuestionCard";
-import { AddQuestionModal } from "./_components/AddQuestionModal";
+import { QuestionsTab } from "./_components/QuestionsTab";
+import { ResponsesTab } from "./_components/ResponsesTab";
+import { SettingsTab } from "./_components/SettingsTab";
 import type { Question } from "./_components/_types";
-import {
-  DndContext, DragEndEvent, closestCenter, KeyboardSensor, PointerSensor,
-  useSensor, useSensors,
-} from "@dnd-kit/core";
-import {
-  SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 
 interface SurveyDetail {
@@ -51,20 +40,28 @@ interface SurveyDetail {
   response_edit_minutes: number;
   questions: Question[];
   is_author: boolean;
+  response_count: number | null;
 }
+
+type Tab = "questions" | "responses" | "settings";
 
 
 export default function SurveyBuilderPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const cid = Number(params.cid);
   const sid = Number(params.sid);
+  const tabParam = (searchParams.get("tab") as Tab) || "questions";
+  const validTab: Tab = ["questions", "responses", "settings"].includes(tabParam)
+    ? tabParam
+    : "questions";
 
   const [survey, setSurvey] = useState<SurveyDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showAddQ, setShowAddQ] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [showShare, setShowShare] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +79,15 @@ export default function SurveyBuilderPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const updateMeta = async (patch: Partial<SurveyDetail>) => {
+  const setTab = (t: Tab) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (t === "questions") sp.delete("tab");
+    else sp.set("tab", t);
+    const qs = sp.toString();
+    router.replace(`/classroom/${cid}/surveys/${sid}${qs ? "?" + qs : ""}`, { scroll: false });
+  };
+
+  const updateMeta = async (patch: Partial<SurveyDetail> | Record<string, unknown>) => {
     try {
       await api.put(`/api/classroom/surveys/${sid}`, patch);
       await load();
@@ -106,13 +111,38 @@ export default function SurveyBuilderPage() {
     }
   };
 
+  const reorderQuestions = async (ids: number[]) => {
+    if (!survey) return;
+    const map = new Map(survey.questions.map((q) => [q.id, q]));
+    const reordered = ids.map((id, i) => ({ ...map.get(id)!, order: i }));
+    setSurvey({ ...survey, questions: reordered });
+    try {
+      await api.post(`/api/classroom/surveys/${sid}/questions/_reorder`, { question_ids: ids });
+    } catch (e: any) {
+      alert(e?.detail || "순서 저장 실패");
+      load();
+    }
+  };
+
   const deleteSurvey = async () => {
+    setMenuOpen(false);
     if (!confirm("이 설문을 삭제합니다. 응답까지 모두 사라집니다.")) return;
     try {
       await api.delete(`/api/classroom/surveys/${sid}`);
       router.push(`/classroom/${cid}/surveys`);
     } catch (e: any) {
       alert(e?.detail || "삭제 실패");
+    }
+  };
+
+  const toggleAccepting = async () => {
+    if (!survey) return;
+    if (survey.status === "draft") {
+      await updateMeta({ status: "active" });
+    } else if (survey.status === "active") {
+      await updateMeta({ status: "closed" });
+    } else {
+      await updateMeta({ status: "active" });
     }
   };
 
@@ -123,13 +153,14 @@ export default function SurveyBuilderPage() {
   const isActive = survey.status === "active";
   const isClosed = survey.status === "closed";
   const canEdit = survey.is_author && isDraft;
+  const respondUrl = `/s/classroom/${cid}/surveys/${sid}`;
 
   return (
     // Google Forms 식 — 옅은 라벤더 페이지 배경, 보라 액센트
     <div className="min-h-[calc(100vh-150px)] -mx-4 -my-4 px-4 py-6 bg-[#f0ebf8]">
       <div className="max-w-3xl mx-auto">
-        {/* 상단 액션 row */}
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {/* 상단 헤더 row */}
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
           <Link
             href="/drive"
             className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1 mr-2"
@@ -148,14 +179,38 @@ export default function SurveyBuilderPage() {
               <Lock size={11} /> 익명
             </span>
           )}
+
           <div className="flex-1" />
+
           {survey.is_author && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
+              {/* 미리보기 (응답자 화면) */}
+              <Link
+                href={respondUrl}
+                target="_blank"
+                className="p-2 rounded hover:bg-white/60 text-text-secondary"
+                title="미리보기 (응답자 화면, 새 탭)"
+              >
+                <Eye size={16} />
+              </Link>
+
+              {/* 공유 / 보내기 */}
+              {(isActive || isClosed) && (
+                <button
+                  onClick={() => setShowShare(true)}
+                  className="p-2 rounded hover:bg-white/60 text-text-secondary"
+                  title="단축 링크 + QR 공유"
+                >
+                  <Share2 size={16} />
+                </button>
+              )}
+
+              {/* 게시 / 마감 / 초안으로 */}
               {isDraft && (
                 <button
                   onClick={() => updateMeta({ status: "active" })}
-                  className="flex items-center gap-1 px-3.5 py-1.5 text-caption bg-[#673ab7] text-white rounded-md hover:bg-[#5e35b1] font-medium"
-                  title="응답 받기 시작 (Google 식 '게시')"
+                  className="ml-1 px-4 py-1.5 text-caption bg-[#673ab7] text-white rounded-md hover:bg-[#5e35b1] font-medium"
+                  title="응답 받기 시작"
                 >
                   게시
                 </button>
@@ -163,7 +218,7 @@ export default function SurveyBuilderPage() {
               {isActive && (
                 <button
                   onClick={() => updateMeta({ status: "closed" })}
-                  className="flex items-center gap-1 px-3 py-1.5 text-caption bg-amber-600 text-white rounded-md hover:bg-amber-700"
+                  className="ml-1 px-3 py-1.5 text-caption bg-white border border-border-default text-text-primary rounded-md hover:bg-bg-secondary inline-flex items-center gap-1"
                 >
                   <Archive size={12} /> 마감
                 </button>
@@ -171,145 +226,104 @@ export default function SurveyBuilderPage() {
               {isClosed && (
                 <button
                   onClick={() => updateMeta({ status: "draft" })}
-                  className="flex items-center gap-1 px-3 py-1.5 text-caption bg-white border border-border-default rounded-md hover:bg-bg-secondary"
+                  className="ml-1 px-3 py-1.5 text-caption bg-white border border-border-default rounded-md hover:bg-bg-secondary inline-flex items-center gap-1"
                   title="초안으로 (질문 편집 가능)"
                 >
                   <Pencil size={12} /> 초안으로
                 </button>
               )}
-              {isActive && (
+
+              {/* 더보기 메뉴 */}
+              <div className="relative ml-1">
                 <button
-                  onClick={() => setShowShare(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-caption bg-white border border-[#673ab7] text-[#673ab7] rounded-md hover:bg-[#ede7f6]"
-                  title="단축 링크 + QR 공유"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="p-2 rounded hover:bg-white/60 text-text-secondary"
+                  aria-label="더보기"
                 >
-                  <Share2 size={12} /> 보내기
+                  <MoreVertical size={16} />
                 </button>
-              )}
-              {(isActive || isClosed) && (
-                <Link
-                  href={`/classroom/${cid}/surveys/${sid}/results`}
-                  className="flex items-center gap-1 px-3 py-1.5 text-caption bg-white border border-border-default text-text-primary rounded-md hover:bg-bg-secondary"
-                >
-                  <BarChart3 size={12} /> 응답
-                </Link>
-              )}
-              <button
-                onClick={deleteSurvey}
-                className="p-1.5 text-text-tertiary hover:text-status-error hover:bg-white rounded"
-                title="설문 삭제"
-              >
-                <Trash2 size={14} />
-              </button>
+                {menuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-1 w-48 bg-white border border-border-default rounded-md shadow-lg z-20 py-1 text-caption">
+                      <button
+                        onClick={deleteSurvey}
+                        className="w-full text-left px-3 py-2 hover:bg-bg-secondary inline-flex items-center gap-2 text-status-error"
+                      >
+                        <Trash2 size={12} /> 설문 삭제
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* 제목 카드 — Google Forms 식 (보라 상단 바 + 큰 제목) */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-3" style={{ borderTop: "10px solid #673ab7" }}>
-          <div className="px-6 py-5">
-            <input
-              type="text"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={saveTitle}
-              disabled={!canEdit}
-              placeholder="설문지 제목"
-              className="w-full text-[28px] font-normal bg-transparent border-0 outline-none focus:border-b-2 focus:border-[#673ab7] disabled:text-text-tertiary pb-1"
-            />
-            <input
-              type="text"
-              defaultValue={survey.description || ""}
-              disabled={!canEdit}
-              placeholder="설문지 설명"
-              onBlur={(e) => {
-                if (e.target.value !== (survey.description || "")) {
-                  updateMeta({ description: e.target.value });
-                }
-              }}
-              className="w-full text-[13px] text-text-secondary bg-transparent border-0 outline-none focus:border-b focus:border-[#673ab7] mt-3 pb-1"
-            />
-          </div>
+        {/* 탭 네비 — Google Forms 식 (가운데 정렬, 보라 underline) */}
+        <div className="flex items-center justify-center gap-8 border-b border-[#dadce0] mb-6">
+          <TabButton
+            label="질문"
+            active={validTab === "questions"}
+            onClick={() => setTab("questions")}
+          />
+          <TabButton
+            label="응답"
+            badge={survey.response_count ?? undefined}
+            active={validTab === "responses"}
+            onClick={() => setTab("responses")}
+          />
+          <TabButton
+            label="설정"
+            active={validTab === "settings"}
+            onClick={() => setTab("settings")}
+          />
         </div>
 
-        {/* 응답 수정 허용 시간 — 작성자만 */}
-        {survey.is_author && (
-          <div className="bg-white rounded-lg shadow-sm px-4 py-2.5 mb-3 flex items-center gap-2 text-caption text-text-secondary">
-            <Clock size={12} className="text-text-tertiary" />
-            <span>응답 후 수정 허용:</span>
-            <input
-              type="number"
-              min={0}
-              max={10080}
-              defaultValue={survey.response_edit_minutes}
-              onBlur={(e) => {
-                const v = Math.max(0, Math.min(10080, Number(e.target.value) || 0));
-                if (v !== survey.response_edit_minutes) {
-                  updateMeta({ response_edit_minutes: v });
-                }
-              }}
-              className="w-16 px-2 py-0.5 border border-border-default rounded bg-white text-center"
-            />
-            <span className="text-text-tertiary">분 (0 = 수정 불가)</span>
-          </div>
-        )}
-
-        {/* 질문 카드들 — 드래그로 순서 변경 (draft + canEdit 시만) */}
-        <div className="space-y-3 mb-3">
-          {survey.questions.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm py-16 text-center text-caption text-text-tertiary">
-              아직 질문이 없습니다. {canEdit && "[질문 추가] 버튼으로 시작하세요."}
-            </div>
-          ) : canEdit ? (
-            <SortableQuestions
-              questions={survey.questions}
-              onReorder={async (ids) => {
-                // 낙관적 업데이트 + API 호출
-                const map = new Map(survey.questions.map((q) => [q.id, q]));
-                const reordered = ids.map((id, i) => ({ ...map.get(id)!, order: i }));
-                setSurvey({ ...survey, questions: reordered });
-                try {
-                  await api.post(`/api/classroom/surveys/${sid}/questions/_reorder`, { question_ids: ids });
-                } catch (e: any) {
-                  alert(e?.detail || "순서 저장 실패");
-                  load();
-                }
-              }}
-              onDelete={deleteQuestion}
-            />
-          ) : (
-            survey.questions.map((q, idx) => (
-              <QuestionCard
-                key={q.id}
-                q={q}
-                index={idx}
-                canEdit={false}
-                onDelete={() => deleteQuestion(q.id)}
-              />
-            ))
-          )}
-        </div>
-
-        {canEdit && (
-          <button
-            onClick={() => setShowAddQ(true)}
-            className="w-full bg-white rounded-lg shadow-sm py-3.5 text-caption text-[#673ab7] hover:bg-[#ede7f6] font-medium flex items-center justify-center gap-1.5"
-          >
-            <Plus size={16} /> 질문 추가
-          </button>
-        )}
-
-        {!canEdit && !isDraft && (
-          <div className="mt-4 text-caption text-text-tertiary p-3 bg-white border border-border-default rounded inline-flex items-center gap-1">
-            <LockIcon size={12} /> 활성/마감 상태에서는 질문을 편집할 수 없습니다. "초안으로" 되돌려서 편집하세요.
-          </div>
-        )}
-
-        {showAddQ && canEdit && (
-          <AddQuestionModal
+        {/* 탭별 내용 */}
+        {validTab === "questions" && (
+          <QuestionsTab
             sid={sid}
-            onClose={() => setShowAddQ(false)}
-            onSaved={() => { setShowAddQ(false); load(); }}
+            survey={{
+              title: survey.title,
+              description: survey.description,
+              questions: survey.questions,
+              status: survey.status,
+            }}
+            canEdit={canEdit}
+            titleDraft={titleDraft}
+            setTitleDraft={setTitleDraft}
+            saveTitle={saveTitle}
+            onUpdateMeta={updateMeta}
+            onReorder={reorderQuestions}
+            onDeleteQuestion={deleteQuestion}
+            onReload={load}
+          />
+        )}
+
+        {validTab === "responses" && (
+          <ResponsesTab
+            sid={sid}
+            status={survey.status}
+            isAuthor={survey.is_author}
+            onToggleAccepting={toggleAccepting}
+          />
+        )}
+
+        {validTab === "settings" && (
+          <SettingsTab
+            survey={{
+              is_anonymous: survey.is_anonymous,
+              allow_multiple_responses: survey.allow_multiple_responses,
+              access_mode: survey.access_mode,
+              response_edit_minutes: survey.response_edit_minutes,
+            }}
+            canEdit={canEdit}
+            isAuthor={survey.is_author}
+            onUpdate={updateMeta}
           />
         )}
 
@@ -327,66 +341,33 @@ export default function SurveyBuilderPage() {
 }
 
 
-// ─────────────────────────────────────────────────────────────
-// 드래그 가능한 질문 list (draft 상태에서만 사용)
-// ─────────────────────────────────────────────────────────────
-function SortableQuestions({
-  questions,
-  onReorder,
-  onDelete,
+function TabButton({
+  label, active, onClick, badge,
 }: {
-  questions: Question[];
-  onReorder: (ids: number[]) => void;
-  onDelete: (id: number) => void;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
 }) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIdx = questions.findIndex((q) => q.id === Number(active.id));
-    const newIdx = questions.findIndex((q) => q.id === Number(over.id));
-    if (oldIdx < 0 || newIdx < 0) return;
-    const reordered = arrayMove(questions, oldIdx, newIdx);
-    onReorder(reordered.map((q) => q.id));
-  };
-
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={questions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
-        {questions.map((q, idx) => (
-          <SortableQuestionRow key={q.id} q={q} index={idx} onDelete={() => onDelete(q.id)} />
-        ))}
-      </SortableContext>
-    </DndContext>
+    <button
+      onClick={onClick}
+      className={`relative py-3 text-body transition-colors border-b-2 ${
+        active
+          ? "border-[#673ab7] text-[#673ab7] font-medium"
+          : "border-transparent text-text-secondary hover:text-text-primary"
+      }`}
+    >
+      <span className="inline-flex items-center gap-1.5">
+        {label}
+        {badge !== undefined && badge > 0 && (
+          <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] rounded-full ${
+            active ? "bg-[#673ab7] text-white" : "bg-[#dadce0] text-text-secondary"
+          }`}>
+            {badge}
+          </span>
+        )}
+      </span>
+    </button>
   );
 }
-
-function SortableQuestionRow({ q, index, onDelete }: { q: Question; index: number; onDelete: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-  return (
-    <div ref={setNodeRef} style={style} className="relative group">
-      {/* 좌측 드래그 핸들 */}
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-tertiary hover:text-text-primary cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100"
-        title="드래그로 순서 변경"
-        aria-label="드래그로 순서 변경"
-      >
-        <GripVertical size={14} />
-      </button>
-      <QuestionCard q={q} index={index} canEdit onDelete={onDelete} />
-    </div>
-  );
-}
-

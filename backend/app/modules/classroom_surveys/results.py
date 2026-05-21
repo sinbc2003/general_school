@@ -85,6 +85,16 @@ async def get_results(
             summary["text_values"] = [a.text_value for a in ans if a.text_value]
         question_summary.append(summary)
 
+    # 응답별 answer 매핑 — 개별 보기 탭에서 사용
+    answers_by_resp: dict[int, list[dict]] = {}
+    for a in answers:
+        answers_by_resp.setdefault(a.response_id, []).append({
+            "question_id": a.question_id,
+            "text_value": a.text_value,
+            "choice_values": a.choice_values,
+            "rating_value": a.rating_value,
+        })
+
     return {
         "survey": survey_to_dict(s),
         "response_count": len(responses),
@@ -97,6 +107,7 @@ async def get_results(
                     respondents.get(r.respondent_id) if r.respondent_id else None
                 ),
                 "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "answers": answers_by_resp.get(r.id, []),
             }
             for r in responses
         ],
