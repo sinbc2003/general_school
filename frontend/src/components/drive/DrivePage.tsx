@@ -139,19 +139,20 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     return !(a.right < bx1 || a.left > bx2 || a.bottom < by1 || a.top > by2);
   };
 
-  // 드래그 시작 (빈 영역 onMouseDown)
+  // 드래그 시작 (빈 영역 onMouseDown). 단순 클릭이어도 — Ctrl/Shift 없으면
+  // 그 시점에 즉시 선택 해제 (사용자가 여백 클릭하면 블록 풀려야).
   const startRubberBand = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 좌클릭만
     const target = e.target as HTMLElement;
-    // 카드/tr 위에선 시작 X (그건 항목 클릭)
     if (target.closest("[data-drive-card]") || target.closest("[data-drive-row]")) return;
-    // 버튼/링크/input 등 인터랙티브 위 X
     if (target.closest("button, a, input, select, textarea")) return;
+    const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!additive) setSelected(new Set()); // 빈영역 클릭만으로도 해제
     dragStartRef.current = {
       x: e.clientX,
       y: e.clientY,
-      base: e.ctrlKey || e.metaKey || e.shiftKey ? new Set(selected) : new Set(),
-      additive: e.ctrlKey || e.metaKey || e.shiftKey,
+      base: additive ? new Set(selected) : new Set(),
+      additive,
     };
   };
 
