@@ -128,6 +128,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [dragBox, setDragBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const dragStartRef = useRef<{ x: number; y: number; base: Set<string>; additive: boolean } | null>(null);
 
+  // 이름 바꾸기 (F2 / 우클릭 메뉴) — 현재 편집 중인 키 + draft
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
 
   // 박스 + 카드 rect intersect 검사
@@ -400,6 +404,52 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, tab]);
 
+  // 이름 바꾸기
+  const RENAME_PATH: Partial<Record<ItemType, string>> = {
+    docs: "/api/classroom/docs",
+    sheets: "/api/classroom/sheets",
+    decks: "/api/classroom/decks",
+    surveys: "/api/classroom/surveys",
+  };
+
+  const startRename = (it: DriveItem) => {
+    setRenamingKey(itemKey(it));
+    setRenameDraft(it.title);
+  };
+
+  const commitRename = async (it: DriveItem) => {
+    const next = renameDraft.trim();
+    setRenamingKey(null);
+    if (!next || next === it.title) return;
+    const base = RENAME_PATH[it.type];
+    if (!base) return;
+    try {
+      await api.put(`${base}/${it.id}`, { title: next });
+      await fetchAll();
+    } catch (e: any) {
+      alert(e?.detail || "이름 바꾸기 실패");
+    }
+  };
+
+  // F2 / Enter 단축키 — 단일 선택 시 이름 바꾸기 시작
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      if ((e.key === "F2" || e.key === "Enter") && selected.size === 1 && !renamingKey) {
+        const onlyKey = Array.from(selected)[0];
+        const it = items.find((x) => itemKey(x) === onlyKey);
+        if (it && tab !== "trash") {
+          e.preventDefault();
+          startRename(it);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, items, tab, renamingKey]);
+
   const createNew = async (type: ItemType) => {
     setCreating(true);
     setShowNewMenu(false);
@@ -478,7 +528,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
     >
       <div
-        className="flex-1 min-w-0 overflow-y-auto p-6 relative select-none"
+        className="flex-1 min-w-0 flex flex-col p-6 relative select-none"
         onMouseDown={startRubberBand}
         onContextMenu={(e) => {
           // 카드 외부 (테이블 패딩 등) 빈 영역 우클릭
@@ -488,6 +538,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           }
         }}
       >
+      {/* 헤더 영역 — 스크롤 안 됨 (flex-shrink-0) */}
+      <div className="flex-shrink-0">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-title text-text-primary">내 드라이브</h1>
@@ -677,7 +729,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         </div>
       </div>
 
-      {/* 본문 */}
+      </div>{/* /헤더 영역 (flex-shrink-0) */}
+
+      {/* 파일 list 영역 — 자체 스크롤 (Google Drive 식) */}
+      <div className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6 pb-6">
       {error ? (
         <div className="text-red-600 text-body">{error}</div>
       ) : loading ? (
@@ -697,7 +752,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         /* 자세히(리스트) 뷰 — 구글 드라이브 식 */
         <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
           <table className="w-full text-[13px]">
-            <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary">
+            <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-2 text-left font-medium w-10"></th>
                 <th className="px-2 py-2 text-left font-medium">이름</th>
@@ -735,7 +790,23 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                       <Icon size={18} style={{ color: m.color }} />
                     </td>
                     <td className="px-2 py-2">
-                      <span className="text-text-primary">{it.title}</span>
+                      {renamingKey === menuKey ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onBlur={() => commitRename(it)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); commitRename(it); }
+                            else if (e.key === "Escape") { e.preventDefault(); setRenamingKey(null); }
+                          }}
+                          className="px-2 py-0.5 border border-accent rounded outline-none bg-white text-text-primary w-full max-w-md"
+                        />
+                      ) : (
+                        <span className="text-text-primary">{it.title}</span>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-text-secondary">{m.label}</td>
                     <td className="px-2 py-2 text-text-tertiary">{dateStr}</td>
@@ -821,7 +892,23 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 <div className="px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
+                      {renamingKey === menuKey ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onBlur={() => commitRename(it)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); commitRename(it); }
+                            else if (e.key === "Escape") { e.preventDefault(); setRenamingKey(null); }
+                          }}
+                          className="px-2 py-0.5 border border-accent rounded outline-none bg-white text-text-primary w-full"
+                        />
+                      ) : (
+                        <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
+                      )}
                       <div className="text-[11px] text-text-tertiary mt-1">
                         {tab === "trash" && it.deleted_at
                           ? `삭제 ${it.deleted_at.slice(0, 16).replace("T", " ")}`
@@ -886,7 +973,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           })}
         </div>
       )}
-      </div>
+      </div>{/* /파일 list 영역 (flex-1 overflow-y-auto) */}
+      </div>{/* /좌측 main (flex flex-col) */}
 
       {/* 좌우 splitter (드래그로 패널 크기 조절) */}
       {showGooglePanel && (
@@ -997,6 +1085,15 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
                   >
                     새 창에서 열기
+                  </button>
+                )}
+                {tab !== "trash" && selected.size <= 1 && (
+                  <button
+                    onClick={() => { startRename(ctx.target!); setCtx(null); }}
+                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary flex items-center justify-between"
+                  >
+                    <span>이름 바꾸기</span>
+                    <span className="text-[10.5px] text-text-tertiary">F2</span>
                   </button>
                 )}
                 {tab !== "trash" && selected.size <= 1 && (ctx.target.type === "docs" || ctx.target.type === "sheets" || ctx.target.type === "decks") && (
