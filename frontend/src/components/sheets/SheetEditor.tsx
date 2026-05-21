@@ -248,22 +248,22 @@ export function SheetEditor({
   }
 
   return (
-    <div className="border border-border-default rounded-lg bg-white overflow-hidden flex flex-col">
+    <div className="border border-border-default rounded-lg bg-white overflow-hidden flex flex-col h-full">
       {/* 상태 바 */}
-      <div className="border-b border-border-default px-3 py-1.5 flex items-center gap-3 bg-bg-secondary">
+      <div className="border-b border-border-default px-3 py-1.5 flex items-center gap-3 bg-bg-secondary flex-shrink-0">
         <StatusBadge status={status} />
         {!canWrite && (
           <span className="text-caption text-text-tertiary">읽기 전용</span>
         )}
         {ready && (
           <span className="text-caption text-text-tertiary ml-auto">
-            동시 편집 활성 · 변경은 ~350ms 후 동기화
+            동시 편집 활성 · 변경은 ~350ms 후 동기화 · 셀 LWW
           </span>
         )}
       </div>
 
-      {/* fortune-sheet workbook */}
-      <div className="relative" style={{ height: "calc(100vh - 230px)", minHeight: 500 }}>
+      {/* fortune-sheet workbook — 부모 flex-1 영역 가득 채움 */}
+      <div className="relative flex-1 min-h-[400px]">
         {ready ? (
           <Workbook
             data={data as any}

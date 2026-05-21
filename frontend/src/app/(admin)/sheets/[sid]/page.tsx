@@ -12,9 +12,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, FileSpreadsheet, Share2, Sparkles } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, Share2, Sparkles, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+import { useAIAssistant } from "@/lib/ai-assistant-context";
 import { SheetEditor } from "@/components/sheets/SheetEditor";
 import type { SheetEditorHandle } from "@/components/sheets/SheetEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
@@ -57,6 +58,7 @@ export default function SheetEditorPage() {
   const [loading, setLoading] = useState(true);
   const [showAI, setShowAI] = useState(false);
   const sheetHandleRef = useRef<SheetEditorHandle | null>(null);
+  const ai = useAIAssistant();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,8 +109,13 @@ export default function SheetEditorPage() {
   if (!sheet) return null;
 
   return (
-    <div className="w-full">
-      <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+    // -m-6 + h-screen 으로 admin layout main p-6 padding 상쇄, viewport 가득 채움.
+    // AI 패널 열면 우측 padding으로 본문이 옆으로 밀려남.
+    <div
+      className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary transition-[padding] duration-200"
+      style={ai.open ? { paddingRight: ai.panelWidth + 24 } : undefined}
+    >
+      <div className="flex-shrink-0 px-6 pt-5 pb-3 flex items-center justify-between flex-wrap gap-2">
         <Link
           href="/drive"
           className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
@@ -122,10 +129,17 @@ export default function SheetEditorPage() {
           <span>만든이 {sheet.owner_name || `#${sheet.owner_id}`}</span>
           <span>·</span>
           <span>권한: <b className="text-accent">{sheet.permission.role || "없음"}</b></span>
+          <button
+            onClick={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}
+            className="ml-2 inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
+            title="새 창에서 열기"
+          >
+            <ExternalLink size={11} /> 새 창
+          </button>
           {sheet.permission.can_share && (
             <button
               onClick={() => alert("공유 기능: SheetMember API 사용 (UI 추가 예정)")}
-              className="ml-2 inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
             >
               <Share2 size={11} /> 공유
             </button>
@@ -142,22 +156,19 @@ export default function SheetEditorPage() {
         </div>
       </div>
 
-      {user ? (
-        <SheetEditor
-          sheetId={sid}
-          canWrite={sheet.permission.can_write}
-          userId={user.id}
-          userName={user.name}
-          seedData={seedData}
-          onReady={(h) => { sheetHandleRef.current = h; }}
-        />
-      ) : (
-        <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
-      )}
-
-      <div className="mt-2 text-[11px] text-text-tertiary">
-        ⓘ 동시 편집 활성 — 다른 사용자의 변경이 ~350ms 후 화면에 반영됩니다.
-        같은 셀에 동시 입력 시 마지막 입력이 우선 (셀 LWW).
+      <div className="flex-1 px-6 pb-6 min-h-0 overflow-hidden">
+        {user ? (
+          <SheetEditor
+            sheetId={sid}
+            canWrite={sheet.permission.can_write}
+            userId={user.id}
+            userName={user.name}
+            seedData={seedData}
+            onReady={(h) => { sheetHandleRef.current = h; }}
+          />
+        ) : (
+          <div className="text-text-tertiary">사용자 정보 로딩 중...</div>
+        )}
       </div>
 
       <AIAssistantPanel

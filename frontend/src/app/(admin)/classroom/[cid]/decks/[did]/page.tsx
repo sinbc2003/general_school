@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Presentation, Play, Sparkles } from "lucide-react";
+import { ArrowLeft, Presentation, Play, Sparkles, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
@@ -106,6 +106,13 @@ export default function CourseDeckEditorAdminPage() {
           >
             <Play size={11} /> 발표
           </Link>
+          <button
+            onClick={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}
+            className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-text-tertiary border border-border-default rounded text-[11.5px] hover:bg-bg-secondary"
+            title="새 창에서 열기"
+          >
+            <ExternalLink size={11} /> 새 창
+          </button>
           {canWrite && (
             <button
               onClick={() => setShowAI(true)}

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Save, Share2, Archive, Trash2, Sparkles } from "lucide-react";
+import { ArrowLeft, Save, Share2, Archive, Trash2, Sparkles, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import CollabEditor from "@/components/docs/CollabEditor";
@@ -156,6 +156,13 @@ export default function CourseDocEditorPage() {
           placeholder="제목 없음"
         />
         {savingTitle && <Save size={14} className="text-text-tertiary animate-pulse" />}
+        <button
+          onClick={() => window.open(window.location.href, "_blank", "noopener,noreferrer")}
+          title="새 창에서 열기"
+          className="p-1.5 text-text-tertiary hover:text-accent hover:bg-bg-secondary rounded"
+        >
+          <ExternalLink size={16} />
+        </button>
         {doc.permission.can_write && !doc.is_archived && (
           <button
             onClick={() => setShowAI(true)}
