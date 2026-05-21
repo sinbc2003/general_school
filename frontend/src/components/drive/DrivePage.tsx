@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
+import { ShareFromDrive } from "./ShareFromDrive";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys";
 type TabKey = "all" | ItemType | "trash";
@@ -116,6 +117,14 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [creating, setCreating] = useState(false);
   const router = useRouter();
+
+  // Google Drive 식 다중 선택 + 우클릭 메뉴 state
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastKey, setLastKey] = useState<string | null>(null);
+  const [ctx, setCtx] = useState<{ x: number; y: number; target: DriveItem | null } | null>(null);
+  const [shareTarget, setShareTarget] = useState<DriveItem | null>(null);
+
+  const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
     if (typeof window === "undefined") return "list";
@@ -221,6 +230,101 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     }
   };
 
+  // ── 다중 선택 / 일괄 액션 ──
+  const handleItemClick = (it: DriveItem, e: React.MouseEvent) => {
+    const key = itemKey(it);
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      setLastKey(key);
+      return;
+    }
+    if (e.shiftKey && lastKey) {
+      e.preventDefault();
+      const start = filtered.findIndex((x) => itemKey(x) === lastKey);
+      const end = filtered.findIndex((x) => itemKey(x) === key);
+      if (start >= 0 && end >= 0) {
+        const [a, b] = start < end ? [start, end] : [end, start];
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (let i = a; i <= b; i++) next.add(itemKey(filtered[i]));
+          return next;
+        });
+      }
+      return;
+    }
+    // 일반 클릭은 그대로 navigate (Link 동작), 선택은 우클릭이나 modifier로
+  };
+
+  const handleItemContextMenu = (it: DriveItem | null, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (it) {
+      const key = itemKey(it);
+      if (!selected.has(key)) {
+        // 선택 안 된 항목 우클릭 → 그 항목 단일 선택
+        setSelected(new Set([key]));
+        setLastKey(key);
+      }
+    } else {
+      // 빈 영역 우클릭 → 선택 해제 + "새로 만들기" 메뉴
+      setSelected(new Set());
+    }
+    setCtx({ x: e.clientX, y: e.clientY, target: it });
+  };
+
+  const doBulkAction = async (
+    action: (it: DriveItem) => Promise<void>,
+    label: string,
+    needConfirm: boolean,
+  ) => {
+    if (selected.size === 0) return;
+    if (needConfirm && !confirm(`${selected.size}개 항목을 ${label}합니다.`)) return;
+    const targets = items.filter((it) => selected.has(itemKey(it)));
+    for (const it of targets) {
+      try { await action(it); } catch { /* skip 실패 */ }
+    }
+    setSelected(new Set());
+    await fetchAll();
+  };
+
+  const doBulkSoftDelete = () => doBulkAction(
+    async (it) => { await api.delete(`/api/drive/items/${it.type}/${it.id}`); },
+    "휴지통으로 이동", true,
+  );
+  const doBulkPermanent = () => doBulkAction(
+    async (it) => { await api.delete(`/api/drive/items/${it.type}/${it.id}/permanent`); },
+    "영구 삭제 (복구 불가)", true,
+  );
+  const doBulkRestore = () => doBulkAction(
+    async (it) => { await api.post(`/api/drive/items/${it.type}/${it.id}/restore`, {}); },
+    "복구", false,
+  );
+
+  // Esc / Delete 키 처리
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // input/textarea 안에서는 동작 X
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      if (e.key === "Escape") {
+        setSelected(new Set());
+        setCtx(null);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
+        e.preventDefault();
+        if (tab === "trash") doBulkPermanent();
+        else doBulkSoftDelete();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, tab]);
+
   const createNew = async (type: ItemType) => {
     setCreating(true);
     setShowNewMenu(false);
@@ -284,10 +388,30 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   return (
     // -m-6 으로 admin/student layout의 main p-6 padding을 상쇄하여 viewport 가득 채움
     <div
-      onClick={() => menuOpen && setMenuOpen(null)}
+      onClick={(e) => {
+        if (menuOpen) setMenuOpen(null);
+        // 빈영역 클릭 시 선택 해제 (단, 컨트롤 키 누른 상태에선 무시)
+        if (e.target === e.currentTarget && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          setSelected(new Set());
+        }
+        setCtx(null);
+      }}
+      onContextMenu={(e) => {
+        // 컨테이너(빈영역) 우클릭만 잡음 — 자식의 contextmenu가 stopPropagation
+        if (e.target === e.currentTarget) handleItemContextMenu(null, e);
+      }}
       className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
     >
-      <div className="flex-1 min-w-0 overflow-y-auto p-6">
+      <div
+        className="flex-1 min-w-0 overflow-y-auto p-6"
+        onContextMenu={(e) => {
+          // 카드 외부 (테이블 패딩 등) 빈 영역 우클릭
+          const target = e.target as HTMLElement;
+          if (!target.closest("tr") && !target.closest("[data-drive-card]")) {
+            handleItemContextMenu(null, e);
+          }
+        }}
+      >
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-title text-text-primary">내 드라이브</h1>
@@ -515,19 +639,31 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 const Icon = m.icon;
                 const menuKey = `${it.type}:${it.id}`;
                 const isMenuOpen = menuOpen === menuKey;
+                const isSelected = selected.has(menuKey);
                 const dateStr = tab === "trash"
                   ? it.deleted_at?.slice(0, 16).replace("T", " ") || ""
                   : it.updated_at?.slice(0, 16).replace("T", " ") || "";
                 return (
-                  <tr key={menuKey} className="border-b border-border-default/50 hover:bg-bg-secondary/50">
+                  <tr
+                    key={menuKey}
+                    className={`border-b border-border-default/50 ${
+                      isSelected ? "bg-accent/10 hover:bg-accent/15" : "hover:bg-bg-secondary/50"
+                    }`}
+                    onClick={(e) => handleItemClick(it, e)}
+                    onContextMenu={(e) => handleItemContextMenu(it, e)}
+                  >
                     <td className="px-4 py-2">
                       <Icon size={18} style={{ color: m.color }} />
                     </td>
                     <td className="px-2 py-2">
-                      {tab === "trash" ? (
+                      {tab === "trash" || isSelected || selected.size > 0 ? (
                         <span className="text-text-primary">{it.title}</span>
                       ) : (
-                        <Link href={hrefFor(it)} className="text-text-primary hover:text-accent hover:underline">
+                        <Link
+                          href={hrefFor(it)}
+                          className="text-text-primary hover:text-accent hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {it.title}
                         </Link>
                       )}
@@ -592,10 +728,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             const Icon = m.icon;
             const menuKey = `${it.type}:${it.id}`;
             const isMenuOpen = menuOpen === menuKey;
+            const isSelected = selected.has(menuKey);
             return (
               <div
                 key={menuKey}
-                className="group relative bg-bg-primary border border-border-default rounded-xl overflow-hidden hover:shadow-md transition-shadow"
+                data-drive-card
+                className={`group relative bg-bg-primary border rounded-xl overflow-hidden hover:shadow-md transition-shadow ${
+                  isSelected ? "border-accent ring-2 ring-accent/40" : "border-border-default"
+                }`}
+                onClick={(e) => handleItemClick(it, e)}
+                onContextMenu={(e) => { e.stopPropagation(); handleItemContextMenu(it, e); }}
               >
                 {tab === "trash" ? (
                   <div className="px-4 py-6 flex items-center justify-center opacity-60" style={{ background: m.bg, minHeight: "100px" }}>
@@ -710,6 +852,144 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         >
           <GoogleDriveSidePanel onClose={() => setShowGooglePanel(false)} />
         </div>
+      )}
+
+      {/* 다중 선택 액션 바 — Google Drive 식 상단 sticky */}
+      {selected.size > 0 && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-30 bg-text-primary text-white rounded-full shadow-xl px-5 py-2 flex items-center gap-3">
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-white/70 hover:text-white"
+            title="선택 해제 (Esc)"
+          >
+            <X size={16} />
+          </button>
+          <span className="text-caption font-medium">{selected.size}개 선택됨</span>
+          <div className="w-px h-5 bg-white/20" />
+          {tab === "trash" ? (
+            <>
+              <button
+                onClick={doBulkRestore}
+                className="inline-flex items-center gap-1 text-caption text-white/90 hover:text-white"
+              >
+                <RotateCcw size={13} /> 복구
+              </button>
+              <button
+                onClick={doBulkPermanent}
+                className="inline-flex items-center gap-1 text-caption text-red-300 hover:text-red-200"
+              >
+                <Trash2 size={13} /> 영구 삭제
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={doBulkSoftDelete}
+              className="inline-flex items-center gap-1 text-caption text-white/90 hover:text-white"
+            >
+              <Trash2 size={13} /> 휴지통으로 이동
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 우클릭 컨텍스트 메뉴 */}
+      {ctx && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={() => setCtx(null)} />
+          <div
+            className="fixed z-50 w-[200px] bg-white border border-[#e8eaed] rounded-lg shadow-lg py-1.5 text-caption"
+            style={{
+              left: Math.min(ctx.x, (typeof window !== "undefined" ? window.innerWidth - 210 : ctx.x)),
+              top: Math.min(ctx.y, (typeof window !== "undefined" ? window.innerHeight - 280 : ctx.y)),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {ctx.target ? (
+              <>
+                {/* 항목 우클릭 메뉴 */}
+                {tab !== "trash" && (
+                  <button
+                    onClick={() => { router.push(hrefFor(ctx.target!)); setCtx(null); }}
+                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
+                  >
+                    열기
+                  </button>
+                )}
+                {tab !== "trash" && selected.size <= 1 && (
+                  <button
+                    onClick={() => {
+                      const t = ctx.target!;
+                      window.open(`/embed/${t.type === "decks" ? "decks" : t.type === "sheets" ? "sheets" : "docs"}/${t.id}`, "_blank");
+                      setCtx(null);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
+                  >
+                    새 창에서 열기
+                  </button>
+                )}
+                {tab !== "trash" && selected.size <= 1 && (ctx.target.type === "docs" || ctx.target.type === "sheets" || ctx.target.type === "decks") && (
+                  <button
+                    onClick={() => { setShareTarget(ctx.target!); setCtx(null); }}
+                    className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
+                  >
+                    공유...
+                  </button>
+                )}
+                <div className="my-1 h-px bg-border-default" />
+                {tab === "trash" ? (
+                  <>
+                    <button
+                      onClick={() => { doBulkRestore(); setCtx(null); }}
+                      className="w-full text-left px-3 py-2 hover:bg-bg-secondary"
+                    >
+                      복구 {selected.size > 1 ? `(${selected.size}개)` : ""}
+                    </button>
+                    <button
+                      onClick={() => { doBulkPermanent(); setCtx(null); }}
+                      className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
+                    >
+                      영구 삭제 {selected.size > 1 ? `(${selected.size}개)` : ""}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => { doBulkSoftDelete(); setCtx(null); }}
+                    className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
+                  >
+                    휴지통으로 이동 {selected.size > 1 ? `(${selected.size}개)` : ""}
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {/* 빈 영역 우클릭 — 새로 만들기 */}
+                <div className="px-3 py-1.5 text-[11px] text-text-tertiary uppercase tracking-wide">새로 만들기</div>
+                {(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => {
+                  const m = TYPE_META[t];
+                  const Icon = m.icon;
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => { setCtx(null); createNew(t); }}
+                      className="w-full text-left px-3 py-2 hover:bg-bg-secondary inline-flex items-center gap-2"
+                    >
+                      <Icon size={14} style={{ color: m.color }} /> {m.label}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 공유 모달 — 도구별 ShareDocModal 재사용 */}
+      {shareTarget && (
+        <ShareFromDrive
+          target={{ type: shareTarget.type, id: shareTarget.id, title: shareTarget.title }}
+          onClose={() => setShareTarget(null)}
+          onChanged={fetchAll}
+        />
       )}
     </div>
   );
