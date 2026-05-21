@@ -300,7 +300,12 @@ async def list_members(
     )).all()
     return {
         "items": [
-            {"id": m.id, "user_id": m.user_id, "name": name, "email": email, "role": m.role}
+            # ShareDocModal 공통 형식 — user_name (문서/슬라이드와 동일)
+            {
+                "id": m.id, "user_id": m.user_id,
+                "user_name": name, "name": name,  # 호환 — 둘 다 채움
+                "email": email, "role": m.role,
+            }
             for m, name, email in rows
         ]
     }
