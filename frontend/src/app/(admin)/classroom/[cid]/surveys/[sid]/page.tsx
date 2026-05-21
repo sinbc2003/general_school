@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Trash2, Lock, Eye, Share2, MoreVertical, Pencil, Archive, Sparkles,
+  CalendarClock,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import ShareLinkModal from "@/components/classroom/ShareLinkModal";
@@ -40,6 +41,8 @@ interface SurveyDetail {
   allow_multiple_responses: boolean;
   access_mode: string;
   response_edit_minutes: number;
+  open_at: string | null;
+  close_at: string | null;
   questions: Question[];
   is_author: boolean;
   response_count: number | null;
@@ -201,6 +204,17 @@ export default function SurveyBuilderPage() {
               <Lock size={11} /> 익명
             </span>
           )}
+          {(survey.open_at || survey.close_at) && (
+            <span
+              className="text-caption px-2 py-0.5 rounded bg-white border border-border-default inline-flex items-center gap-1"
+              title={`응답 기간: ${survey.open_at ? formatLocal(survey.open_at) : "즉시"} ~ ${survey.close_at ? formatLocal(survey.close_at) : "마감 없음"}`}
+            >
+              <CalendarClock size={11} />
+              {survey.open_at ? formatLocal(survey.open_at) : "지금"}
+              {" ~ "}
+              {survey.close_at ? formatLocal(survey.close_at) : "마감 없음"}
+            </span>
+          )}
 
           <div className="flex-1" />
 
@@ -350,6 +364,8 @@ export default function SurveyBuilderPage() {
               allow_multiple_responses: survey.allow_multiple_responses,
               access_mode: survey.access_mode,
               response_edit_minutes: survey.response_edit_minutes,
+              open_at: survey.open_at,
+              close_at: survey.close_at,
             }}
             canEdit={canEdit}
             isAuthor={survey.is_author}
@@ -385,6 +401,14 @@ export default function SurveyBuilderPage() {
       />
     </div>
   );
+}
+
+
+function formatLocal(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 

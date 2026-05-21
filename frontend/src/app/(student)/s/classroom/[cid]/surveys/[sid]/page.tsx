@@ -35,6 +35,8 @@ interface SurveyDetail {
   is_anonymous: boolean;
   allow_multiple_responses: boolean;
   response_edit_minutes: number;
+  open_at: string | null;
+  close_at: string | null;
   questions: Question[];
   is_author: boolean;
   can_respond: boolean;
@@ -43,6 +45,16 @@ interface SurveyDetail {
     submitted_at: string | null;
     editable_until: string | null;
   } | null;
+}
+
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ko-KR", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  });
 }
 
 interface AnswerDraft {
@@ -198,11 +210,36 @@ export default function StudentSurveyResponsePage() {
                 </>
               )}
             </>
-          ) : survey.status !== "active" ? (
-            <div className="text-body font-medium">응답 기간이 아닙니다 (마감 또는 미시작)</div>
-          ) : (
-            <div className="text-body font-medium">응답 권한이 없습니다</div>
-          )}
+          ) : (() => {
+            // 분기: open_at 미도래 / close_at 경과 / status 비활성 / 권한 없음
+            const now = Date.now();
+            const openTs = survey.open_at ? Date.parse(survey.open_at) : null;
+            const closeTs = survey.close_at ? Date.parse(survey.close_at) : null;
+            if (openTs && openTs > now) {
+              return (
+                <>
+                  <div className="text-body font-medium mb-1">아직 응답 시작 전입니다</div>
+                  <div className="text-caption text-text-secondary">
+                    시작: {fmtDate(survey.open_at!)}
+                  </div>
+                </>
+              );
+            }
+            if (closeTs && closeTs < now) {
+              return (
+                <>
+                  <div className="text-body font-medium mb-1">응답이 마감되었습니다</div>
+                  <div className="text-caption text-text-secondary">
+                    마감: {fmtDate(survey.close_at!)}
+                  </div>
+                </>
+              );
+            }
+            if (survey.status !== "active") {
+              return <div className="text-body font-medium">설문이 게시되지 않았습니다</div>;
+            }
+            return <div className="text-body font-medium">응답 권한이 없습니다</div>;
+          })()}
         </div>
       </div>
     );
@@ -233,6 +270,11 @@ export default function StudentSurveyResponsePage() {
       {survey.is_anonymous && (
         <div className="text-caption text-text-secondary mb-4 inline-flex items-center gap-1 bg-cream-100 border border-cream-300 px-2 py-1 rounded">
           <Lock size={11} /> 익명 응답 — 응답자 정보가 기록되지 않습니다
+        </div>
+      )}
+      {survey.close_at && (
+        <div className="text-caption text-text-secondary mb-4 ml-2 inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-1 rounded">
+          <Clock size={11} /> 마감: {fmtDate(survey.close_at)}
         </div>
       )}
       {editMode && (

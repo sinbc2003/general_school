@@ -8,7 +8,7 @@
  * - 제출 후: 메시지 (TODO)
  */
 
-import { Lock, Unlock, RotateCcw, Globe, Users as UsersIcon } from "lucide-react";
+import { Lock, Unlock, RotateCcw, Globe, Users as UsersIcon, CalendarClock } from "lucide-react";
 
 interface Props {
   survey: {
@@ -16,10 +16,30 @@ interface Props {
     allow_multiple_responses: boolean;
     access_mode: string;
     response_edit_minutes: number;
+    open_at: string | null;
+    close_at: string | null;
   };
   canEdit: boolean;
   isAuthor: boolean;
   onUpdate: (patch: Record<string, unknown>) => Promise<void>;
+}
+
+
+/** ISO(UTC) → datetime-local input value (YYYY-MM-DDTHH:mm, 로컬 시간대) */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** datetime-local input value → ISO(UTC). 빈 문자열이면 null. */
+function localInputToIso(local: string): string | null {
+  if (!local) return null;
+  const d = new Date(local);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 export function SettingsTab({ survey, canEdit, isAuthor, onUpdate }: Props) {
@@ -64,6 +84,28 @@ export function SettingsTab({ survey, canEdit, isAuthor, onUpdate }: Props) {
           max={10080}
           suffix="분"
           onSave={(v) => onUpdate({ response_edit_minutes: v })}
+        />
+      </SectionCard>
+
+      {/* 응답 기간 섹션 */}
+      <SectionCard
+        title="응답 기간"
+        description="설정한 기간 외에는 자동으로 응답이 차단됩니다 (게시 중이어도). 비워두면 무제한."
+      >
+        <DateTimeRow
+          icon={<CalendarClock size={16} className="text-text-tertiary" />}
+          label="응답 시작 시간"
+          hint="이 시간 이전에는 학생이 응답할 수 없습니다. 비우면 즉시 시작."
+          value={survey.open_at}
+          onSave={(v) => onUpdate({ open_at: v })}
+        />
+        <Divider />
+        <DateTimeRow
+          icon={<CalendarClock size={16} className="text-text-tertiary" />}
+          label="응답 마감 시간"
+          hint="이 시간 이후에는 응답을 받지 않습니다. 비우면 마감 없음."
+          value={survey.close_at}
+          onSave={(v) => onUpdate({ close_at: v })}
         />
       </SectionCard>
 
@@ -154,6 +196,52 @@ function ToggleRow({
     </div>
   );
 }
+
+function DateTimeRow({
+  icon, label, hint, value, onSave,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  hint?: string;
+  value: string | null;
+  onSave: (iso: string | null) => void;
+}) {
+  return (
+    <div className="px-6 py-4 flex items-start gap-3">
+      {icon && <div className="mt-0.5">{icon}</div>}
+      <div className="flex-1 min-w-0">
+        <div className="text-body text-text-primary">{label}</div>
+        {hint && <div className="text-caption text-text-tertiary mt-0.5">{hint}</div>}
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <input
+          type="datetime-local"
+          defaultValue={isoToLocalInput(value)}
+          onBlur={(e) => {
+            const newIso = localInputToIso(e.target.value);
+            // 현재 값과 비교 — 다를 때만 저장
+            const currentIso = value;
+            const cur = currentIso ? new Date(currentIso).getTime() : null;
+            const next = newIso ? new Date(newIso).getTime() : null;
+            if (cur !== next) onSave(newIso);
+          }}
+          className="px-2 py-1 border border-border-default rounded bg-white text-body min-w-[200px]"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onSave(null)}
+            className="text-caption text-text-tertiary hover:text-status-error px-1.5 py-1"
+            title="제거 (제한 없음)"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function NumberRow({
   icon, label, hint, value, min, max, suffix, onSave,
