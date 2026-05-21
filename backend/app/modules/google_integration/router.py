@@ -196,6 +196,21 @@ async def get_auth_url(
         raise HTTPException(503, "Google 연동이 설정되지 않았습니다 (관리자에게 문의)")
     cid = await _get_config(db, "oauth.google.client_id")
     redirect_uri = await _get_config(db, "oauth.google.redirect_uri")
+    # 진단 로그 — invalid_client 디버깅용. 마스킹 후 출력.
+    from app.core.encryption import mask_secret
+    print(
+        f"[google.oauth] auth-url client_id={mask_secret(cid or '', 10, 8)} "
+        f"redirect_uri={redirect_uri} len(cid)={len(cid or '')}",
+        flush=True,
+    )
+    # Google client_id는 보통 `.apps.googleusercontent.com`으로 끝난다 — 강한 힌트.
+    if cid and not cid.endswith(".apps.googleusercontent.com"):
+        print(
+            "[google.oauth] WARN: client_id가 '.apps.googleusercontent.com'으로 끝나지 "
+            "않습니다 — Google Cloud Console에서 복사한 값이 잘렸을 가능성. "
+            "/system/integrations/google 에서 다시 등록하세요.",
+            flush=True,
+        )
     # state는 secrets.token_urlsafe만 — user_id 평문 노출 차단
     state = secrets.token_urlsafe(32)
     # SchoolConfig에 value="user_id|timestamp"로 저장 — callback에서 TTL 검증
