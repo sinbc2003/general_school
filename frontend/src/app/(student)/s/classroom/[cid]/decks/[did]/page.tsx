@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { DeckEditor } from "@/components/decks/DeckEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
+import { EditableTitle } from "@/components/ui/EditableTitle";
 
 interface Permission {
   can_read: boolean;
@@ -94,9 +95,6 @@ export default function StudentCourseDeckEditorPage() {
           <ArrowLeft size={12} /> 내 드라이브
         </Link>
         <div className="flex items-center gap-2 text-caption text-text-tertiary flex-wrap">
-          <Presentation size={13} />
-          <b className="text-text-primary">{deck.title}</b>
-          <span>·</span>
           <span>내 권한: <b className="text-accent">{deck.permission.role || "없음"}</b></span>
           <Link
             href={`/s/classroom/${cid}/decks/${did}/present`}
@@ -122,6 +120,22 @@ export default function StudentCourseDeckEditorPage() {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Presentation size={20} className="text-accent flex-shrink-0" />
+        <EditableTitle
+          value={deck.title}
+          canEdit={canWrite}
+          onSave={async (next) => {
+            try {
+              await api.put(`/api/classroom/decks/${did}`, { title: next });
+              await load();
+            } catch (e: any) {
+              alert(e?.detail || "제목 저장 실패");
+            }
+          }}
+        />
       </div>
 
       {user ? (

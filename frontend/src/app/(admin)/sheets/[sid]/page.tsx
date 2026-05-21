@@ -20,6 +20,7 @@ import { SheetEditor } from "@/components/sheets/SheetEditor";
 import type { SheetEditorHandle } from "@/components/sheets/SheetEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
+import { EditableTitle } from "@/components/ui/EditableTitle";
 
 interface Permission {
   can_read: boolean;
@@ -113,22 +114,20 @@ export default function SheetEditorPage() {
     // AI 패널 열면 우측 padding으로 본문이 옆으로 밀려남.
     <div
       className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary transition-[padding] duration-200"
-      style={ai.open ? { paddingRight: ai.panelWidth + 24 } : undefined}
+      style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
     >
-      <div className="flex-shrink-0 px-6 pt-5 pb-3 flex items-center justify-between flex-wrap gap-2">
-        <Link
-          href="/drive"
-          className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
-        >
-          <ArrowLeft size={12} /> 시트 목록
-        </Link>
-        <div className="flex items-center gap-2 text-caption text-text-tertiary flex-wrap">
-          <FileSpreadsheet size={13} className="text-[#107c41]" />
-          <b className="text-text-primary">{sheet.title}</b>
-          <span>·</span>
-          <span>만든이 {sheet.owner_name || `#${sheet.owner_id}`}</span>
-          <span>·</span>
-          <span>권한: <b className="text-accent">{sheet.permission.role || "없음"}</b></span>
+      <div className="flex-shrink-0 px-6 pt-5 pb-3">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <Link
+            href="/drive"
+            className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
+          >
+            <ArrowLeft size={12} /> 시트 목록
+          </Link>
+          <div className="flex items-center gap-2 text-caption text-text-tertiary flex-wrap">
+            <span>만든이 {sheet.owner_name || `#${sheet.owner_id}`}</span>
+            <span>·</span>
+            <span>권한: <b className="text-accent">{sheet.permission.role || "없음"}</b></span>
           <button
             onClick={() => window.open(`/embed/sheets/${sid}`, "_blank", "noopener,noreferrer")}
             className="ml-2 inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-white border border-border-default rounded hover:bg-bg-secondary"
@@ -153,6 +152,22 @@ export default function SheetEditorPage() {
               <Sparkles size={11} /> AI
             </button>
           )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <FileSpreadsheet size={20} className="text-[#107c41] flex-shrink-0" />
+          <EditableTitle
+            value={sheet.title}
+            canEdit={sheet.permission.can_write}
+            onSave={async (next) => {
+              try {
+                await api.put(`/api/classroom/sheets/${sid}`, { title: next });
+                await load();
+              } catch (e: any) {
+                alert(e?.detail || "제목 저장 실패");
+              }
+            }}
+          />
         </div>
       </div>
 

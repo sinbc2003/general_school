@@ -17,6 +17,7 @@ import CollabEditor from "@/components/docs/CollabEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
+import { EditableTitle } from "@/components/ui/EditableTitle";
 import type { Editor } from "@tiptap/react";
 import { marked } from "marked";
 
@@ -144,17 +145,26 @@ export default function CourseDocEditorPage() {
         </Link>
       </div>
 
-      {/* 제목 + 메타 + 액션 */}
+      {/* 제목 + 메타 + 액션 — 더블클릭 시 편집 */}
       <div className="flex items-center gap-2 mb-3">
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={saveTitle}
-          disabled={!doc.permission.can_write || doc.is_archived}
-          className="flex-1 text-title font-semibold bg-transparent border-0 outline-none focus:bg-bg-secondary px-2 py-1 rounded disabled:text-text-tertiary"
-          placeholder="제목 없음"
-        />
+        <div className="flex-1 min-w-0">
+          <EditableTitle
+            value={doc.title}
+            canEdit={doc.permission.can_write && !doc.is_archived}
+            onSave={async (next) => {
+              setTitle(next);
+              setSavingTitle(true);
+              try {
+                await api.put(`/api/classroom/docs/${did}`, { title: next });
+                await load();
+              } catch (e: any) {
+                alert(e?.detail || "제목 저장 실패");
+              } finally {
+                setSavingTitle(false);
+              }
+            }}
+          />
+        </div>
         {savingTitle && <Save size={14} className="text-text-tertiary animate-pulse" />}
         <button
           onClick={() => window.open(`/embed/docs/${did}`, "_blank", "noopener,noreferrer")}

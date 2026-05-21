@@ -17,6 +17,7 @@ import CollabEditor from "@/components/docs/CollabEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
+import { EditableTitle } from "@/components/ui/EditableTitle";
 import type { Editor } from "@tiptap/react";
 import { marked } from "marked";
 
@@ -99,7 +100,20 @@ export default function StudentStandaloneDocPage() {
         </Link>
       </div>
 
-      <h1 className="text-title text-text-primary mb-2">{doc.title}</h1>
+      <div className="mb-2">
+        <EditableTitle
+          value={doc.title}
+          canEdit={doc.permission.can_write && !doc.is_archived}
+          onSave={async (next) => {
+            try {
+              await api.put(`/api/classroom/docs/${did}`, { title: next });
+              await load();
+            } catch (e: any) {
+              alert(e?.detail || "제목 저장 실패");
+            }
+          }}
+        />
+      </div>
 
       <div className="text-caption text-text-tertiary mb-4 flex items-center gap-3 flex-wrap">
         <span>

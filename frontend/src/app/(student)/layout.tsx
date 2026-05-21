@@ -50,7 +50,7 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
         className={`p-6 transition-[margin,padding] duration-200 ${
           collapsed ? "ml-sidebar-collapsed" : "ml-sidebar"
         }`}
-        style={ai.open ? { paddingRight: ai.panelWidth + 24 } : undefined}
+        style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
       >
         {children}
       </main>
