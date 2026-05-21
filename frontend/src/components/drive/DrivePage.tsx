@@ -18,7 +18,7 @@
  * admin/student 분기: mode prop으로 path 결정.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -124,7 +124,72 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [ctx, setCtx] = useState<{ x: number; y: number; target: DriveItem | null } | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveItem | null>(null);
 
+  // Rubber band drag 선택 — 빈영역에서 마우스 드래그로 박스 그어 다중 선택
+  const [dragBox, setDragBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; base: Set<string>; additive: boolean } | null>(null);
+
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
+
+  // 박스 + 카드 rect intersect 검사
+  const intersects = (a: DOMRect, box: { x1: number; y1: number; x2: number; y2: number }) => {
+    const bx1 = Math.min(box.x1, box.x2);
+    const by1 = Math.min(box.y1, box.y2);
+    const bx2 = Math.max(box.x1, box.x2);
+    const by2 = Math.max(box.y1, box.y2);
+    return !(a.right < bx1 || a.left > bx2 || a.bottom < by1 || a.top > by2);
+  };
+
+  // 드래그 시작 (빈 영역 onMouseDown)
+  const startRubberBand = (e: React.MouseEvent) => {
+    if (e.button !== 0) return; // 좌클릭만
+    const target = e.target as HTMLElement;
+    // 카드/tr 위에선 시작 X (그건 항목 클릭)
+    if (target.closest("[data-drive-card]") || target.closest("[data-drive-row]")) return;
+    // 버튼/링크/input 등 인터랙티브 위 X
+    if (target.closest("button, a, input, select, textarea")) return;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      base: e.ctrlKey || e.metaKey || e.shiftKey ? new Set(selected) : new Set(),
+      additive: e.ctrlKey || e.metaKey || e.shiftKey,
+    };
+  };
+
+  // 마우스 move/up 글로벌 리스너
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const s = dragStartRef.current;
+      if (!s) return;
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      // 3px 이상 움직였을 때부터 박스 표시 (단순 클릭과 구분)
+      if (!dragBox && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      const box = { x1: s.x, y1: s.y, x2: e.clientX, y2: e.clientY };
+      setDragBox(box);
+      // 박스 안 카드 검사
+      const nodes = document.querySelectorAll<HTMLElement>("[data-drive-key]");
+      const hit = new Set(s.base);
+      nodes.forEach((n) => {
+        const key = n.dataset.driveKey;
+        if (!key) return;
+        if (intersects(n.getBoundingClientRect(), box)) hit.add(key);
+        else if (!s.additive) hit.delete(key);
+      });
+      setSelected(hit);
+    };
+    const onUp = () => {
+      if (dragStartRef.current) {
+        dragStartRef.current = null;
+        setDragBox(null);
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragBox]);
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
     if (typeof window === "undefined") return "list";
@@ -403,11 +468,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
     >
       <div
-        className="flex-1 min-w-0 overflow-y-auto p-6"
+        className="flex-1 min-w-0 overflow-y-auto p-6 relative select-none"
+        onMouseDown={startRubberBand}
         onContextMenu={(e) => {
           // 카드 외부 (테이블 패딩 등) 빈 영역 우클릭
           const target = e.target as HTMLElement;
-          if (!target.closest("tr") && !target.closest("[data-drive-card]")) {
+          if (!target.closest("[data-drive-row]") && !target.closest("[data-drive-card]")) {
             handleItemContextMenu(null, e);
           }
         }}
@@ -646,6 +712,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 return (
                   <tr
                     key={menuKey}
+                    data-drive-row
+                    data-drive-key={menuKey}
                     className={`border-b border-border-default/50 ${
                       isSelected ? "bg-accent/10 hover:bg-accent/15" : "hover:bg-bg-secondary/50"
                     }`}
@@ -733,6 +801,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               <div
                 key={menuKey}
                 data-drive-card
+                data-drive-key={menuKey}
                 className={`group relative bg-bg-primary border rounded-xl overflow-hidden hover:shadow-md transition-shadow ${
                   isSelected ? "border-accent ring-2 ring-accent/40" : "border-border-default"
                 }`}
@@ -852,6 +921,19 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         >
           <GoogleDriveSidePanel onClose={() => setShowGooglePanel(false)} />
         </div>
+      )}
+
+      {/* Rubber band drag 박스 — viewport 기준 fixed */}
+      {dragBox && (
+        <div
+          className="fixed border border-accent bg-accent/15 pointer-events-none z-20"
+          style={{
+            left: Math.min(dragBox.x1, dragBox.x2),
+            top: Math.min(dragBox.y1, dragBox.y2),
+            width: Math.abs(dragBox.x2 - dragBox.x1),
+            height: Math.abs(dragBox.y2 - dragBox.y1),
+          }}
+        />
       )}
 
       {/* 다중 선택 액션 바 — Google Drive 식 상단 sticky */}
