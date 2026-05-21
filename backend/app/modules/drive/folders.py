@@ -509,6 +509,159 @@ async def copy_drive_item(
     }
 
 
+class BatchAction(BaseModel):
+    action: str = Field(..., pattern="^(create_folder|rename|move|rename_and_move)$")
+    # create_folder
+    folder_name: str | None = None
+    parent_folder_id: int | None = None
+    parent_temp_id: str | None = None
+    temp_id: str | None = None
+    # rename / move
+    item_type: str | None = None
+    item_id: int | None = None
+    new_title: str | None = Field(default=None, max_length=255)
+    target_folder_id: int | None = None
+    target_temp_id: str | None = None
+    reason: str | None = None
+
+
+class BatchOrganizeReq(BaseModel):
+    actions: list[BatchAction] = Field(default_factory=list, max_length=500)
+
+
+@router.post("/items/_batch-organize")
+async def batch_organize(
+    body: BatchOrganizeReq,
+    user: User = Depends(require_permission("drive.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 정리안 일괄 적용 — atomic. action 순서대로 처리, 하나라도 실패 시 전체 rollback.
+
+    원칙:
+      - 본인 자료만 (cross-user 차단)
+      - 잠금 폴더 이름변경/삭제 X (이동 OK)
+      - 삭제 action 없음
+      - max_length=500 (한 요청에 너무 많은 action 차단)
+    """
+    from app.models import (
+        ClassroomDocument, ClassroomHwp, ClassroomPresentation,
+        ClassroomSheet, Survey,
+    )
+    type_models = {
+        "docs": ClassroomDocument,
+        "sheets": ClassroomSheet,
+        "decks": ClassroomPresentation,
+        "surveys": Survey,
+        "hwps": ClassroomHwp,
+    }
+    owner_field_map = {
+        "docs": "owner_id", "sheets": "owner_id", "decks": "owner_id",
+        "surveys": "author_id", "hwps": "owner_id",
+    }
+
+    # temp_id → 실제 folder_id 매핑 (create_folder 결과)
+    temp_to_real: dict[str, int] = {}
+    created_folders: list[int] = []
+    renamed: list[tuple[str, int, str]] = []  # (type, id, prev_title)
+    moved: list[tuple[str, int, int | None]] = []  # (type, id, prev_folder_id)
+
+    async def _resolve_folder(fid: int | None, tid: str | None) -> int | None:
+        if tid:
+            real = temp_to_real.get(tid)
+            if real is None:
+                raise HTTPException(400, f"unknown temp_id: {tid}")
+            return real
+        if fid is not None:
+            # 본인 폴더 확인
+            f = await db.get(Folder, fid)
+            if not f or f.owner_id != user.id:
+                raise HTTPException(403, f"folder {fid} not accessible")
+            return f.id
+        return None
+
+    try:
+        for i, a in enumerate(body.actions):
+            if a.action == "create_folder":
+                if not a.folder_name or not a.temp_id:
+                    raise HTTPException(400, f"action[{i}]: create_folder requires folder_name + temp_id")
+                parent_id = await _resolve_folder(a.parent_folder_id, a.parent_temp_id)
+                # 사용자 root sort_order 다음 값
+                if parent_id is None:
+                    max_order = (await db.execute(
+                        select(Folder.sort_order).where(
+                            Folder.owner_id == user.id, Folder.parent_id.is_(None),
+                            Folder.deleted_at.is_(None),
+                        ).order_by(Folder.sort_order.desc()).limit(1)
+                    )).scalar_one_or_none() or 0
+                else:
+                    max_order = (await db.execute(
+                        select(Folder.sort_order).where(
+                            Folder.parent_id == parent_id, Folder.deleted_at.is_(None),
+                        ).order_by(Folder.sort_order.desc()).limit(1)
+                    )).scalar_one_or_none() or 0
+                f = Folder(
+                    owner_id=user.id,
+                    parent_id=parent_id,
+                    name=a.folder_name.strip()[:255],
+                    sort_order=int(max_order) + 1,
+                    is_system_locked=False,
+                )
+                db.add(f)
+                await db.flush()
+                temp_to_real[a.temp_id] = f.id
+                created_folders.append(f.id)
+                continue
+
+            # rename / move / rename_and_move
+            if not a.item_type or a.item_id is None:
+                raise HTTPException(400, f"action[{i}]: item_type/item_id required")
+            if a.item_type not in type_models:
+                raise HTTPException(400, f"action[{i}]: unknown item_type {a.item_type}")
+            Model = type_models[a.item_type]
+            obj = await db.get(Model, a.item_id)
+            if not obj:
+                raise HTTPException(404, f"action[{i}]: {a.item_type}:{a.item_id} not found")
+            owner_field = owner_field_map[a.item_type]
+            if getattr(obj, owner_field) != user.id and user.role != "super_admin":
+                raise HTTPException(403, f"action[{i}]: {a.item_type}:{a.item_id} not owned")
+
+            if a.action in ("rename", "rename_and_move"):
+                if not a.new_title:
+                    raise HTTPException(400, f"action[{i}]: new_title required")
+                renamed.append((a.item_type, a.item_id, obj.title))
+                obj.title = a.new_title.strip()[:255]
+            if a.action in ("move", "rename_and_move"):
+                target = await _resolve_folder(a.target_folder_id, a.target_temp_id)
+                moved.append((a.item_type, a.item_id, obj.folder_id))
+                obj.folder_id = target
+            await db.flush()
+
+        await db.flush()
+    except HTTPException:
+        # rollback — 명시적 (best-effort)
+        for tid, fid in temp_to_real.items():
+            try:
+                f = await db.get(Folder, fid)
+                if f and f.id in created_folders:
+                    await db.delete(f)
+            except Exception:
+                pass
+        await db.flush()
+        raise
+
+    await log_action(
+        db, user, "drive.batch_organize",
+        detail=f"actions={len(body.actions)} folders={len(created_folders)} renames={len(renamed)} moves={len(moved)}",
+    )
+    return {
+        "ok": True,
+        "created_folders": len(created_folders),
+        "renamed": len(renamed),
+        "moved": len(moved),
+        "temp_to_real": temp_to_real,
+    }
+
+
 @router.post("/folders/_sync-all")
 async def sync_all_folders(
     semester_id: int | None = None,

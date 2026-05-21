@@ -27,14 +27,19 @@ import {
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon, FileType2,
   Folder as FolderIcon, Lock, ChevronRight, ArrowUp, ArrowDown,
+  Sparkles,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
+import { useAIAssistant } from "@/lib/ai-assistant-context";
+import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
+import type { ApplyHandler } from "@/components/tool-ai/types";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
 import { DriveContextMenu } from "./DriveContextMenu";
 import { MoveToFolderModal } from "./MoveToFolderModal";
+import { DriveProposalModal, type ProposalAction } from "./DriveProposalModal";
 import type { FolderNode } from "./FolderSidebar";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
@@ -139,6 +144,30 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [creating, setCreating] = useState(false);
   const router = useRouter();
   const toast = useToast();
+  const ai = useAIAssistant();
+
+  // Drive AI 패널
+  const [showAI, setShowAI] = useState(false);
+  const [proposal, setProposal] = useState<{ summary: string; actions: ProposalAction[] } | null>(null);
+  // AI 분석용 전체 드라이브 스냅샷 (현재 폴더 무관) — AI 켤 때만 fetch
+  const [aiSnapshotItems, setAiSnapshotItems] = useState<DriveItem[]>([]);
+  const [aiSnapshotFolders, setAiSnapshotFolders] = useState<FolderNode[]>([]);
+  useEffect(() => {
+    if (!showAI) return;
+    (async () => {
+      try {
+        const [a, f] = await Promise.all([
+          api.get<{ items: DriveItem[] }>("/api/drive/items?trash=false&type=all"),
+          api.get<{ items: FolderNode[] }>("/api/drive/folders"),
+        ]);
+        setAiSnapshotItems(a.items);
+        setAiSnapshotFolders(f.items);
+      } catch {}
+    })();
+  }, [showAI]);
+
+  // 페이지 진입 시 AI 패널 잔여 state 클리어
+  useEffect(() => { ai.setOpen(false); /* eslint-disable-next-line */ }, []);
 
   // Google Drive 식 다중 선택 + 우클릭 메뉴 state
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -752,6 +781,20 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* AI 정리 토글 */}
+          {!trashMode && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowAI(true);
+                setShowGooglePanel(false); // 우측 패널 중복 회피
+              }}
+              className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-[#673ab7] border border-[#e8def8] hover:bg-[#f3e5f5]"
+              title="AI에게 드라이브 정리 부탁"
+            >
+              <Sparkles size={13} /> AI 정리
+            </button>
+          )}
           {/* 휴지통 토글 */}
           <button
             type="button"
@@ -1476,8 +1519,78 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           }}
         />
       )}
+
+      {/* Drive AI 사이드바 + 미리보기 모달 */}
+      <AIAssistantPanel
+        toolKind="drive"
+        toolId={info ? 0 : 0}
+        applyHandler={async (call) => {
+          if (call.name === "drive_propose_organization") {
+            const summary = String(call.arguments?.summary || "정리안");
+            const actions = Array.isArray(call.arguments?.actions) ? call.arguments.actions : [];
+            setProposal({ summary, actions });
+          }
+        }}
+        getCurrentContent={() => buildDriveContext(
+          aiSnapshotItems.length ? aiSnapshotItems : items,
+          aiSnapshotFolders.length ? aiSnapshotFolders : folders,
+        )}
+        open={showAI}
+        onClose={() => setShowAI(false)}
+      />
+
+      {proposal && (
+        <DriveProposalModal
+          summary={proposal.summary}
+          actions={proposal.actions}
+          itemsLookup={Object.fromEntries(
+            (aiSnapshotItems.length ? aiSnapshotItems : items)
+              .map((it) => [`${it.type}:${it.id}`, it.title])
+          )}
+          foldersLookup={Object.fromEntries(
+            (aiSnapshotFolders.length ? aiSnapshotFolders : folders)
+              .map((f) => [f.id, f.name])
+          )}
+          onClose={() => setProposal(null)}
+          onApplied={() => {
+            setProposal(null);
+            fetchAll();
+            toast.show("AI 정리 적용 완료", "success");
+          }}
+        />
+      )}
     </div>
   );
+}
+
+
+/**
+ * Drive AI에 보낼 현재 드라이브 상태 (메타만 — 본문 X).
+ * 자료는 type/id/제목/현재 folder_id. 폴더는 id/이름/parent/잠금 여부.
+ * 토큰 절약 위해 간결한 line 포맷.
+ */
+function buildDriveContext(items: DriveItem[], folders: FolderNode[]): string {
+  const folderLines = folders.map(
+    (f) =>
+      `F${f.id} parent=${f.parent_id ?? "root"} name="${f.name}"${f.is_system_locked ? " [LOCKED]" : ""}`,
+  );
+  const itemLines = items.map(
+    (it) =>
+      `${it.type}:${it.id} folder=${it.folder_id ?? "root"} title="${it.title}"`,
+  );
+  return [
+    "# 현재 드라이브 상태",
+    "",
+    `## 폴더 (${folders.length})`,
+    ...folderLines,
+    "",
+    `## 자료 (${items.length})`,
+    ...itemLines,
+    "",
+    "위 자료를 분석해 drive_propose_organization 도구로 정리안을 한 번 호출하세요.",
+    "삭제 금지. rename은 '01. 원본이름' 식 prefix. 새 카테고리 폴더는 create_folder.",
+    "잠금 폴더(LOCKED)는 그 자체 수정/삭제 금지. 그 안에 자료 이동은 OK.",
+  ].join("\n");
 }
 
 

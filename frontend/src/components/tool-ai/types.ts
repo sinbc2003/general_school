@@ -1,4 +1,4 @@
-export type ToolKind = "doc" | "sheet" | "slide" | "survey";
+export type ToolKind = "doc" | "sheet" | "slide" | "survey" | "drive";
 
 export interface ToolModel {
   id: number;

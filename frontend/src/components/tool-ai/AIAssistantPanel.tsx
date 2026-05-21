@@ -41,6 +41,7 @@ const KIND_LABEL: Record<ToolKind, string> = {
   sheet: "스프레드시트",
   slide: "프리젠테이션",
   survey: "설문지",
+  drive: "내 드라이브",
 };
 
 const SUGGESTIONS_BY_KIND: Record<ToolKind, string[]> = {
@@ -63,6 +64,11 @@ const SUGGESTIONS_BY_KIND: Record<ToolKind, string[]> = {
     "이번 학기 수업 만족도 설문 8문항 (5점 척도 + 객관식)",
     "진로 탐색 흥미 조사 (객관식 + 단답)",
     "동아리 활동 평가 설문 5문항",
+  ],
+  drive: [
+    "내 드라이브 정리해줘 (카테고리 폴더 만들고 번호 prefix)",
+    "회의록·평가·수업안을 폴더로 분류해줘",
+    "파일명 앞에 01, 02 번호 붙여서 보기 좋게",
   ],
 };
 

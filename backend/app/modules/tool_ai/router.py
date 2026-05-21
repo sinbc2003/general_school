@@ -42,11 +42,12 @@ class ToolChatMessage(BaseModel):
 
 
 class ToolChatRequest(BaseModel):
-    tool_kind: str = Field(..., pattern="^(doc|sheet|slide|survey)$")
-    tool_id: int  # 현재 작업 중 도구의 ID (audit log용)
+    tool_kind: str = Field(..., pattern="^(doc|sheet|slide|survey|drive)$")
+    tool_id: int  # 현재 작업 중 도구의 ID (drive면 사용자 본인 ID — audit log용)
     model_id: int  # LLMModel.id
     messages: list[ToolChatMessage] = Field(..., min_length=1, max_length=40)
-    current_content: str | None = None  # 현재 도구 내용 미리보기 (3000자 cap)
+    # 현재 도구 내용 미리보기 (자료별 3000자, drive는 메타 list라 8000자까지)
+    current_content: str | None = Field(default=None, max_length=8000)
 
 
 class ToolCall(BaseModel):
