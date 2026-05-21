@@ -21,6 +21,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, X, Send, Loader2, Check, AlertCircle, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useSidebar } from "@/lib/sidebar-context";
+import { useAIAssistant } from "@/lib/ai-assistant-context";
 import type { ToolKind, ToolModel, ChatTurn, ToolCall, ApplyHandler, ToolChatResponse } from "./types";
 
 
@@ -75,6 +77,23 @@ export function AIAssistantPanel({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // open 상태를 layout에 전달 → main의 padding-right가 panel 폭만큼 늘어
+  // 본문이 panel과 겹치지 않게 옆으로 밀림. open=true 진입 시 좌측 사이드바도
+  // 한 번 접음 (사용자가 다시 펼치면 자동 복구 안 함).
+  const sidebar = useSidebar();
+  const ai = useAIAssistant();
+  useEffect(() => {
+    if (open) {
+      ai.setOpen(true);
+      sidebar.setCollapsed(true);
+    } else {
+      ai.setOpen(false);
+    }
+    return () => { ai.setOpen(false); };
+    // open 외 다른 deps 의도적으로 제외 — sidebar 재펼침/collapse 변화에 영향 X.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // 모델 로드
   useEffect(() => {
