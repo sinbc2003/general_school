@@ -110,14 +110,22 @@ export default function SheetEditorPage() {
     }
   };
 
+  // 페이지 진입 시 AI 패널 닫힌 상태 강제 (다른 페이지에서 켜둔 잔여 state 클리어 — main의 paddingRight 잔여 방지)
+  useEffect(() => {
+    ai.setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!sheet) return null;
 
   return (
     // -m-6 + h-screen 으로 admin layout main p-6 padding 상쇄, viewport 가득 채움.
-    // AI 패널 우측 padding은 admin layout이 처리 (이중 적용 방지).
+    // ai.open=true 시 marginRight:0 (main paddingRight=panelWidth+8 그대로 받음 → panel과 8px gap)
+    // ai.open=false 시 -mr-6 (-24px, main paddingRight=24 상쇄)
     <div
       className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
+      style={ai.open ? { marginRight: 0 } : undefined}
     >
       <div className="flex-shrink-0 px-6 pt-5 pb-3">
         <div className="flex items-center justify-between gap-2 mb-2">

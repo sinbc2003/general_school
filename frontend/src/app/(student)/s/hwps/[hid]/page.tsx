@@ -84,6 +84,12 @@ export default function StudentStandaloneHwpPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // 페이지 진입 시 AI 패널 닫힌 상태 강제 (다른 페이지에서 켜둔 잔여 state 클리어)
+  useEffect(() => {
+    ai.setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (loading) return <div className="p-6 text-text-tertiary">로딩 중...</div>;
   if (!doc) return null;
 
@@ -96,6 +102,7 @@ export default function StudentStandaloneHwpPage() {
   return (
     <div
       className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
+      style={ai.open ? { marginRight: 0 } : undefined}
     >
       <div className="flex-shrink-0 px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
