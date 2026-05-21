@@ -27,6 +27,7 @@ from app.core.permissions import require_permission
 from app.core.quota import is_unlimited, release_quota
 from app.models import (
     ClassroomDocument,
+    ClassroomHwp,
     ClassroomPresentation,
     ClassroomSheet,
     Survey,
@@ -43,6 +44,7 @@ ITEM_TYPES: dict[str, tuple[Any, str, str]] = {
     "sheets": (ClassroomSheet, "owner_id", "스프레드시트"),
     "decks": (ClassroomPresentation, "owner_id", "프리젠테이션"),
     "surveys": (Survey, "author_id", "설문지"),
+    "hwps": (ClassroomHwp, "owner_id", "HWP"),
 }
 
 # 휴지통 보관 기간

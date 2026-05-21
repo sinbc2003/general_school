@@ -23,7 +23,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 
 export interface Attachment {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
   title: string;
   url?: string;
   file_url?: string;
@@ -32,6 +32,7 @@ export interface Attachment {
   survey_id?: number;
   sheet_id?: number;
   deck_id?: number;
+  hwp_id?: number;
 }
 
 export interface PostDetail {
@@ -347,16 +348,17 @@ function AttachmentRow({ a }: { a: Attachment }) {
       </button>
     );
   }
-  // 드라이브 자료 첨부 (doc/sheet/deck/survey)
+  // 드라이브 자료 첨부 (doc/sheet/deck/survey/hwp)
   const driveTypeMap: Record<string, { href: (id: number) => string; label: string; emoji: string }> = {
     doc: { href: (id) => `/docs/${id}`, label: "문서", emoji: "📄" },
     sheet: { href: (id) => `/sheets/${id}`, label: "스프레드시트", emoji: "📊" },
     deck: { href: (id) => `/docs/decks/${id}`, label: "프리젠테이션", emoji: "🖼️" },
     survey: { href: (id) => `/docs/forms/${id}`, label: "설문지", emoji: "📋" },
+    hwp: { href: (id) => `/hwps/${id}`, label: "한컴 문서", emoji: "📝" },
   };
   if (a.type in driveTypeMap) {
     const meta = driveTypeMap[a.type];
-    const id = a.doc_id ?? a.sheet_id ?? a.deck_id ?? a.survey_id;
+    const id = a.doc_id ?? a.sheet_id ?? a.deck_id ?? a.survey_id ?? a.hwp_id;
     if (id) {
       return (
         <a

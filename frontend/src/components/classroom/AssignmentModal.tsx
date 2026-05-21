@@ -33,7 +33,7 @@ import { DrivePicker } from "./DrivePicker";
 export type CreateKind = "assignment" | "material";
 
 interface AttachmentItem {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
   title: string;
   url?: string;
   file_url?: string;
@@ -42,6 +42,7 @@ interface AttachmentItem {
   survey_id?: number;
   sheet_id?: number;
   deck_id?: number;
+  hwp_id?: number;
 }
 
 /** 편집/복제 모드 시 prefill할 기존 post 데이터 */

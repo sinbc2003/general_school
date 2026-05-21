@@ -10,11 +10,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  X, Search, FileText, FileSpreadsheet, Presentation, ClipboardList, CheckCircle2,
+  X, Search, FileText, FileSpreadsheet, Presentation, ClipboardList, CheckCircle2, FileType2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
-type ItemType = "docs" | "sheets" | "decks" | "surveys";
+type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
 
 interface DriveItem {
   id: number;
@@ -25,7 +25,7 @@ interface DriveItem {
 }
 
 export interface PickedAttachment {
-  type: "doc" | "sheet" | "deck" | "survey";
+  type: "doc" | "sheet" | "deck" | "survey" | "hwp";
   source_id: number;
   title: string;
 }
@@ -35,6 +35,7 @@ const TYPE_META: Record<ItemType, { label: string; icon: any; color: string; att
   sheets: { label: "시트", icon: FileSpreadsheet, color: "#107c41", attachType: "sheet" },
   decks: { label: "프리젠테이션", icon: Presentation, color: "#a16207", attachType: "deck" },
   surveys: { label: "설문지", icon: ClipboardList, color: "#7e22ce", attachType: "survey" },
+  hwps: { label: "한컴 문서", icon: FileType2, color: "#0891b2", attachType: "hwp" },
 };
 
 export function DrivePicker({

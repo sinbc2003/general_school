@@ -113,6 +113,9 @@ STUDENT_KEYS = {
     # 학생: 프리젠테이션 view/edit + 본인 단독 생성/공유
     "classroom.deck.view", "classroom.deck.edit",
     "classroom.deck.create", "classroom.deck.share",
+    # 학생: HWP 문서 view/edit + 본인 단독 생성/공유 (rhwp 기반, 협업 X)
+    "classroom.hwp.view", "classroom.hwp.edit",
+    "classroom.hwp.create", "classroom.hwp.share",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
     # 드라이브 (본인 자료 + 휴지통)

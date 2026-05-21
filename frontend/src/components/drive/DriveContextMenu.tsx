@@ -11,7 +11,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
-export type DriveItemType = "docs" | "sheets" | "decks" | "surveys";
+export type DriveItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
 
 interface CtxItem {
   type: DriveItemType;

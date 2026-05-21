@@ -105,6 +105,14 @@ POLICY_FAVICON = FilePolicy(
 )
 
 
+# HWP/HWPX — rhwp 기반 에디터의 문서 본체
+POLICY_HWP = FilePolicy(
+    name="hwp",
+    max_size_bytes=30 * 1024 * 1024,  # 30MB (일반 hwpx는 1MB 이내)
+    allowed_extensions=frozenset({".hwp", ".hwpx"}),
+)
+
+
 # ── 검증 함수 ──────────────────────────────────────────────────
 
 def _human_size(n: int) -> str:

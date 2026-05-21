@@ -48,12 +48,13 @@ interface UserSuggest {
   role: string;
 }
 
-type EntityType = "doc" | "sheet" | "deck";
+type EntityType = "doc" | "sheet" | "deck" | "hwp";
 
 const ENTITY_PATH: Record<EntityType, string> = {
   doc: "docs",
   sheet: "sheets",
   deck: "decks",
+  hwp: "hwps",
 };
 
 interface ShareDocModalProps {

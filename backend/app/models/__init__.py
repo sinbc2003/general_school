@@ -104,6 +104,9 @@ from app.models.classroom_links import ShortLink
 # ── Classroom Sheets (Univer 기반 협업 스프레드시트) ──
 from app.models.classroom_sheets import ClassroomSheet, SheetMember
 
+# ── Classroom HWP (한컴 .hwp/.hwpx 문서 — rhwp 기반, 협업 X) ──
+from app.models.classroom_hwp import ClassroomHwp, HwpMember
+
 # ── Notifications (in-app + browser OS 알림) ──
 from app.models.notification import Notification
 

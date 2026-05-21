@@ -11,7 +11,7 @@ import { api } from "@/lib/api/client";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
 
 interface Target {
-  type: "docs" | "sheets" | "decks" | "surveys";
+  type: "docs" | "sheets" | "decks" | "surveys" | "hwps";
   id: number;
   title: string;
 }
@@ -20,12 +20,14 @@ const ENTITY_TYPE_MAP = {
   docs: "doc",
   sheets: "sheet",
   decks: "deck",
+  hwps: "hwp",
 } as const;
 
 const API_PATH_MAP = {
   docs: "docs",
   sheets: "sheets",
   decks: "decks",
+  hwps: "hwps",
 } as const;
 
 interface DetailLike {

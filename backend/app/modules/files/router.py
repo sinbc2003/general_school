@@ -276,6 +276,21 @@ async def _guard_auto_backups(db: AsyncSession, user: User, path: str) -> None:
 # ── dispatcher ────────────────────────────────────────────
 
 
+async def _guard_hwps(db: AsyncSession, user: User, path: str) -> None:
+    """storage/hwps/{hid}/<file> — ClassroomHwp.file_path 매칭 후 권한 검증."""
+    from app.models.classroom_hwp import ClassroomHwp
+    from app.modules.classroom_hwps.router import _resolve_permission
+    full_rel = f"hwps/{path}"
+    h = (await db.execute(
+        select(ClassroomHwp).where(ClassroomHwp.file_path == full_rel)
+    )).scalar_one_or_none()
+    if not h:
+        raise HTTPException(404)
+    perm = await _resolve_permission(db, user, h)
+    if not perm["can_read"]:
+        raise HTTPException(403)
+
+
 _GUARDS = {
     "artifacts": _guard_artifact,
     "assignments": _guard_assignment,
@@ -284,6 +299,7 @@ _GUARDS = {
     "club": _guard_club,
     "classroom": _guard_classroom,
     "auto-backups": _guard_auto_backups,
+    "hwps": _guard_hwps,
 }
 
 

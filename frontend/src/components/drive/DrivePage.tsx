@@ -25,7 +25,7 @@ import {
   FileText, FileSpreadsheet, Presentation, ClipboardList,
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
-  LayoutGrid, List as ListIcon,
+  LayoutGrid, List as ListIcon, FileType2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
@@ -33,7 +33,7 @@ import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
 import { DriveContextMenu } from "./DriveContextMenu";
 
-type ItemType = "docs" | "sheets" | "decks" | "surveys";
+type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
 type TabKey = "all" | ItemType | "trash";
 
 interface DriveItem {
@@ -65,6 +65,7 @@ const TYPE_META: Record<ItemType, { label: string; icon: any; color: string; bg:
   decks: { label: "프리젠테이션", icon: Presentation, color: "#a16207", bg: "linear-gradient(135deg, #fde4b8 0%, #fbbf24 100%)" },
   surveys: { label: "설문지", icon: ClipboardList, color: "#7e22ce", bg: "linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)" },
   sheets: { label: "스프레드시트", icon: FileSpreadsheet, color: "#107c41", bg: "linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%)" },
+  hwps: { label: "한컴 문서", icon: FileType2, color: "#0891b2", bg: "linear-gradient(135deg, #cffafe 0%, #67e8f9 100%)" },
 };
 
 function formatMB(bytes: number): string {
@@ -256,7 +257,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const counts = useMemo(() => {
     if (tab === "trash") return {} as any;
     const c: any = { all: items.length };
-    for (const k of ["docs", "sheets", "decks", "surveys"] as ItemType[]) {
+    for (const k of ["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]) {
       c[k] = items.filter((it) => it.type === k).length;
     }
     return c;
@@ -266,11 +267,15 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     if (it.type === "sheets") {
       return mode === "admin" ? `/sheets/${it.id}` : `/s/sheets/${it.id}`;
     }
+    if (it.type === "hwps") {
+      return mode === "admin" ? `/hwps/${it.id}` : `/s/hwps/${it.id}`;
+    }
     const segMap: Record<ItemType, string> = {
       docs: "docs",
       decks: "decks",
       surveys: "surveys",
       sheets: "sheets",
+      hwps: "hwps",
     };
     if (it.course_id) return `${baseClassroom}/${it.course_id}/${segMap[it.type]}/${it.id}`;
     if (it.type === "docs") return `${baseDocs}/${it.id}`;
@@ -418,6 +423,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     sheets: "/api/classroom/sheets",
     decks: "/api/classroom/decks",
     surveys: "/api/classroom/surveys",
+    hwps: "/api/classroom/hwps",
   };
 
   const startRename = (it: DriveItem) => {
@@ -482,6 +488,11 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           url: "/api/classroom/decks",
           body: { title: "제목 없는 프리젠테이션", course_id: null, access_mode: "specific_users" },
           redirect: (id) => (mode === "admin" ? `/docs/decks/${id}` : `/s/docs/decks/${id}`),
+        },
+        hwps: {
+          url: "/api/classroom/hwps",
+          body: { title: "제목 없는 한컴 문서", course_id: null, access_mode: "specific_users" },
+          redirect: (id) => (mode === "admin" ? `/hwps/${id}` : `/s/hwps/${id}`),
         },
       };
       const cfg = endpoints[type]!;
@@ -552,7 +563,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         <div>
           <h1 className="text-title text-text-primary">내 드라이브</h1>
           <p className="text-caption text-text-tertiary mt-1">
-            본인이 만든 문서·스프레드시트·프리젠테이션·설문지. 휴지통은 30일 후 자동 영구 삭제됩니다.
+            본인이 만든 문서·스프레드시트·프리젠테이션·설문지·한컴 문서. 휴지통은 30일 후 자동 영구 삭제됩니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -571,7 +582,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 className="absolute right-0 top-full mt-1 z-20 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[200px] py-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => {
+                {(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => {
                   const m = TYPE_META[t];
                   const Icon = m.icon;
                   return (
@@ -659,6 +670,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           ["sheets", TYPE_META.sheets.label],
           ["decks", TYPE_META.decks.label],
           ["surveys", TYPE_META.surveys.label],
+          ["hwps", TYPE_META.hwps.label],
           ["trash", "휴지통"],
         ] as [TabKey, string][]).map(([key, label]) => {
           const isActive = tab === key;
@@ -1040,13 +1052,17 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           target={ctx.target}
           selectedCount={selected.size}
           trashTab={tab === "trash"}
-          newMenu={(["docs", "sheets", "decks", "surveys"] as ItemType[]).map((t) => ({
+          newMenu={(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => ({
             type: t,
             meta: { label: TYPE_META[t].label, icon: TYPE_META[t].icon, color: TYPE_META[t].color },
           }))}
           onOpen={(it) => router.push(hrefFor(it as DriveItem))}
           onOpenNewWindow={(it) => {
-            const seg = it.type === "decks" ? "decks" : it.type === "sheets" ? "sheets" : "docs";
+            const seg =
+              it.type === "decks" ? "decks"
+              : it.type === "sheets" ? "sheets"
+              : it.type === "hwps" ? "hwps"
+              : "docs";
             window.open(`/embed/${seg}/${it.id}`, "_blank");
           }}
           onRename={(it) => startRename(it as DriveItem)}
