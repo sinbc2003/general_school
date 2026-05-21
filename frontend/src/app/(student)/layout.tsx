@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth-context";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
+import { AIAssistantProvider, useAIAssistant } from "@/lib/ai-assistant-context";
 
 export default function StudentLayout({
   children,
@@ -21,7 +22,9 @@ export default function StudentLayout({
 }) {
   return (
     <SidebarProvider>
-      <StudentLayoutInner>{children}</StudentLayoutInner>
+      <AIAssistantProvider>
+        <StudentLayoutInner>{children}</StudentLayoutInner>
+      </AIAssistantProvider>
     </SidebarProvider>
   );
 }
@@ -29,6 +32,7 @@ export default function StudentLayout({
 function StudentLayoutInner({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { collapsed } = useSidebar();
+  const ai = useAIAssistant();
 
   if (loading) {
     return (
@@ -43,9 +47,10 @@ function StudentLayoutInner({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-bg-secondary">
       <AdminSidebar />
       <main
-        className={`p-6 transition-[margin] duration-200 ${
+        className={`p-6 transition-[margin,padding] duration-200 ${
           collapsed ? "ml-sidebar-collapsed" : "ml-sidebar"
         }`}
+        style={ai.open ? { paddingRight: ai.panelWidth + 24 } : undefined}
       >
         {children}
       </main>
