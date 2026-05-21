@@ -78,10 +78,10 @@ export function GoogleDriveSidePanel({ onClose }: { onClose: () => void }) {
   }, [loadStatus, loadFiles]);
 
   const connect = async () => {
+    setError(null);
     try {
       const r = await api.get<{ url: string }>("/api/google/auth-url");
       const popup = window.open(r.url, "google_oauth", "width=520,height=640");
-      // postMessage로 connected 이벤트 수신
       const handler = (e: MessageEvent) => {
         if (e.data?.type === "google_connected") {
           window.removeEventListener("message", handler);
@@ -91,7 +91,16 @@ export function GoogleDriveSidePanel({ onClose }: { onClose: () => void }) {
       };
       window.addEventListener("message", handler);
     } catch (e: any) {
-      alert(e?.message || "OAuth 시작 실패 (관리자 설정 확인 필요)");
+      const msg = e?.detail || e?.message || "";
+      // 503: super_admin이 OAuth Client ID/Secret 미등록
+      if (e?.status === 503 || msg.includes("설정되지 않") || msg.includes("OAuth")) {
+        setError(
+          "Google 연동이 설정되지 않았습니다.\n" +
+          "최고관리자가 /system/integrations/google 에서 Google Cloud Console의 Client ID/Secret 을 등록해야 합니다.",
+        );
+      } else {
+        setError(msg || "OAuth 시작 실패");
+      }
     }
   };
 
@@ -145,7 +154,21 @@ export function GoogleDriveSidePanel({ onClose }: { onClose: () => void }) {
           >
             <Globe size={14} /> Google 계정 연결
           </button>
-          {error && <div className="mt-3 text-[11px] text-red-600 max-w-xs">{error}</div>}
+          {error && (
+            <div className="mt-4 text-[11.5px] text-amber-900 bg-amber-50 border border-amber-200 rounded p-3 max-w-xs whitespace-pre-line text-left leading-relaxed">
+              {error}
+              {error.includes("/system/integrations/google") && (
+                <a
+                  href="/system/integrations/google"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block mt-2 text-accent underline"
+                >
+                  설정 페이지 열기 →
+                </a>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <>

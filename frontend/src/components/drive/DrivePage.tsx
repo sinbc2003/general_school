@@ -79,6 +79,40 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showGooglePanel, setShowGooglePanel] = useState(false);
+  const [panelWidth, setPanelWidth] = useState<number>(360);
+  const [resizing, setResizing] = useState(false);
+  // localStorage 복원
+  useEffect(() => {
+    const saved = Number(localStorage.getItem("drive.googlePanelWidth"));
+    if (saved && saved >= 280 && saved <= 1000) setPanelWidth(saved);
+  }, []);
+  // 드래그 중 mousemove 핸들러
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const w = window.innerWidth - e.clientX;
+      const clamped = Math.max(280, Math.min(window.innerWidth - 400, w));
+      setPanelWidth(clamped);
+    };
+    const onUp = () => {
+      setResizing(false);
+      // 종료 시 저장
+      setPanelWidth((cur) => {
+        localStorage.setItem("drive.googlePanelWidth", String(cur));
+        return cur;
+      });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [resizing]);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [creating, setCreating] = useState(false);
   const router = useRouter();
@@ -248,8 +282,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       : "#3b82f6";
 
   return (
-    <div onClick={() => menuOpen && setMenuOpen(null)} className="flex gap-4 h-full">
-      <div className="flex-1 min-w-0">
+    // -m-6 으로 admin/student layout의 main p-6 padding을 상쇄하여 viewport 가득 채움
+    <div
+      onClick={() => menuOpen && setMenuOpen(null)}
+      className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
+    >
+      <div className="flex-1 min-w-0 overflow-y-auto p-6">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-title text-text-primary">내 드라이브</h1>
@@ -651,9 +689,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       )}
       </div>
 
-      {/* Google Drive 사이드 패널 */}
+      {/* 좌우 splitter (드래그로 패널 크기 조절) */}
       {showGooglePanel && (
-        <div className="w-[360px] flex-shrink-0 hidden lg:block">
+        <div
+          role="separator"
+          aria-label="좌우 패널 크기 조절"
+          onMouseDown={(e) => { e.preventDefault(); setResizing(true); }}
+          className={`w-[6px] cursor-col-resize flex-shrink-0 transition-colors ${
+            resizing ? "bg-accent" : "bg-bg-secondary hover:bg-accent/50"
+          }`}
+          title="드래그하여 좌우 크기 조절"
+        />
+      )}
+
+      {/* Google Drive 사이드 패널 — 동적 width */}
+      {showGooglePanel && (
+        <div
+          className="flex-shrink-0 h-full overflow-hidden"
+          style={{ width: panelWidth }}
+        >
           <GoogleDriveSidePanel onClose={() => setShowGooglePanel(false)} />
         </div>
       )}

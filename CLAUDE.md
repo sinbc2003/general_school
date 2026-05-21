@@ -167,9 +167,25 @@ npm run dev
 
 ### 가장 빠른 부팅 (Windows)
 ```
-start-backend.bat   # WSL bash 호출 → uvicorn (.env 자동 로드)
-start-frontend.bat  # WSL bash 호출 → next dev
+start-backend.bat       # WSL bash 호출 → uvicorn (.env 자동 로드)
+start-frontend.bat      # WSL bash 호출 → next dev
+start-hocuspocus.bat    # WSL bash 호출 → Yjs 협업 서버 (1234)
 ```
+
+### "서버키" 사용자 명령 (AI 개발자 필독)
+
+사용자가 **"서버키"**, **"서버 켜"**, **"개발 서버 켜"** 등으로 말하면 **반드시 3개 서버를
+모두** 띄워야 한다. 협업 도구(문서·시트·슬라이드·설문)가 Yjs/Hocuspocus에 의존하므로
+backend/frontend만 켜면 "연결 끊김"이 표시된다.
+
+| 서버 | 포트 | 명령 (WSL) |
+|---|---|---|
+| Backend | 8002 | `cd /home/sinbc/general_school/backend && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload` |
+| Frontend | 3000 | `cd /home/sinbc/general_school/frontend && npx next dev --turbo -p 3000` |
+| Hocuspocus | 1234 | `cd /home/sinbc/general_school/backend-hocuspocus && npm run dev` |
+
+전제 조건: PostgreSQL이 떠있어야 함 (`pg_isready -h localhost -p 5432`로 확인).
+3개 모두 `run_in_background=true`로 띄우고 포트 listening 확인 후 사용자에게 보고.
 
 ### PostgreSQL 부팅 (WSL에서 항상 먼저)
 ```bash
