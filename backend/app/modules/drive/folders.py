@@ -403,8 +403,8 @@ async def copy_drive_item(
 
     if type not in ITEM_TYPES:
         raise HTTPException(404, f"알 수 없는 타입: {type}")
-    if type in ("hwps", "surveys"):
-        raise HTTPException(400, f"{type} 복사는 현재 지원되지 않습니다")
+    if type == "surveys":
+        raise HTTPException(400, "설문지 복사는 현재 지원되지 않습니다 (질문/응답 복잡)")
 
     Model, owner_field, label = ITEM_TYPES[type]
     src = await db.get(Model, item_id)
@@ -460,12 +460,32 @@ async def copy_drive_item(
             storage_bytes=bytes_needed,
             folder_id=target_folder_id,
         )
+    elif type == "hwps":
+        # HWP file 실 복사 — 새 자료 ID 기반 경로로 별도 파일 생성.
+        from app.models import ClassroomHwp
+        from app.core.files import (
+            ensure_dir_async, read_bytes_async, write_bytes_async,
+        )
+        import secrets
+        from pathlib import Path
+
+        assert Model is ClassroomHwp
+        new_obj = ClassroomHwp(
+            owner_id=user.id,
+            course_id=None,
+            title=new_title,
+            access_mode="specific_users",
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+            # file_path는 db.flush 후 채움 (id 필요)
+        )
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 
     # quota race 회피 — flush 실패 또는 consume 실패 시 자료 자체를 롤백.
     # check_quota 통과 후 consume + 자료 add를 한 트랜잭션처럼 묶음.
     db.add(new_obj)
+    copied_hwp_path: str | None = None  # rollback 용 파일 경로
     try:
         await db.flush()
 
@@ -485,6 +505,33 @@ async def copy_drive_item(
                 ))
             await db.flush()
 
+        # hwps는 file 실 복사 (db row 만든 뒤 new_obj.id 기준 새 경로)
+        if type == "hwps":
+            from app.core.files import (
+                ensure_dir_async, read_bytes_async, write_bytes_async,
+            )
+            import secrets
+            from pathlib import Path
+
+            if src.file_path:
+                STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+                src_full = STORAGE_ROOT / src.file_path
+                fmt = src.file_format or "hwpx"
+                token = secrets.token_urlsafe(8)
+                new_dir = STORAGE_ROOT / "hwps" / str(new_obj.id)
+                await ensure_dir_async(new_dir)
+                new_fname = f"{token}.{fmt}"
+                new_full = new_dir / new_fname
+                # 실 파일 복사 (read + write — symlink는 mount 환경에서 위험)
+                data = await read_bytes_async(src_full)
+                await write_bytes_async(new_full, data)
+                copied_hwp_path = f"hwps/{new_obj.id}/{new_fname}"
+                new_obj.file_path = copied_hwp_path
+                new_obj.file_format = fmt
+                new_obj.storage_bytes = len(data)
+                bytes_needed = len(data)  # 실 파일 크기로 갱신
+                await db.flush()
+
         if bytes_needed:
             await consume_quota(db, user, bytes_needed)
     except Exception:
@@ -494,6 +541,15 @@ async def copy_drive_item(
             await db.flush()
         except Exception:
             pass
+        # HWP 실 파일 복사된 경우 — 그 파일도 cleanup
+        if copied_hwp_path:
+            try:
+                from app.core.files import unlink_async
+                from pathlib import Path
+                STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+                await unlink_async(STORAGE_ROOT / copied_hwp_path)
+            except Exception:
+                pass
         raise
 
     await log_action(

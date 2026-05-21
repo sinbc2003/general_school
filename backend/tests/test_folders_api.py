@@ -239,14 +239,33 @@ async def test_copy_doc_creates_clone(
 
 
 @pytest.mark.asyncio
-async def test_copy_hwps_rejected(
+async def test_copy_hwps_ok_without_file(
     app_client, db_session, teacher_user, auth_headers,
 ):
-    h = ClassroomHwp(owner_id=teacher_user.id, title="hwp")
+    """file_path 없는 HWP도 메타만 복사 OK (실 파일 없음)."""
+    h = ClassroomHwp(owner_id=teacher_user.id, title="빈 hwp")
     db_session.add(h)
     await db_session.commit()
     r = await app_client.post(
         f"/api/drive/items/hwps/{h.id}/copy",
+        json={"folder_id": None},
+        headers=auth_headers(teacher_user),
+    )
+    assert r.status_code == 200
+    assert r.json()["title"] == "빈 hwp (복사본)"
+
+
+@pytest.mark.asyncio
+async def test_copy_surveys_rejected(
+    app_client, db_session, teacher_user, auth_headers,
+):
+    """설문지는 질문/응답 복잡으로 미지원."""
+    from app.models import Survey
+    s = Survey(author_id=teacher_user.id, title="설문")
+    db_session.add(s)
+    await db_session.commit()
+    r = await app_client.post(
+        f"/api/drive/items/surveys/{s.id}/copy",
         json={"folder_id": None},
         headers=auth_headers(teacher_user),
     )
