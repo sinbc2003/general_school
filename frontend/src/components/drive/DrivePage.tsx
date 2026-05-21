@@ -26,17 +26,19 @@ import {
   Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon, FileType2,
+  Folder as FolderIcon, Lock, ChevronRight, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
 import { DriveContextMenu } from "./DriveContextMenu";
-import { FolderSidebar } from "./FolderSidebar";
 import { MoveToFolderModal } from "./MoveToFolderModal";
+import type { FolderNode } from "./FolderSidebar";
 
 type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
-type TabKey = "all" | ItemType | "trash";
+type SortKey = "name" | "owner" | "updated" | "size";
+type SortDir = "asc" | "desc";
 
 interface DriveItem {
   id: number;
@@ -78,8 +80,18 @@ function formatMB(bytes: number): string {
 }
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
-  const [tab, setTab] = useState<TabKey>("all");
+  // 휴지통 모드 (탭 대신 단순 boolean)
+  const [trashMode, setTrashMode] = useState(false);
   const [items, setItems] = useState<DriveItem[]>([]);
+  const [folders, setFolders] = useState<FolderNode[]>([]);
+  const [breadcrumb, setBreadcrumb] = useState<{ id: number; name: string }[]>([]);
+  // 정렬
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // 잘라내기 (Ctrl+X) — itemKey set. Ctrl+V로 현재 폴더에 붙여넣기.
+  const [cutKeys, setCutKeys] = useState<Set<string>>(new Set());
+  // 드래그&드롭 — 현재 hover 중인 폴더 ID (visual highlight)
+  const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
   const [info, setInfo] = useState<DriveInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -140,19 +152,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  // 폴더 — 현재 보기 폴더 (undefined=전체, null=폴더 밖, number=그 폴더 안)
-  const [currentFolderId, setCurrentFolderId] = useState<number | null | undefined>(undefined);
+  // 폴더 — 현재 보기 폴더 (null = 루트, number = 그 폴더 안)
+  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [moveTargets, setMoveTargets] = useState<DriveItem[] | null>(null);
-  // 사이드바 표시 토글 (사용자 preference localStorage)
-  const [showFolderSidebar, setShowFolderSidebar] = useState<boolean>(true);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = localStorage.getItem("drive.showFolderSidebar");
-    if (saved === "false") setShowFolderSidebar(false);
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem("drive.showFolderSidebar", String(showFolderSidebar)); } catch {}
-  }, [showFolderSidebar]);
 
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
 
@@ -239,50 +241,105 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     setLoading(true);
     setError(null);
     try {
-      const folderQS =
-        currentFolderId === undefined
-          ? ""
-          : currentFolderId === null
-          ? "&no_folder=true"
-          : `&folder_id=${currentFolderId}`;
-      const [i, list] = await Promise.all([
+      // 휴지통: 자료만 (폴더 없음, breadcrumb 없음)
+      if (trashMode) {
+        const [i, list] = await Promise.all([
+          api.get<DriveInfo>("/api/drive/me"),
+          api.get<{ items: DriveItem[] }>(`/api/drive/items?trash=true&type=all`),
+        ]);
+        setInfo(i);
+        setItems(list.items);
+        setFolders([]);
+        setBreadcrumb([]);
+        return;
+      }
+      // 일반: 현재 폴더의 직속 폴더 + 직속 자료 + breadcrumb
+      const itemsQS =
+        currentFolderId === null ? "&no_folder=true" : `&folder_id=${currentFolderId}`;
+      const folderParent = currentFolderId === null ? 0 : currentFolderId; // 0 → IS NULL
+      const promises: Promise<any>[] = [
         api.get<DriveInfo>("/api/drive/me"),
         api.get<{ items: DriveItem[] }>(
-          `/api/drive/items?trash=${tab === "trash" ? "true" : "false"}&type=all${folderQS}`
+          `/api/drive/items?trash=false&type=all${itemsQS}`
         ),
-      ]);
+        api.get<{ items: FolderNode[] }>(`/api/drive/folders?parent_id=${folderParent}`),
+      ];
+      if (currentFolderId !== null) {
+        promises.push(
+          api.get<{ breadcrumb: { id: number; name: string }[] }>(
+            `/api/drive/folders/${currentFolderId}`
+          )
+        );
+      }
+      const [i, list, foldersR, detail] = await Promise.all(promises);
       setInfo(i);
       setItems(list.items);
+      setFolders(foldersR.items);
+      setBreadcrumb(detail?.breadcrumb || []);
     } catch (e: any) {
       setError(e?.message || "불러오기 실패");
     } finally {
       setLoading(false);
     }
-  }, [tab, currentFolderId]);
+  }, [trashMode, currentFolderId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // 정렬 적용 후 자료 목록 (검색 포함)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = items;
-    // 휴지통/전체가 아니면 해당 type만 표시
-    if (tab !== "all" && tab !== "trash") {
-      list = list.filter((it) => it.type === tab);
-    }
-    if (q) {
-      list = list.filter((it) => it.title.toLowerCase().includes(q));
-    }
+    let list = items.slice();
+    if (q) list = list.filter((it) => it.title.toLowerCase().includes(q));
+    const cmp = (a: DriveItem, b: DriveItem) => {
+      let v = 0;
+      if (sortKey === "name") {
+        v = a.title.localeCompare(b.title, "ko");
+      } else if (sortKey === "updated") {
+        v = (a.updated_at || "").localeCompare(b.updated_at || "");
+      } else if (sortKey === "size") {
+        v = (a.storage_bytes || 0) - (b.storage_bytes || 0);
+      } else if (sortKey === "owner") {
+        v = String(a.owner_id ?? "").localeCompare(String(b.owner_id ?? ""));
+      }
+      return sortDir === "asc" ? v : -v;
+    };
+    list.sort(cmp);
     return list;
-  }, [items, search, tab]);
+  }, [items, search, sortKey, sortDir]);
 
-  const counts = useMemo(() => {
-    if (tab === "trash") return {} as any;
-    const c: any = { all: items.length };
-    for (const k of ["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]) {
-      c[k] = items.filter((it) => it.type === k).length;
+  // 정렬된 폴더 (검색 포함)
+  const filteredFolders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = folders.slice();
+    if (q) list = list.filter((f) => f.name.toLowerCase().includes(q));
+    const cmp = (a: FolderNode, b: FolderNode) => {
+      let v = 0;
+      if (sortKey === "name") {
+        // 자동 폴더는 sort_order로 정렬, 그 안에서 이름순
+        if (a.is_system_locked && b.is_system_locked) v = a.sort_order - b.sort_order;
+        else if (a.is_system_locked) v = -1;
+        else if (b.is_system_locked) v = 1;
+        else v = a.name.localeCompare(b.name, "ko");
+      } else if (sortKey === "updated") {
+        // FolderNode에 updated_at 있음
+        v = String((a as any).updated_at || "").localeCompare(String((b as any).updated_at || ""));
+      } else {
+        v = a.name.localeCompare(b.name, "ko");
+      }
+      return sortDir === "asc" ? v : -v;
+    };
+    list.sort(cmp);
+    return list;
+  }, [folders, search, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
     }
-    return c;
-  }, [items, tab]);
+  };
 
   const hrefFor = (it: DriveItem): string => {
     if (it.type === "sheets") {
@@ -369,7 +426,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   };
 
   const handleItemDoubleClick = (it: DriveItem, e: React.MouseEvent) => {
-    if (tab === "trash") return; // 휴지통에선 더블클릭으로 안 열림
+    if (trashMode) return; // 휴지통에선 더블클릭으로 안 열림
     e.preventDefault();
     router.push(hrefFor(it));
   };
@@ -418,25 +475,65 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     "복구", false,
   );
 
-  // Esc / Delete 키 처리
+  // Esc / Delete / Ctrl(Cmd)+X / Ctrl(Cmd)+V 처리
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // input/textarea 안에서는 동작 X
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+
+      const mod = e.ctrlKey || e.metaKey;
+
       if (e.key === "Escape") {
         setSelected(new Set());
         setCtx(null);
+        setCutKeys(new Set());
       } else if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
         e.preventDefault();
-        if (tab === "trash") doBulkPermanent();
+        if (trashMode) doBulkPermanent();
         else doBulkSoftDelete();
+      } else if (mod && (e.key === "x" || e.key === "X")) {
+        // Ctrl+X — 잘라내기 표시. 자료만 (폴더는 잘라내기 안 함).
+        if (trashMode || selected.size === 0) return;
+        const targets = Array.from(selected).filter((k) => !k.startsWith("folder:"));
+        if (targets.length === 0) return;
+        e.preventDefault();
+        setCutKeys(new Set(targets));
+      } else if (mod && (e.key === "v" || e.key === "V")) {
+        // Ctrl+V — 현재 폴더에 cut 자료 이동.
+        if (trashMode || cutKeys.size === 0) return;
+        e.preventDefault();
+        (async () => {
+          try {
+            const targets = items.filter((x) => cutKeys.has(itemKey(x)));
+            for (const x of targets) {
+              await api.post(`/api/drive/items/${x.type}/${x.id}/move`, { folder_id: currentFolderId });
+            }
+            setCutKeys(new Set());
+            setSelected(new Set());
+            await fetchAll();
+          } catch (err: any) {
+            alert(err?.detail || err?.message || "붙여넣기 실패");
+          }
+        })();
+      } else if (mod && (e.key === "a" || e.key === "A")) {
+        // Ctrl+A — 현재 보기 모든 자료(폴더 제외) 선택
+        if (trashMode) {
+          e.preventDefault();
+          setSelected(new Set(items.map((x) => itemKey(x))));
+        } else {
+          e.preventDefault();
+          const allKeys = [
+            ...filteredFolders.map((f) => `folder:${f.id}`),
+            ...filtered.map((x) => itemKey(x)),
+          ];
+          setSelected(new Set(allKeys));
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, tab]);
+  }, [selected, trashMode, cutKeys, items, filtered, filteredFolders, currentFolderId]);
 
   // 이름 바꾸기
   const RENAME_PATH: Partial<Record<ItemType, string>> = {
@@ -474,7 +571,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       if ((e.key === "F2" || e.key === "Enter") && selected.size === 1 && !renamingKey) {
         const onlyKey = Array.from(selected)[0];
         const it = items.find((x) => itemKey(x) === onlyKey);
-        if (it && tab !== "trash") {
+        if (it && !trashMode) {
           e.preventDefault();
           startRename(it);
         }
@@ -483,7 +580,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, items, tab, renamingKey]);
+  }, [selected, items, trashMode, renamingKey]);
 
   const createNew = async (type: ItemType) => {
     setCreating(true);
@@ -518,6 +615,14 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       };
       const cfg = endpoints[type]!;
       const r = await api.post<{ id: number }>(cfg.url, cfg.body);
+      // 현재 폴더 안이면 자동 배치 (best-effort)
+      if (currentFolderId !== null && r.id) {
+        try {
+          await api.post(`/api/drive/items/${type}/${r.id}/move`, {
+            folder_id: currentFolderId,
+          });
+        } catch {}
+      }
       router.push(cfg.redirect(r.id));
     } catch (e: any) {
       alert(e?.message || `${TYPE_META[type].label} 생성 실패`);
@@ -567,15 +672,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       }}
       className="-m-6 flex h-screen overflow-hidden bg-bg-secondary"
     >
-      {/* 좌측 폴더 사이드바 */}
-      {showFolderSidebar && (
-        <FolderSidebar
-          currentFolderId={currentFolderId}
-          onSelect={(fid) => setCurrentFolderId(fid)}
-          onRefresh={fetchAll}
-        />
-      )}
-
       <div
         className="flex-1 min-w-0 flex flex-col p-6 relative select-none"
         onMouseDown={startRubberBand}
@@ -590,27 +686,55 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       {/* 헤더 영역 — 스크롤 안 됨 (flex-shrink-0) */}
       <div className="flex-shrink-0">
       <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="flex items-start gap-2">
-          <button
-            type="button"
-            onClick={() => setShowFolderSidebar((v) => !v)}
-            className="mt-1 p-1.5 rounded hover:bg-bg-secondary text-text-tertiary"
-            title={showFolderSidebar ? "폴더 사이드바 숨기기" : "폴더 사이드바 보이기"}
-          >
-            <ListIcon size={16} />
-          </button>
-          <div>
-            <h1 className="text-title text-text-primary">내 드라이브</h1>
-            <p className="text-caption text-text-tertiary mt-1">
-              {currentFolderId === null
-                ? "폴더 밖 자료 — 좌측에서 폴더를 선택하세요."
-                : currentFolderId === undefined
-                ? "본인이 만든 문서·스프레드시트·프리젠테이션·설문지·한컴 문서. 휴지통은 30일 후 자동 영구 삭제됩니다."
-                : "선택된 폴더 안 자료입니다."}
-            </p>
+        <div className="min-w-0">
+          {/* Google Drive 식 breadcrumb */}
+          <div className="flex items-center gap-1 text-title text-text-primary min-w-0">
+            <button
+              type="button"
+              onClick={() => { setTrashMode(false); setCurrentFolderId(null); }}
+              className="hover:underline truncate"
+            >
+              내 드라이브
+            </button>
+            {trashMode && (
+              <>
+                <ChevronRight size={16} className="text-text-tertiary flex-shrink-0" />
+                <span className="text-red-600 truncate">휴지통</span>
+              </>
+            )}
+            {!trashMode && breadcrumb.map((b) => (
+              <span key={b.id} className="flex items-center gap-1 min-w-0">
+                <ChevronRight size={16} className="text-text-tertiary flex-shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => setCurrentFolderId(b.id)}
+                  className="hover:underline truncate"
+                >
+                  {b.name}
+                </button>
+              </span>
+            ))}
           </div>
+          <p className="text-caption text-text-tertiary mt-1">
+            {trashMode
+              ? "30일 후 자동 영구 삭제. 복구 또는 영구 삭제 가능."
+              : "폴더와 파일을 선택해 정리하세요. 폴더 위로 드래그하거나 Ctrl+X / Ctrl+V 사용."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* 휴지통 토글 */}
+          <button
+            type="button"
+            onClick={() => setTrashMode((v) => !v)}
+            className={`px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 ${
+              trashMode
+                ? "bg-red-600 text-white"
+                : "text-text-secondary border border-border-default hover:bg-bg-secondary"
+            }`}
+            title="휴지통"
+          >
+            <Trash2 size={13} /> 휴지통
+          </button>
           {/* "+ 신규" 드롭다운 */}
           <div className="relative">
             <button
@@ -626,6 +750,27 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 className="absolute right-0 top-full mt-1 z-20 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[200px] py-1"
                 onClick={(e) => e.stopPropagation()}
               >
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowNewMenu(false);
+                    const raw = prompt("새 폴더 이름");
+                    if (!raw?.trim()) return;
+                    try {
+                      await api.post("/api/drive/folders", {
+                        name: raw.trim(),
+                        parent_id: currentFolderId,
+                      });
+                      await fetchAll();
+                    } catch (e: any) {
+                      alert(e?.detail || e?.message || "폴더 생성 실패");
+                    }
+                  }}
+                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-bg-secondary flex items-center gap-2 text-text-primary"
+                >
+                  <FolderIcon size={14} className="text-amber-500" /> 새 폴더
+                </button>
+                <div className="my-1 border-t border-border-default/50" />
                 {(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => {
                   const m = TYPE_META[t];
                   const Icon = m.icon;
@@ -706,42 +851,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         </div>
       )}
 
-      {/* 탭 */}
-      <div className="flex items-center gap-1 border-b border-border-default mb-5">
-        {([
-          ["all", "전체"],
-          ["docs", TYPE_META.docs.label],
-          ["sheets", TYPE_META.sheets.label],
-          ["decks", TYPE_META.decks.label],
-          ["surveys", TYPE_META.surveys.label],
-          ["hwps", TYPE_META.hwps.label],
-          ["trash", "휴지통"],
-        ] as [TabKey, string][]).map(([key, label]) => {
-          const isActive = tab === key;
-          const isTrash = key === "trash";
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] border-b-2 transition whitespace-nowrap ${
-                isActive
-                  ? isTrash
-                    ? "border-red-500 text-red-600 font-semibold"
-                    : "border-accent text-accent font-semibold"
-                  : "border-transparent text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
-              }`}
-            >
-              {isTrash && <Trash2 size={14} />}
-              {label}
-              {counts[key] != null && (
-                <span className="ml-1 text-[11px] text-text-tertiary">{counts[key]}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {/* 검색 + 휴지통 비우기 */}
       <div className="flex items-center gap-2 mb-4">
         <div className="relative flex-1 max-w-md">
@@ -763,7 +872,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             </button>
           )}
         </div>
-        {tab === "trash" && items.length > 0 && (
+        {trashMode && items.length > 0 && (
           <button
             type="button"
             onClick={emptyTrash}
@@ -801,12 +910,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         <div className="text-red-600 text-body">{error}</div>
       ) : loading ? (
         <div className="text-text-tertiary">불러오는 중...</div>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && filteredFolders.length === 0 ? (
         <div className="bg-bg-primary border-2 border-dashed border-border-default rounded-lg py-16 text-center">
           <div className="text-body text-text-tertiary">
-            {tab === "trash" ? "휴지통이 비어있습니다" : "아직 만든 자료가 없습니다"}
+            {trashMode ? "휴지통이 비어있습니다" : "아직 만든 자료가 없습니다"}
           </div>
-          {tab !== "trash" && (
+          {!trashMode && (
             <div className="text-caption text-text-tertiary mt-1">
               강좌 안에서 "+ 만들기" 메뉴로 생성 가능
             </div>
@@ -819,23 +928,119 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-2 text-left font-medium w-10"></th>
-                <th className="px-2 py-2 text-left font-medium">이름</th>
+                <SortableTh sortKey="name" currentKey={sortKey} dir={sortDir} onClick={toggleSort}>
+                  이름
+                </SortableTh>
                 <th className="px-2 py-2 text-left font-medium w-32">유형</th>
-                <th className="px-2 py-2 text-left font-medium w-40">
-                  {tab === "trash" ? "삭제일" : "수정일"}
-                </th>
-                <th className="px-2 py-2 text-right font-medium w-24">크기</th>
+                <SortableTh
+                  sortKey="updated"
+                  currentKey={sortKey}
+                  dir={sortDir}
+                  onClick={toggleSort}
+                  className="w-40"
+                >
+                  {trashMode ? "삭제일" : "수정일"}
+                </SortableTh>
+                <SortableTh
+                  sortKey="size"
+                  currentKey={sortKey}
+                  dir={sortDir}
+                  onClick={toggleSort}
+                  align="right"
+                  className="w-24"
+                >
+                  크기
+                </SortableTh>
                 <th className="px-2 py-2 w-12"></th>
               </tr>
             </thead>
             <tbody>
+              {/* 폴더 행 — 휴지통이 아닐 때만 */}
+              {!trashMode && filteredFolders.map((f) => {
+                const key = `folder:${f.id}`;
+                const isSelected = selected.has(key);
+                const isDragOver = dragOverFolderId === f.id;
+                return (
+                  <tr
+                    key={key}
+                    data-drive-row
+                    data-drive-key={key}
+                    className={`border-b border-border-default/50 cursor-pointer ${
+                      isDragOver
+                        ? "bg-accent/20 ring-2 ring-accent ring-inset"
+                        : isSelected
+                        ? "bg-[#e8def8] hover:bg-[#d7c4f3]"
+                        : "hover:bg-bg-secondary/50"
+                    }`}
+                    onClick={(e) => {
+                      // 단일 선택 (자료와 통일된 패턴)
+                      if (e.ctrlKey || e.metaKey) {
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
+                          return next;
+                        });
+                      } else {
+                        setSelected(new Set([key]));
+                      }
+                    }}
+                    onDoubleClick={() => { setCurrentFolderId(f.id); setSelected(new Set()); }}
+                    onDragOver={(e) => {
+                      // 자료 드래그 중일 때만 highlight (Ctrl+V 분리)
+                      if (e.dataTransfer.types.includes("application/x-drive-items")) {
+                        e.preventDefault();
+                        setDragOverFolderId(f.id);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverFolderId === f.id) setDragOverFolderId(null);
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      setDragOverFolderId(null);
+                      const payload = e.dataTransfer.getData("application/x-drive-items");
+                      if (!payload) return;
+                      try {
+                        const list: { type: ItemType; id: number }[] = JSON.parse(payload);
+                        for (const t of list) {
+                          await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: f.id });
+                        }
+                        setSelected(new Set());
+                        fetchAll();
+                      } catch (err: any) {
+                        alert(err?.detail || err?.message || "이동 실패");
+                      }
+                    }}
+                  >
+                    <td className="px-4 py-2">
+                      <FolderIcon size={18} className="text-amber-500" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <span className="text-text-primary flex items-center gap-1.5">
+                        {f.is_system_locked
+                          ? `${String(f.sort_order).padStart(2, "0")}. ${f.name}`
+                          : f.name}
+                        {f.is_system_locked && <Lock size={10} className="text-text-tertiary" />}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 text-text-secondary">폴더</td>
+                    <td className="px-2 py-2 text-text-tertiary">
+                      {(f as any).updated_at?.slice(0, 16).replace("T", " ") || ""}
+                    </td>
+                    <td className="px-2 py-2 text-right text-text-tertiary">—</td>
+                    <td className="px-2 py-2"></td>
+                  </tr>
+                );
+              })}
               {filtered.map((it) => {
                 const m = TYPE_META[it.type];
                 const Icon = m.icon;
                 const menuKey = `${it.type}:${it.id}`;
                 const isMenuOpen = menuOpen === menuKey;
                 const isSelected = selected.has(menuKey);
-                const dateStr = tab === "trash"
+                const isCut = cutKeys.has(menuKey);
+                const dateStr = trashMode
                   ? it.deleted_at?.slice(0, 16).replace("T", " ") || ""
                   : it.updated_at?.slice(0, 16).replace("T", " ") || "";
                 return (
@@ -843,12 +1048,23 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     key={menuKey}
                     data-drive-row
                     data-drive-key={menuKey}
+                    draggable={!trashMode}
                     className={`border-b border-border-default/50 cursor-pointer ${
+                      isCut ? "opacity-50" : ""
+                    } ${
                       isSelected ? "bg-[#e8def8] hover:bg-[#d7c4f3]" : "hover:bg-bg-secondary/50"
                     }`}
                     onClick={(e) => handleItemClick(it, e)}
                     onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                     onContextMenu={(e) => handleItemContextMenu(it, e)}
+                    onDragStart={(e) => {
+                      // 선택 안 된 행을 끌면 그것만 끌기 (단일). 선택된 행이면 모든 selected.
+                      const list = selected.has(menuKey)
+                        ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
+                        : [{ type: it.type, id: it.id }];
+                      e.dataTransfer.setData("application/x-drive-items", JSON.stringify(list));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
                   >
                     <td className="px-4 py-2">
                       <Icon size={18} style={{ color: m.color }} />
@@ -889,7 +1105,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                             className="absolute right-0 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[140px] py-1"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {tab === "trash" ? (
+                            {trashMode ? (
                               <>
                                 <button
                                   type="button"
@@ -927,18 +1143,96 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {/* 폴더 카드 — 휴지통이 아닐 때만 */}
+          {!trashMode && filteredFolders.map((f) => {
+            const key = `folder:${f.id}`;
+            const isSelected = selected.has(key);
+            const isDragOver = dragOverFolderId === f.id;
+            return (
+              <div
+                key={key}
+                data-drive-card
+                data-drive-key={key}
+                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all cursor-pointer ${
+                  isDragOver
+                    ? "border-accent bg-accent/15 ring-2 ring-accent"
+                    : isSelected
+                    ? "border-[#673ab7] bg-[#e8def8] shadow-md"
+                    : "border-border-default bg-bg-primary"
+                }`}
+                onClick={(e) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                  } else {
+                    setSelected(new Set([key]));
+                  }
+                }}
+                onDoubleClick={() => { setCurrentFolderId(f.id); setSelected(new Set()); }}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes("application/x-drive-items")) {
+                    e.preventDefault();
+                    setDragOverFolderId(f.id);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverFolderId === f.id) setDragOverFolderId(null);
+                }}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  setDragOverFolderId(null);
+                  const payload = e.dataTransfer.getData("application/x-drive-items");
+                  if (!payload) return;
+                  try {
+                    const list: { type: ItemType; id: number }[] = JSON.parse(payload);
+                    for (const t of list) {
+                      await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: f.id });
+                    }
+                    setSelected(new Set());
+                    fetchAll();
+                  } catch (err: any) {
+                    alert(err?.detail || err?.message || "이동 실패");
+                  }
+                }}
+              >
+                <div
+                  className="px-4 py-6 flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)", minHeight: "100px" }}
+                >
+                  <FolderIcon size={36} className="text-amber-600" />
+                </div>
+                <div className="px-4 py-3">
+                  <div className="text-body font-medium text-text-primary truncate flex items-center gap-1">
+                    {f.is_system_locked
+                      ? `${String(f.sort_order).padStart(2, "0")}. ${f.name}`
+                      : f.name}
+                    {f.is_system_locked && <Lock size={10} className="text-text-tertiary" />}
+                  </div>
+                  <div className="text-[11px] text-text-tertiary mt-1">폴더</div>
+                </div>
+              </div>
+            );
+          })}
           {filtered.map((it) => {
             const m = TYPE_META[it.type];
             const Icon = m.icon;
             const menuKey = `${it.type}:${it.id}`;
             const isMenuOpen = menuOpen === menuKey;
             const isSelected = selected.has(menuKey);
+            const isCut = cutKeys.has(menuKey);
             return (
               <div
                 key={menuKey}
                 data-drive-card
                 data-drive-key={menuKey}
+                draggable={!trashMode}
                 className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all cursor-pointer ${
+                  isCut ? "opacity-50" : ""
+                } ${
                   isSelected
                     ? "border-[#673ab7] bg-[#e8def8] shadow-md"
                     : "border-border-default bg-bg-primary"
@@ -946,9 +1240,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 onClick={(e) => handleItemClick(it, e)}
                 onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                 onContextMenu={(e) => { e.stopPropagation(); handleItemContextMenu(it, e); }}
+                onDragStart={(e) => {
+                  const list = selected.has(menuKey)
+                    ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
+                    : [{ type: it.type, id: it.id }];
+                  e.dataTransfer.setData("application/x-drive-items", JSON.stringify(list));
+                  e.dataTransfer.effectAllowed = "move";
+                }}
               >
                 <div
-                  className={`px-4 py-6 flex items-center justify-center ${tab === "trash" ? "opacity-60" : ""}`}
+                  className={`px-4 py-6 flex items-center justify-center ${trashMode ? "opacity-60" : ""}`}
                   style={{ background: m.bg, minHeight: "100px" }}
                 >
                   <Icon size={36} style={{ color: m.color }} />
@@ -974,7 +1275,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                         <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
                       )}
                       <div className="text-[11px] text-text-tertiary mt-1">
-                        {tab === "trash" && it.deleted_at
+                        {trashMode && it.deleted_at
                           ? `삭제 ${it.deleted_at.slice(0, 16).replace("T", " ")}`
                           : it.updated_at
                           ? `수정 ${it.updated_at.slice(0, 16).replace("T", " ")}`
@@ -1001,7 +1302,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                           className="absolute right-0 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[140px] py-1"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {tab === "trash" ? (
+                          {trashMode ? (
                             <>
                               <button
                                 type="button"
@@ -1081,7 +1382,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       {/* 다중 선택 액션 바 */}
       <BulkActionBar
         count={selected.size}
-        trashTab={tab === "trash"}
+        trashTab={trashMode}
         onClear={() => setSelected(new Set())}
         onSoftDelete={doBulkSoftDelete}
         onRestore={doBulkRestore}
@@ -1095,7 +1396,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           y={ctx.y}
           target={ctx.target}
           selectedCount={selected.size}
-          trashTab={tab === "trash"}
+          trashTab={trashMode}
           newMenu={(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => ({
             type: t,
             meta: { label: TYPE_META[t].label, icon: TYPE_META[t].icon, color: TYPE_META[t].color },
@@ -1146,5 +1447,42 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         />
       )}
     </div>
+  );
+}
+
+
+// ── 정렬 가능 컬럼 헤더 ───────────────────────────────────────────────
+
+function SortableTh({
+  sortKey,
+  currentKey,
+  dir,
+  onClick,
+  align,
+  className,
+  children,
+}: {
+  sortKey: SortKey;
+  currentKey: SortKey;
+  dir: SortDir;
+  onClick: (k: SortKey) => void;
+  align?: "left" | "right";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const isActive = sortKey === currentKey;
+  return (
+    <th className={`px-2 py-2 font-medium ${className || ""} ${align === "right" ? "text-right" : "text-left"}`}>
+      <button
+        type="button"
+        onClick={() => onClick(sortKey)}
+        className={`inline-flex items-center gap-1 hover:text-text-primary ${
+          isActive ? "text-text-primary" : ""
+        }`}
+      >
+        {children}
+        {isActive && (dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+      </button>
+    </th>
   );
 }
