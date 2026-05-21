@@ -82,7 +82,11 @@ async def _parse_csv(content: bytes) -> tuple[list[dict[str, Any]], list[str]]:
 
     reader = csv.DictReader(io.StringIO(text))
     rows = []
+    MAX_ROWS = 5000  # 1500명 × 3과목 ≈ 4500 → 5000 한도. DoS 차단.
     for i, row in enumerate(reader, start=2):
+        if len(rows) >= MAX_ROWS:
+            errors.append(f"CSV 행이 {MAX_ROWS}개를 초과합니다 — 분할해서 업로드하세요")
+            break
         clean = {k: (v or "").strip() for k, v in row.items()}
         clean["_line"] = i
         rows.append(clean)

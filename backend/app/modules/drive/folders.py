@@ -416,7 +416,7 @@ async def copy_drive_item(
 
     bytes_needed = src.storage_bytes or 0
     if bytes_needed:
-        await check_quota(db, user, bytes_needed)
+        check_quota(user, bytes_needed)
 
     target_folder_id = body.folder_id if body else None
     if target_folder_id is not None:
@@ -463,27 +463,38 @@ async def copy_drive_item(
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 
+    # quota race 회피 — flush 실패 또는 consume 실패 시 자료 자체를 롤백.
+    # check_quota 통과 후 consume + 자료 add를 한 트랜잭션처럼 묶음.
     db.add(new_obj)
-    await db.flush()
-
-    # decks는 ClassroomSlide row도 복제 (메타 + plain_text + settings)
-    if type == "decks":
-        src_slides = (await db.execute(
-            select(ClassroomSlide).where(ClassroomSlide.presentation_id == item_id)
-            .order_by(ClassroomSlide.order)
-        )).scalars().all()
-        for s in src_slides:
-            db.add(ClassroomSlide(
-                presentation_id=new_obj.id,
-                order=s.order,
-                title=s.title,
-                plain_text=s.plain_text,
-                settings=s.settings,
-            ))
+    try:
         await db.flush()
 
-    if bytes_needed:
-        await consume_quota(db, user, bytes_needed)
+        # decks는 ClassroomSlide row도 복제 (메타 + plain_text + settings)
+        if type == "decks":
+            src_slides = (await db.execute(
+                select(ClassroomSlide).where(ClassroomSlide.presentation_id == item_id)
+                .order_by(ClassroomSlide.order)
+            )).scalars().all()
+            for s in src_slides:
+                db.add(ClassroomSlide(
+                    presentation_id=new_obj.id,
+                    order=s.order,
+                    title=s.title,
+                    plain_text=s.plain_text,
+                    settings=s.settings,
+                ))
+            await db.flush()
+
+        if bytes_needed:
+            await consume_quota(db, user, bytes_needed)
+    except Exception:
+        # 신규 자료 + 슬라이드 모두 rollback (cascade) → quota 영향 X.
+        try:
+            await db.delete(new_obj)
+            await db.flush()
+        except Exception:
+            pass
+        raise
 
     await log_action(
         db, user, "drive.item.copy",

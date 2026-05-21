@@ -1375,3 +1375,137 @@ self-host 원하면 rhwp 본체 fork → `rhwp-studio` 빌드 → 정적 배포 
 4. 기존 보류 작업: 코드 모듈화 (HIGH 2건), 개인 드라이브 quota 정책 미세조정, 시트 학생 페이지
 
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
+
+---
+
+## 2026-05-22 세션 — 드라이브 폴더 시스템 + 학생 마법사 + Google Drive 식 UI
+
+### 큰 그림
+사용자(신병철 교사) 요구: 드라이브에 폴더 시스템 도입. 최고관리자가 마법사로 교사·학생
+인적사항 등록 시 자동으로 부서·강좌·학급 폴더가 만들어져 사용자가 거기에 정리.
+학기 전환 시 누적식으로 새 폴더 추가. 학생도 첫 학기 진입 시 수강과목 마법사.
+UI는 Google Drive처럼 폴더+자료가 한 list. 드래그&드롭 + Ctrl+X/C/V 자연스럽게.
+
+### 폴더 모델 + 자동 생성 룰
+**모델** `Folder` ([backend/app/models/folder.py](backend/app/models/folder.py)):
+- (owner_id, parent_id) 트리 + 다단계 중첩
+- (owner_id, auto_kind, semester_id, source_kind, source_id) UNIQUE — 멱등성
+- is_system_locked (자동 폴더 잠금), sort_order (사용자별 누적)
+- 5개 자료(docs/sheets/decks/surveys/hwps)에 folder_id FK (SET NULL on delete)
+
+**자동 생성 룰** ([backend/app/services/folder_seed.py](backend/app/services/folder_seed.py)):
+| 종류 | 이름 | 단위 |
+|---|---|---|
+| `department` | `{year}학년도 {sem}학기 {부서명}` | 학기 |
+| `grade_office` | `{year}학년도 {sem}학기 {N}학년 학년부` | 학기 |
+| `homeroom` | `{year}학년도 {N}학년 {M}반 담임` | **학년** |
+| `class_belonging` | `{year}학년도 {N}학년 {M}반` (학생) | **학년** |
+| `subject_teaching` | `{year}학년도 {sem}학기 {과목}` | 학기 |
+| `subject_enrolled_wrapper` | `{year}학년도 {sem}학기 수강과목` | 학기 |
+| `subject_enrolled` (wrapper 안) | `{과목}` | 학기 |
+| `admin_office` | `{year}학년도 {sem}학기 관리자` | 학기 |
+
+학기 전환 시 1학기 폴더 보존 + 2학기 폴더 sort_order MAX+1로 누적. 학년 단위 폴더는
+같은 source_id 재진입 시 skip. UI prefix `01. 02. ...`는 sort_order에서 동적 생성.
+
+**트리거 hook (best-effort, 원 작업 안 막음)**:
+- `users/crud.py` create/update (department_id/is_grade_lead/role/grade/class_number 변경)
+- `classroom/teachers.py` add_co_teacher
+- `classroom/router.py` create_course / add_student_to_course / bulk_add_students /
+  auto_generate_courses 후 sync_all_users
+- `classroom/course_seed.py` seed_auto 후 sync_all_users
+
+### 폴더 CRUD ([backend/app/modules/drive/folders.py](backend/app/modules/drive/folders.py))
+9 endpoint: GET/POST/PATCH/DELETE `/api/drive/folders`, POST move/copy/sync/sync-all.
+잠금 폴더는 이름변경/삭제/이동 모두 409 차단. cycle 방지 (자기 자신/자손 부모 지정 차단).
+
+### Drive UI — Google Drive 식 ([frontend/src/components/drive/DrivePage.tsx](frontend/src/components/drive/DrivePage.tsx))
+이전 좌측 FolderSidebar + 타입 탭 모두 제거. 한 list에 통합:
+- **헤더 breadcrumb**: `내 드라이브 / 부서 / 수학I` 각 segment 클릭 점프
+- **메인 list**: 폴더 행(위) + 자료 행(아래) 같은 테이블. 컬럼 헤더 클릭으로 정렬
+  (이름/수정일/크기 — 기본 이름 오름차순. 자동 폴더는 sort_order 그룹).
+- **폴더 더블클릭** → 그 폴더 진입.
+- **드래그&드롭**: 자료 → 폴더 위 → 즉시 이동 (단일/다중).
+- **Ctrl/Cmd+X·C·V**: Windows 식 잘라내기/복사/붙여넣기. cut은 반투명 표시,
+  copy는 backend의 `/api/drive/items/{type}/{id}/copy` 호출 (docs/sheets/decks 지원,
+  yjs_state·plain_text·settings 복제 + "(복사본)" suffix; hwps/surveys는 미지원).
+- **Ctrl+A** 전체 선택, **ESC** 잘라내기/선택 해제, **Delete** 휴지통.
+- **휴지통**: 우상단 별도 버튼 (탭 아닌 모드 토글). 폴더 없이 자료만.
+- **신규 메뉴**에 "새 폴더" 추가. 자료 생성 시 현재 폴더에 자동 배치 (best-effort move).
+- 토스트 알림 ("3개 자료 잘라내기 — Ctrl+V로 붙여넣기" 등).
+
+### 학생 수강과목 마법사
+**Backend** ([backend/app/modules/student_self/enrollment.py](backend/app/modules/student_self/enrollment.py)) 5 endpoint:
+- `GET /api/me/enrollment/status` — 본인 학기 enrollment + onboarded 여부
+- `GET /available-courses` — 자동 등록 + 선택 후보
+- `POST /subjects` — 학생이 선택과목 등록
+- `DELETE /subjects/{course_id}` — 수강 취소
+- `POST /complete` — 마법사 완료 + onboarded=True + 폴더 동기화
+
+`SemesterEnrollment.onboarded`를 학생 마법사 완료 플래그로 재활용 (학기별).
+
+**관리자 CSV 일괄** ([backend/app/modules/classroom/student_enrollment.py](backend/app/modules/classroom/student_enrollment.py)):
+- `GET /_enrollment/csv-template`
+- `POST /_enrollment/import` (학번 + course_id 또는 subject+grade_level)
+- POLICY_CSV + validate_upload (convention invariant)
+
+**Frontend** `/s/enrollment-wizard` 페이지 — 본인 학기/학급 표시 + 자동 등록 수업 +
+선택과목 후보 체크박스 + "수강 신청 완료" 클릭 시 폴더 자동 동기화 → /s/drive 이동.
+사이드바 "수강과목 신청" 메뉴 추가.
+
+### AI 도우미 자동 작성 현황 (사용자 질문)
+**도구 카탈로그** ([backend/app/modules/tool_ai/tools.py](backend/app/modules/tool_ai/tools.py)):
+| 도구 | 자동 작성 | 표 | 비고 |
+|---|---|---|---|
+| docs | ✅ doc_append_markdown / doc_replace_all | ✅ 마크다운 표 (`| col |`) | TipTap 즉시 렌더 |
+| sheets | ✅ sheet_write_cells | ✅ 셀 채우기 = 표 | 한 번에 ~100 셀 |
+| decks | ⚠️ slide_add 정의됨 | — | **frontend AIAssistantPanel 미연결** |
+| hwps | ❌ rhwp API 한계 | ❌ | AI 마크다운 클립보드 복사 → 사용자 Ctrl+V |
+| surveys | ⚠️ survey_add_question 정의됨 | — | **frontend AIAssistantPanel 미연결** |
+
+docs/sheets는 ApplyHandler 직접 적용 — AI가 표/리스트/수식·셀 채우기 즉시 반영.
+hwps는 rhwp가 char-level API 미노출 → 마크다운 텍스트만 클립보드. 표는 못 만듦.
+decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 컴포넌트가
+연결 안 됨 — 다음 작업 필요.
+
+**테스트 전제 — API 키**: `/system/llm/providers`에서 키 입력 + 활성화 + `/system/llm/config`에서 기본 모델 지정해야 도우미 작동.
+
+### 버그 fix (이번 세션)
+1. **storage_bytes 갱신** (docs/sheets/decks) — Hocuspocus snapshot endpoint에서
+   `yjs_state` 저장 시 `storage_bytes`도 함께 갱신. 이전엔 0B로 표시.
+2. **list view ⋮ 메뉴 잘림** — 컨테이너 `overflow-hidden` 제거.
+3. **AI 사이드바 켰을 때 hwps/sheets 우측 여백** — 이중 paddingRight 문제 →
+   admin layout main과 페이지에서 각자 paddingRight를 더하던 것 → 페이지에서 제거.
+   추가로 `ai.open` state가 다른 페이지에서 잔여 true로 남는 문제 →
+   sheets/hwps 페이지 진입 시 `ai.setOpen(false)` 강제 + marginRight 동적
+   (ai.open=true → 0, false → -24).
+4. **HWP iframe AI 패널 덮임** — createEditor 후 iframe `width:100%/height:100%/border:none/display:block`
+   강제 적용 + container `relative w-full overflow-hidden` 추가.
+5. **Ctrl+C 복사 추가** — frontend `clipMode` state + backend `/items/{type}/{id}/copy`.
+6. **storage_volumes invariant + filename_normalize** 등 기존 시스템 호환 유지.
+
+### 통계 (2026-05-22 세션)
+- Commit 약 7개 (drive 폴더 시스템 / Google Drive UI / 학생 마법사 / 4종 버그 fix /
+  HWP iframe fix / CLAUDE.md 최신화)
+- Backend: 440 → 456 routes (+16)
+- 새 모델: Folder (1) + 5개 자료 folder_id 컬럼
+- 새 모듈: drive/folders.py, classroom/student_enrollment.py, student_self/enrollment.py
+- 새 서비스: services/folder_seed.py
+- 새 페이지: `/s/enrollment-wizard`
+- 새 컴포넌트: FolderSidebar (deprecated, type만 사용), MoveToFolderModal, SortableTh
+- alembic migration: 7a1b2c3d4e5f (drive_folders + 5개 자료 folder_id)
+- TypeScript 0 error, pytest 26/26 (convention/security)
+
+### 보류 작업 (다음 단계)
+1. **decks/surveys AI integration** — `AIAssistantPanel` 페이지 연결
+2. **모듈화 HIGH**:
+   - `classroom/[cid]/page.tsx` (845줄)
+   - `students/_tabs.tsx` (836줄)
+   - DrivePage (1400줄 — folder 추가로 더 커짐) → 분할 후보
+3. **보안 검토** — 새 endpoint들 권한 가드 점검 (folder/copy/enrollment)
+4. **테스트 추가** — folder_seed/copy/enrollment 커버리지
+5. **1500명 최적화** — 인덱스 추가, N+1 점검
+6. **decks 슬라이드 thumbnail 추출** (현재 plain_text만)
+7. **HWP file 복사** — copy endpoint hwps 지원 (file 실 복제)
+
+다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.

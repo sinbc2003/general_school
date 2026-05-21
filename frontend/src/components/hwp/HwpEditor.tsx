@@ -66,6 +66,16 @@ export function HwpEditor({
         editor = await mod.createEditor(containerRef.current);
         editorRef.current = editor;
 
+        // iframe width/height 강제 — rhwp가 viewport 단위로 측정하는 경우 방지.
+        // 부모 div 크기 변경(AI 패널 열림 등) 시 iframe이 자동 reflow되도록.
+        const iframe = containerRef.current?.querySelector("iframe");
+        if (iframe) {
+          iframe.style.width = "100%";
+          iframe.style.height = "100%";
+          iframe.style.display = "block";
+          iframe.style.border = "none";
+        }
+
         // 기존 파일 로드 (있으면)
         if (initialFilePath) {
           try {
@@ -275,7 +285,7 @@ export function HwpEditor({
 
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 bg-white"
+        className="flex-1 min-h-0 bg-white relative w-full overflow-hidden"
       />
     </div>
   );
