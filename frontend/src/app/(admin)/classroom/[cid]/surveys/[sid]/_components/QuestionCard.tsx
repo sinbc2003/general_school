@@ -7,7 +7,7 @@
  * canEdit이면 드래그 핸들·삭제 버튼 노출 (draft 상태에서만).
  */
 
-import { GripVertical, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { QuestionPreview } from "./QuestionPreview";
 import { TYPE_LABELS, type Question } from "./_types";
 
@@ -29,12 +29,8 @@ export function QuestionCard({ q, index, canEdit, onDelete }: QuestionCardProps)
       <div className="px-6 py-5">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
-            {/* 드래그 핸들 (canEdit 시) — 그리드 위쪽 가로형 */}
-            {canEdit && (
-              <div className="flex justify-center mb-1">
-                <GripVertical size={14} className="text-text-tertiary -rotate-90" />
-              </div>
-            )}
+            {/* 진짜 드래그 핸들은 SortableQuestionRow의 좌측 GripVertical (hover 시 노출).
+                중앙 상단의 장식용 핸들은 무동작이라 제거됨. */}
             <div className="text-[15.5px] text-text-primary whitespace-pre-wrap leading-snug">
               <span className="text-text-tertiary mr-2">{index + 1}.</span>
               {q.question_text}
