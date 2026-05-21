@@ -167,7 +167,8 @@ const server = Server.configure({
   async onDisconnect({ documentName, document }: onDisconnectPayload) {
     // 마지막 client 떠날 때 즉시 snapshot (debounce 무시)
     const target = extractTarget(documentName);
-    const state = docStates.get(`${target.kind}-${target.id}`);
+    const key = `${target.kind}-${target.id}`;
+    const state = docStates.get(key);
     if (state?.debounceTimer) {
       clearTimeout(state.debounceTimer);
       state.debounceTimer = null;
@@ -178,6 +179,10 @@ const server = Server.configure({
     } catch (e) {
       console.error(`[hocuspocus] final snapshot ${documentName} 실패:`, e);
     }
+    // docStates 메모리 누수 방지 — 매 client disconnect 시 정리.
+    // 다른 client가 남아있어도 다음 onChange에서 getOrInitDocState가 재생성.
+    // 손실되는 정보는 lastEditorId 1회뿐 — 다음 편집 시 다시 채워짐.
+    docStates.delete(key);
   },
 });
 

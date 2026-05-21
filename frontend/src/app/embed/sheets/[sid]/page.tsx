@@ -65,6 +65,13 @@ export default function EmbedSheetPage() {
 
   if (loading) return <div className="p-6 text-text-tertiary">로딩 중...</div>;
   if (!sheet) return null;
+  if (!sheet.permission.can_read) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-text-tertiary">
+        이 시트에 대한 접근 권한이 없습니다.
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full flex flex-col">

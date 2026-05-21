@@ -49,6 +49,13 @@ export default function EmbedDocPage() {
 
   if (loading) return <div className="p-6 text-text-tertiary">로딩 중...</div>;
   if (!doc) return null;
+  if (!doc.permission.can_read) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-text-tertiary">
+        이 문서에 대한 접근 권한이 없습니다.
+      </div>
+    );
+  }
 
   const canWrite = doc.permission.can_write && !doc.is_archived;
 

@@ -126,7 +126,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   // Rubber band drag 선택 — 빈영역에서 마우스 드래그로 박스 그어 다중 선택
   const [dragBox, setDragBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  const dragStartRef = useRef<{ x: number; y: number; base: Set<string>; additive: boolean } | null>(null);
+  const dragStartRef = useRef<{
+    x: number; y: number; base: Set<string>; additive: boolean; started: boolean;
+  } | null>(null);
 
   // 이름 바꾸기 (F2 / 우클릭 메뉴) — 현재 편집 중인 키 + draft
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
@@ -157,21 +159,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       y: e.clientY,
       base: additive ? new Set(selected) : new Set(),
       additive,
+      started: false,
     };
   };
 
-  // 마우스 move/up 글로벌 리스너
+  // 마우스 move/up 글로벌 리스너 — mount 시 한 번만 등록 (stale closure 회피).
+  // dragBox state는 visual only — 로직은 dragStartRef.started 플래그로 추적.
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       const s = dragStartRef.current;
       if (!s) return;
       const dx = e.clientX - s.x;
       const dy = e.clientY - s.y;
-      // 3px 이상 움직였을 때부터 박스 표시 (단순 클릭과 구분)
-      if (!dragBox && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      // 첫 3px 이하면 박스 시작 안 함 (단순 클릭과 구분). 한 번 시작되면 계속 update.
+      if (!s.started) {
+        if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+        s.started = true;
+      }
       const box = { x1: s.x, y1: s.y, x2: e.clientX, y2: e.clientY };
       setDragBox(box);
-      // 박스 안 카드 검사
       const nodes = document.querySelectorAll<HTMLElement>("[data-drive-key]");
       const hit = new Set(s.base);
       nodes.forEach((n) => {
@@ -194,7 +200,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [dragBox]);
+  }, []);
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
     if (typeof window === "undefined") return "list";

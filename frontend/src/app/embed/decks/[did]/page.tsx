@@ -61,6 +61,13 @@ export default function EmbedDeckPage() {
 
   if (loading) return <div className="p-6 text-text-tertiary">로딩 중...</div>;
   if (!deck) return null;
+  if (!deck.permission.can_read) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-text-tertiary">
+        이 슬라이드에 대한 접근 권한이 없습니다.
+      </div>
+    );
+  }
 
   const canWrite = deck.permission.can_write && !deck.is_archived;
 
