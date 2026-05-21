@@ -5,6 +5,8 @@
  *
  * rhwp 기반 — 협업 미지원, 마지막 저장 우선 (LWW).
  * iframe 임베드. 단독 화면 사용.
+ *
+ * Layout: -m-6 + h-screen으로 admin layout main p-6 padding 상쇄, viewport 가득 채움.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -62,7 +64,7 @@ export default function AdminStandaloneHwpPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
+  if (loading) return <div className="p-6 text-text-tertiary">로딩 중...</div>;
   if (!doc) return null;
 
   const accessLabel: Record<string, string> = {
@@ -72,37 +74,37 @@ export default function AdminStandaloneHwpPage() {
   };
 
   return (
-    <div className="w-full h-[calc(100vh-7rem)] flex flex-col">
-      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap flex-shrink-0">
-        <Link
-          href="/drive"
-          className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
-        >
-          <ArrowLeft size={12} /> 내 드라이브
-        </Link>
-        <div className="flex items-center gap-3 text-caption text-text-tertiary flex-wrap">
-          <span>만든이 <b>{doc.owner_name || `#${doc.owner_id}`}</b></span>
-          <button
-            onClick={() => setShowShare(true)}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-secondary"
+    <div className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary">
+      <div className="flex-shrink-0 px-4 pt-3 pb-1.5">
+        <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+          <Link
+            href="/drive"
+            className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1"
           >
-            <Share2 size={11} /> {accessLabel[doc.access_mode] || doc.access_mode}
-          </button>
-          <span>수정 {doc.updated_at?.slice(0, 16).replace("T", " ")}</span>
-          <span>권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
-            {!doc.permission.can_write && " (읽기 전용)"}
-          </span>
-          <button
-            onClick={() => window.open(`/embed/hwps/${hid}`, "_blank", "noopener,noreferrer")}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-text-tertiary border border-border-default rounded hover:bg-bg-secondary"
-            title="새 창에서 열기 (사이드바 없이)"
-          >
-            <ExternalLink size={11} /> 새 창
-          </button>
+            <ArrowLeft size={12} /> 내 드라이브
+          </Link>
+          <div className="flex items-center gap-3 text-caption text-text-tertiary flex-wrap">
+            <span>만든이 <b>{doc.owner_name || `#${doc.owner_id}`}</b></span>
+            <button
+              onClick={() => setShowShare(true)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-primary"
+            >
+              <Share2 size={11} /> {accessLabel[doc.access_mode] || doc.access_mode}
+            </button>
+            <span>수정 {doc.updated_at?.slice(0, 16).replace("T", " ")}</span>
+            <span>권한: <b className="text-accent">{doc.permission.role || "없음"}</b>
+              {!doc.permission.can_write && " (읽기 전용)"}
+            </span>
+            <button
+              onClick={() => window.open(`/embed/hwps/${hid}`, "_blank", "noopener,noreferrer")}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] text-text-tertiary border border-border-default rounded hover:bg-bg-primary"
+              title="새 창에서 열기 (사이드바 없이)"
+            >
+              <ExternalLink size={11} /> 새 창
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="mb-3 flex-shrink-0">
         <EditableTitle
           value={doc.title}
           canEdit={doc.permission.can_write && !doc.is_archived}
@@ -117,7 +119,7 @@ export default function AdminStandaloneHwpPage() {
         />
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 px-4 pb-2">
         <HwpEditor
           hwpId={hid}
           canWrite={doc.permission.can_write && !doc.is_archived}

@@ -276,7 +276,6 @@ export function HwpEditor({
       <div
         ref={containerRef}
         className="flex-1 min-h-0 bg-white"
-        style={{ minHeight: 400 }}
       />
     </div>
   );
