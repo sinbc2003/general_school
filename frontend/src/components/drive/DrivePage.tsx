@@ -45,6 +45,7 @@ import {
   type ItemType, type SortKey, type SortDir,
   type DriveItem, type DriveInfo,
 } from "./_drive-shared";
+import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 휴지통 모드 (탭 대신 단순 boolean)
@@ -448,91 +449,13 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     "복구", false,
   );
 
-  // Esc / Delete / Ctrl(Cmd)+X / Ctrl(Cmd)+V 처리
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-
-      const mod = e.ctrlKey || e.metaKey;
-
-      if (e.key === "Escape") {
-        setSelected(new Set());
-        setCtx(null);
-        setCutKeys(new Set());
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
-        e.preventDefault();
-        if (trashMode) doBulkPermanent();
-        else doBulkSoftDelete();
-      } else if (mod && (e.key === "x" || e.key === "X")) {
-        // Ctrl+X — 잘라내기. 자료만 (폴더는 X).
-        if (trashMode || selected.size === 0) return;
-        const targets = Array.from(selected).filter((k) => !k.startsWith("folder:"));
-        if (targets.length === 0) return;
-        e.preventDefault();
-        setCutKeys(new Set(targets));
-        setClipMode("cut");
-        toast.show(`${targets.length}개 자료 잘라내기 — Ctrl+V로 붙여넣기`, "info");
-      } else if (mod && (e.key === "c" || e.key === "C")) {
-        // Ctrl+C — 복사. 자료만.
-        if (trashMode || selected.size === 0) return;
-        const targets = Array.from(selected).filter((k) => !k.startsWith("folder:"));
-        if (targets.length === 0) return;
-        e.preventDefault();
-        setCutKeys(new Set(targets));
-        setClipMode("copy");
-        toast.show(`${targets.length}개 자료 복사 — Ctrl+V로 붙여넣기`, "info");
-      } else if (mod && (e.key === "v" || e.key === "V")) {
-        // Ctrl+V — 현재 폴더에 cut/copy 자료 적용.
-        if (trashMode || cutKeys.size === 0) return;
-        e.preventDefault();
-        (async () => {
-          try {
-            const targets = items.filter((x) => cutKeys.has(itemKey(x)));
-            const endpoint = clipMode === "copy" ? "copy" : "move";
-            let okCount = 0;
-            let skipped: string[] = [];
-            for (const x of targets) {
-              try {
-                await api.post(`/api/drive/items/${x.type}/${x.id}/${endpoint}`, {
-                  folder_id: currentFolderId,
-                });
-                okCount++;
-              } catch (err: any) {
-                skipped.push(`${x.title}: ${err?.detail || err?.message || "실패"}`);
-              }
-            }
-            setCutKeys(new Set());
-            setSelected(new Set());
-            await fetchAll();
-            const verb = clipMode === "copy" ? "복사" : "이동";
-            if (okCount > 0) toast.show(`${okCount}개 ${verb} 완료`, "success");
-            if (skipped.length > 0) {
-              toast.show(`${skipped.length}개 ${verb} 실패: ${skipped[0]}`, "error");
-            }
-          } catch (err: any) {
-            alert(err?.detail || err?.message || "붙여넣기 실패");
-          }
-        })();
-      } else if (mod && (e.key === "a" || e.key === "A")) {
-        // Ctrl+A — 현재 보기 모든 자료(폴더 제외) 선택
-        if (trashMode) {
-          e.preventDefault();
-          setSelected(new Set(items.map((x) => itemKey(x))));
-        } else {
-          e.preventDefault();
-          const allKeys = [
-            ...filteredFolders.map((f) => `folder:${f.id}`),
-            ...filtered.map((x) => itemKey(x)),
-          ];
-          setSelected(new Set(allKeys));
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, trashMode, cutKeys, clipMode, items, filtered, filteredFolders, currentFolderId]);
+  // Esc / Delete / Ctrl(Cmd)+X / Ctrl(Cmd)+C / Ctrl(Cmd)+V / Ctrl(Cmd)+A
+  useDriveKeyboardShortcuts({
+    trashMode, selected, setSelected, cutKeys, setCutKeys, clipMode, setClipMode,
+    setCtx: () => setCtx(null),
+    items, filtered, filteredFolders, currentFolderId,
+    fetchAll, doBulkSoftDelete, doBulkPermanent, toast,
+  });
 
   // 이름 바꾸기
   const RENAME_PATH: Partial<Record<ItemType, string>> = {
