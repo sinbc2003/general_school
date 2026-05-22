@@ -34,19 +34,23 @@ from __future__ import annotations
 import base64
 import io
 import json
+import secrets
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.files import ensure_dir_async, write_bytes_async
 from app.core.permissions import require_permission
+from app.core.quota import check_quota, consume_quota
+from app.core.upload import POLICY_BACKUP, validate_upload
 from app.models import (
     ClassroomDocument, ClassroomHwp, ClassroomPresentation, ClassroomSheet,
     ClassroomSlide, Folder, Survey, SurveyAnswer, SurveyQuestion, SurveyResponse, User,
@@ -327,5 +331,318 @@ async def download_my_drive_backup(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Import (복원)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 안전 한도 — DoS 차단
+MAX_IMPORT_ZIP_SIZE = 500 * 1024 * 1024  # 500MB
+MAX_ITEMS_PER_TYPE = 2000  # 한 사용자 한 번에 자료 2000개 한도
+
+
+async def _resolve_imported_folder(
+    db: AsyncSession, user: User, src_folder: dict[str, Any],
+    folder_id_map: dict[int, int],
+) -> int | None:
+    """ZIP 안 폴더 한 개를 사용자 드라이브에 매핑.
+
+    - 자동 폴더(is_system_locked): 기존 폴더 찾아서 그대로 사용 (auto_kind + source 매칭).
+      없으면 새로 생성 (단 잠금 유지).
+    - 수동 폴더: 새 생성 (이름 중복 허용).
+    - 결과는 folder_id_map에 (옛 id → 새 id) 저장.
+    """
+    old_id = src_folder.get("id")
+    if old_id is None:
+        return None
+
+    # 자동 폴더 — 멱등 매칭
+    if src_folder.get("is_system_locked") and src_folder.get("auto_kind"):
+        q = select(Folder).where(
+            Folder.owner_id == user.id,
+            Folder.auto_kind == src_folder["auto_kind"],
+        )
+        if src_folder.get("semester_id") is not None:
+            q = q.where(Folder.semester_id == src_folder["semester_id"])
+        else:
+            q = q.where(Folder.semester_id.is_(None))
+        if src_folder.get("source_kind") is not None:
+            q = q.where(Folder.source_kind == src_folder["source_kind"])
+        if src_folder.get("source_id") is not None:
+            q = q.where(Folder.source_id == src_folder["source_id"])
+        existing = (await db.execute(q.limit(1))).scalar_one_or_none()
+        if existing:
+            folder_id_map[old_id] = existing.id
+            return existing.id
+
+    # 새 폴더 — 부모 매핑
+    parent_old = src_folder.get("parent_id")
+    parent_new = folder_id_map.get(parent_old) if parent_old else None
+
+    # 다음 sort_order
+    if parent_new is None:
+        max_order = (await db.execute(
+            select(Folder.sort_order).where(
+                Folder.owner_id == user.id, Folder.parent_id.is_(None),
+                Folder.deleted_at.is_(None),
+            ).order_by(Folder.sort_order.desc()).limit(1)
+        )).scalar_one_or_none() or 0
+    else:
+        max_order = (await db.execute(
+            select(Folder.sort_order).where(
+                Folder.parent_id == parent_new, Folder.deleted_at.is_(None),
+            ).order_by(Folder.sort_order.desc()).limit(1)
+        )).scalar_one_or_none() or 0
+
+    f = Folder(
+        owner_id=user.id,
+        parent_id=parent_new,
+        name=(src_folder.get("name") or "복원된 폴더")[:255],
+        auto_kind=src_folder.get("auto_kind"),
+        semester_id=src_folder.get("semester_id"),
+        source_kind=src_folder.get("source_kind"),
+        source_id=src_folder.get("source_id"),
+        sort_order=int(max_order) + 1,
+        is_system_locked=bool(src_folder.get("is_system_locked")),
+    )
+    db.add(f)
+    await db.flush()
+    folder_id_map[old_id] = f.id
+    return f.id
+
+
+@router.post("/backup/import")
+async def import_drive_backup(
+    request: Request,
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("drive.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인 드라이브에 ZIP 백업 복원.
+
+    원칙:
+      - 본인 드라이브에만 — 다른 사용자 자료 복원 불가
+      - 자동 폴더는 기존과 매칭 (중복 생성 X). 수동 폴더는 새로 생성.
+      - 자료는 모두 새 id로 생성 — 기존 자료 안 건드림
+      - HWP file은 새 storage 경로로 복사
+      - quota check_quota 통과 + consume_quota
+      - 한 번에 500MB ZIP / 자료 type당 2000개 한도 (DoS 차단)
+    """
+    # 1) 확장자·크기 검증 (POLICY_BACKUP: .zip, 2GB)
+    content = await validate_upload(file, POLICY_BACKUP)
+    if len(content) > MAX_IMPORT_ZIP_SIZE:
+        raise HTTPException(413, f"ZIP이 너무 큽니다 (최대 {MAX_IMPORT_ZIP_SIZE // 1024 // 1024}MB)")
+
+    # 2) ZIP 파싱
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content), "r")
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "유효한 ZIP 파일이 아닙니다")
+
+    names = set(zf.namelist())
+    if "manifest.json" not in names:
+        raise HTTPException(400, "manifest.json 없음 — 본 시스템 백업 ZIP 아닐 수 있음")
+
+    try:
+        manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+    except Exception:
+        raise HTTPException(400, "manifest.json 파싱 실패")
+    if manifest.get("system") != "general_school":
+        raise HTTPException(400, f"호환 안 되는 system: {manifest.get('system')}")
+
+    # 3) Quota 추정 — 자료 storage_bytes 합계
+    estimated_bytes = 0
+    items_to_import: dict[str, list[dict]] = {
+        "docs": [], "sheets": [], "decks": [], "surveys": [], "hwps": [],
+    }
+    for n in sorted(names):
+        for t in items_to_import.keys():
+            if n.startswith(f"{t}/") and n.endswith(".json"):
+                try:
+                    data = json.loads(zf.read(n).decode("utf-8"))
+                    items_to_import[t].append(data)
+                    estimated_bytes += int(data.get("storage_bytes") or 0)
+                except Exception:
+                    pass
+        if len(items_to_import["docs"]) > MAX_ITEMS_PER_TYPE:
+            raise HTTPException(413, f"docs 자료가 {MAX_ITEMS_PER_TYPE}개 초과")
+
+    if estimated_bytes > 0:
+        check_quota(user, estimated_bytes)
+
+    # 4) 폴더 import (folders.json)
+    folder_id_map: dict[int, int] = {}
+    if "folders.json" in names:
+        try:
+            folders_data = json.loads(zf.read("folders.json").decode("utf-8"))
+        except Exception:
+            folders_data = []
+        # parent_id 의존 순서 위해 두 패스
+        # 1차: 모든 폴더를 임시 등록 (parent 매핑 후일에 처리)
+        remaining = list(folders_data)
+        # parent_id 가 None 또는 이미 매핑된 폴더부터 처리. 최대 64 depth.
+        for _ in range(64):
+            if not remaining:
+                break
+            progress = False
+            still: list[dict] = []
+            for sf in remaining:
+                parent_old = sf.get("parent_id")
+                if parent_old is None or parent_old in folder_id_map:
+                    await _resolve_imported_folder(db, user, sf, folder_id_map)
+                    progress = True
+                else:
+                    still.append(sf)
+            remaining = still
+            if not progress:
+                break  # cycle 또는 invalid
+
+    # 5) 자료 import
+    imported_counts = {"folders": len(folder_id_map), "docs": 0, "sheets": 0, "decks": 0, "surveys": 0, "hwps": 0}
+
+    # docs
+    for d in items_to_import["docs"]:
+        new_obj = ClassroomDocument(
+            owner_id=user.id,
+            course_id=None,  # 강좌 상관 X (본인 드라이브 복원)
+            title=(d.get("title") or "복원된 문서")[:255],
+            plain_text=d.get("plain_text"),
+            yjs_state=base64.b64decode(d["yjs_state_base64"]) if d.get("yjs_state_base64") else None,
+            access_mode=d.get("access_mode") or "specific_users",
+            storage_bytes=int(d.get("storage_bytes") or 0),
+            folder_id=folder_id_map.get(d.get("folder_id")) if d.get("folder_id") else None,
+        )
+        db.add(new_obj)
+        imported_counts["docs"] += 1
+
+    # sheets
+    for s in items_to_import["sheets"]:
+        new_obj = ClassroomSheet(
+            owner_id=user.id,
+            course_id=None,
+            title=(s.get("title") or "복원된 시트")[:255],
+            yjs_state=base64.b64decode(s["yjs_state_base64"]) if s.get("yjs_state_base64") else None,
+            access_mode=s.get("access_mode") or "specific_users",
+            settings=s.get("settings"),
+            storage_bytes=int(s.get("storage_bytes") or 0),
+            folder_id=folder_id_map.get(s.get("folder_id")) if s.get("folder_id") else None,
+        )
+        db.add(new_obj)
+        imported_counts["sheets"] += 1
+
+    # decks + slides
+    for p in items_to_import["decks"]:
+        new_obj = ClassroomPresentation(
+            owner_id=user.id,
+            course_id=None,
+            title=(p.get("title") or "복원된 프리젠테이션")[:255],
+            yjs_state=base64.b64decode(p["yjs_state_base64"]) if p.get("yjs_state_base64") else None,
+            access_mode=p.get("access_mode") or "specific_users",
+            settings=p.get("settings"),
+            storage_bytes=int(p.get("storage_bytes") or 0),
+            folder_id=folder_id_map.get(p.get("folder_id")) if p.get("folder_id") else None,
+        )
+        db.add(new_obj)
+        await db.flush()
+        # slides
+        for sl in (p.get("slides") or []):
+            db.add(ClassroomSlide(
+                presentation_id=new_obj.id,
+                order=int(sl.get("order") or 0),
+                title=sl.get("title"),
+                plain_text=sl.get("plain_text"),
+                settings=sl.get("settings"),
+            ))
+        imported_counts["decks"] += 1
+
+    # surveys + questions (응답은 복원 X — 새 학교에선 새 응답)
+    for sv in items_to_import["surveys"]:
+        new_obj = Survey(
+            author_id=user.id,
+            course_id=None,
+            title=(sv.get("title") or "복원된 설문")[:255],
+            description=sv.get("description"),
+            status="draft",  # 안전: 복원 시 draft로 (active 즉시 응답 받지 않게)
+            is_anonymous=bool(sv.get("is_anonymous")),
+            access_mode=sv.get("access_mode") or "course_members",
+            storage_bytes=int(sv.get("storage_bytes") or 0),
+            folder_id=folder_id_map.get(sv.get("folder_id")) if sv.get("folder_id") else None,
+        )
+        db.add(new_obj)
+        await db.flush()
+        for q in (sv.get("questions") or []):
+            db.add(SurveyQuestion(
+                survey_id=new_obj.id,
+                order=int(q.get("order") or 0),
+                type=q.get("type") or "short_text",
+                question_text=q.get("question_text") or "질문",
+                is_required=bool(q.get("is_required")),
+                options=q.get("options"),
+                settings=q.get("settings"),
+            ))
+        imported_counts["surveys"] += 1
+
+    # hwps + file 복사
+    STORAGE_HWPS = STORAGE_ROOT / "hwps"
+    for h in items_to_import["hwps"]:
+        new_obj = ClassroomHwp(
+            owner_id=user.id,
+            course_id=None,
+            title=(h.get("title") or "복원된 HWP")[:255],
+            access_mode=h.get("access_mode") or "specific_users",
+            file_format=h.get("file_format"),
+            storage_bytes=int(h.get("storage_bytes") or 0),
+            folder_id=folder_id_map.get(h.get("folder_id")) if h.get("folder_id") else None,
+        )
+        db.add(new_obj)
+        await db.flush()
+        # ZIP 안에 hwp 파일 찾기 — hwps/{old_id}_*.{hwp|hwpx}
+        old_id = h.get("id")
+        fmt = h.get("file_format") or "hwpx"
+        # 파일명 prefix 찾기 (id_제목.fmt)
+        for n in names:
+            if n.startswith(f"hwps/{old_id}_") and (n.endswith(".hwp") or n.endswith(".hwpx")):
+                try:
+                    file_data = zf.read(n)
+                    token = secrets.token_urlsafe(8)
+                    new_dir = STORAGE_HWPS / str(new_obj.id)
+                    await ensure_dir_async(new_dir)
+                    new_fname = f"{token}.{fmt}"
+                    await write_bytes_async(new_dir / new_fname, file_data)
+                    new_obj.file_path = f"hwps/{new_obj.id}/{new_fname}"
+                except Exception:
+                    pass
+                break
+        imported_counts["hwps"] += 1
+
+    await db.flush()
+
+    # 6) quota consume
+    if estimated_bytes > 0:
+        await consume_quota(db, user, estimated_bytes)
+
+    await log_action(
+        db, user, "drive.backup.import",
+        target=f"user:{user.id}",
+        detail=(
+            f"folders={imported_counts['folders']} "
+            f"docs={imported_counts['docs']} sheets={imported_counts['sheets']} "
+            f"decks={imported_counts['decks']} surveys={imported_counts['surveys']} "
+            f"hwps={imported_counts['hwps']} bytes={estimated_bytes}"
+        ),
+        request=request,
+    )
+
+    return {
+        "ok": True,
+        "imported": imported_counts,
+        "consumed_bytes": estimated_bytes,
+        "source_user": manifest.get("user"),
+        "note": (
+            "복원 완료. 설문지는 draft 상태로 들어왔습니다 — 게시하려면 설정에서 "
+            "변경하세요. HWP 파일은 새 storage 경로에 복사됐습니다."
+        ),
+    }
 
 
