@@ -179,6 +179,76 @@ super_admin 전용. 전체 데이터 ZIP 다운로드/복원.
 
 ---
 
+## 스토리지 셋업 절차 (외장 SSD / NAS)
+
+**1500명 1년 운영 기준 실 사용량 추정**: 300~600GB. 본체 SSD 256GB로는 부족 → 외부 스토리지 필수.
+
+장비 선택 가이드는 [DEPLOY_TO_SCHOOL.md §1.5](../DEPLOY_TO_SCHOOL.md) 참고. 여기는 셋업 명령.
+
+### A. 외장 USB SSD (단순)
+
+1. 외장 SSD를 노트북 USB-C에 꽂는다 → 우분투가 `/media/<user>/<라벨>` 또는 `/mnt/external1`로 자동 마운트
+   - 자동 마운트 안 되면: `sudo mkdir /mnt/external1 && sudo mount /dev/sdX1 /mnt/external1`
+2. backend process 사용자에게 쓰기 권한 부여:
+   ```bash
+   sudo chown -R $USER:$USER /mnt/external1   # 또는 /media/$USER/<라벨>
+   ```
+3. **자동 마운트 영구 등록** (재부팅 시 자동 연결):
+   ```bash
+   # UUID 확인
+   sudo blkid /dev/sdX1
+   # /etc/fstab 끝줄 추가 (vim/nano)
+   UUID=<위에서 확인한 UUID>  /mnt/external1  ext4  defaults,nofail  0  2
+   ```
+4. 서버 웹 UI: `/system/storage` → **"자동 감지"** 클릭 → 후보 list에서 SSD 선택 → "등록"
+5. active 토글 → 새 업로드 분산 대상에 포함
+
+**백업 SSD 운영 (월 1회 미러)**:
+```bash
+# active SSD → 백업 SSD 일괄 복사
+rsync -av /mnt/external1/ /mnt/backup_ssd/
+```
+
+### B. NAS (안전 + 운영 편함)
+
+**예: Synology DS220+ + WD Red HDD 4TB×2**
+
+1. NAS 셋업 (NAS 웹 UI, 30분):
+   - NAS 전원 연결 + 학교 LAN 케이블 꽂기
+   - NAS 웹 UI 접속 (`http://<NAS-IP>:5000` — Synology Assistant 또는 라우터 DHCP table 확인)
+   - 초기 마법사 따라가기: 관리자 계정 → RAID 1 (미러) 선택 → 볼륨 생성
+   - "공유 폴더" 만들기 (예: `general_school`)
+   - NFS 활성화: 제어판 → 파일 서비스 → NFS → "NFS 서비스 사용" 체크
+   - 공유 폴더 권한: 제어판 → 공유 폴더 → general_school → NFS 권한 → 서버 IP만 read/write 허용
+
+2. 서버에서 NFS client 설치 + 마운트:
+   ```bash
+   sudo apt install -y nfs-common
+   sudo mkdir /mnt/nas
+   sudo mount -t nfs <NAS-IP>:/volume1/general_school /mnt/nas
+   sudo chown -R $USER:$USER /mnt/nas
+   ```
+
+3. **부팅 시 자동 마운트** (`/etc/fstab` 끝줄):
+   ```
+   <NAS-IP>:/volume1/general_school  /mnt/nas  nfs  defaults,nofail,_netdev,soft,timeo=30  0  0
+   ```
+   - `nofail`: NAS 꺼져 있어도 부팅 진행
+   - `_netdev`: 네트워크 준비된 후 마운트
+   - `soft,timeo=30`: NAS 응답 없으면 30s 후 포기 (서버가 NAS 다운에 hang 방지)
+
+4. 서버 웹 UI: `/system/storage` → "자동 감지" → `/mnt/nas` 선택 → 등록 → active
+
+5. **NAS 자체 백업**: NAS UI에서 USB SSD 꽂아 "Hyper Backup" 자동 스케줄 (Synology 표준 기능)
+
+### 운영 모니터링
+
+- `/system/storage` 페이지가 6시간 cron으로 mount/사용량을 자동 체크
+- 90% 도달 시 최고관리자에게 알림 (24h 쿨다운)
+- NAS 다운 / 외장 SSD 분리 시 last_status가 `missing` / `error: ...`로 표시
+
+---
+
 ## Storage Volume (외장 SSD 운영)
 
 `/system/storage` 페이지에서 외장 SSD/HDD를 추가 볼륨으로 등록할 수 있다. 6시간 cron이
