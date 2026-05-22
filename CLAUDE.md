@@ -1740,3 +1740,100 @@ decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 
 5. **DrivePage fetchAll/drag&drop hook** 추가 분리
 
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
+
+---
+
+## 2026-05-23 세션 — 보안 보강 + Storage Volume 자동 감지 + 강좌 챗봇 + 학생별 사본
+
+### 16개 병렬 감사 → 보안 보강 (큰 흐름)
+
+이전 세션 마지막에 1500명 1년 운영 readiness 감사를 16개 opus 에이전트 병렬로 돌리고
+1차 보완 commit(`a5d8e92`). 본 세션에선 추가 라운드로:
+- C1-C4 4건 fix (`4848436`): student sheet 페이지, CSRF middleware, rehype-sanitize, notification rate-limit
+- D1-D3 (`29b0d28` + `0f09373`): DrivePage hooks/components 분할, storage volume cron, get_storage_root helper
+- E1-E3 (`fcb83aa`): DrivePage 헤더 분할, backend 라우터 분할(drive/organize·classroom/posts), 운영 가이드 .md 통합
+- F1+F2 (`0da16f5`): Storage Volume Step 2 인프라 (storage_volume_id 컬럼), CSRF X-Internal-Token 값 검증
+
+### 장애 회복 — notification_scheduler 트랜잭션 격리 (`abb4037`)
+
+**발견**: alembic upgrade 적용 전 cron tick → `UndefinedColumnError` → 같은 session 안의
+3개 후속 task 모두 `InFailedSQLTransactionError`로 줄줄이 실패.
+
+**fix**: `_scheduler_loop`의 4개 task(due_reminders/trash_purge/expired_users/revision_purge)를
+각자 독립 `async_session_factory()`로 격리. 하나 실패해도 다른 task 정상. task별 error_type
+분리로 24h 쿨다운 알림이 task별 개별 발송.
+
+### Storage Volume 자동 감지 (`1931dfb`)
+
+`/proc/mounts` 파싱 → 안전 prefix(`/mnt`, `/media`, `/run/media`)만 후보. tmpfs/proc/sysfs
+등 시스템 fstype 22종 자동 제외. UI에 "자동 감지" 버튼 + `DetectMountsModal.tsx` 모달
+(추천 후보 강조, 등록됨 회색, read-only 빨강, 1클릭 등록). WSL 테스트로 `/mnt/c` 정상 감지 확인.
+
+### 스토리지 가이드 보강 (`2ecafae`)
+
+`DEPLOY_TO_SCHOOL.md §1.5` + `production/README.md` 새 절:
+- 1500명 1년 = 300~600GB 실 사용 추정
+- 비용/셋업/운영/안전 4축 비교표 (외장 SSD 1개 / 2개 미러 / NAS RAID 1 / RAID 5/6 / 5대 클러스터)
+- **5대 노트북 클러스터 권장 X** 5가지 이유 (폐 디스크 수명·NFS 인력 부담·1대 꺼지면 stuck·미러 불가·전기료)
+- NAS 셋업 5단계 (NFS 활성화 + `nofail,_netdev,soft,timeo=30` fstab 옵션)
+
+### LLM API 키 등록 UX fix (`12f70bd`)
+
+흔한 mistake — 키 입력 → 저장 → "활성화" 토글 깜빡 → "비활성 상태입니다" 에러.
+`upsert_provider`에서 키 입력 + `is_active` 명시 안 했으면 자동 `is_active=True`.
+사용자가 명시적 `is_active=False`를 함께 보내면 그 의도 존중.
+
+### 첨부 share_mode + 학생별 사본 + 강좌 챗봇 (3 phase, 5 commit)
+
+**Phase 1 (`2dc2216`)** — Attachment.share_mode 필드 추가
+- `view` (default) / `edit` (공동 편집) / `copy` (학생별 사본, Phase 2 활성화)
+- frontend: AssignmentModal에 드롭다운, PostDetailView에 ShareModeBadge
+
+**Phase 2a backend (`61151f4`)** — 학생별 사본 자동 생성
+- 신규 모델 `PostAttachmentCopy` (post_id + attachment_idx + student_id UNIQUE)
+- 신규 endpoint:
+  - `POST /api/classroom/posts/{pid}/attachments/{idx}/my-copy` — 학생 lazy 생성
+  - `GET /api/classroom/posts/{pid}/copies` — 교사 채점용 list
+- `_create_student_copy` 헬퍼 — doc/sheet/deck/hwp 4 type 모두 지원
+  - yjs_state 복제, HWP file 실 복사, deck은 slides도 복제
+  - 학생 quota 차감, 사본 access_mode=specific_users + 교사들 멤버 추가
+- 정책: lazy 생성 (강좌 active 수강생 첫 접속 시), 학기 중 신규 학생도 OK
+
+**Phase 2b frontend (`9373bc1`)**
+- 학생 클릭 → my-copy API → `window.location.href = copy_url` redirect
+- 교사 페이지에 `CopiesSection` — 학생 list (학년-반-번호) + 1클릭 사본 열기
+
+**Phase 3a backend (`fa86269`)** — 강좌 챗봇 CRUD
+- 신규 모델 `CourseChatbot` (name + system_prompt + provider/model_id 옵션 + is_active)
+- 5 endpoint (list/create/get/update/delete) — editor + admin CRUD, 멤버 view
+- 사용자 결정 사항: 이름 "Gem" 대신 **"강좌 챗봇"** + 강좌 active 수강생만
+
+**Phase 3b (`74f5f0b`)** — UI + 챗 시작 + system_prompt override
+- `ChatSession.system_prompt_text` 컬럼 추가 (Text, nullable) + alembic
+- `sessions.py` 메시지 발송 분기 — system_prompt_text 우선
+- `POST /api/classroom/chatbots/{bid}/start-session` — 새 ChatSession + chatbot prompt
+- `CourseTabs`에 "챗봇" 탭 추가 (Bot 아이콘)
+- `CourseChatbots.tsx` 신규 — 카드 list + 만들기/편집 모달 + 시작 버튼
+- admin/student 강좌 페이지 양쪽 통합
+
+### 통계 (2026-05-23 세션)
+
+- Commit: 약 13개 (보안 보강 5 + 장애fix 1 + storage 자동감지 1 + 가이드 보강 1 + LLM UX fix 1 + share_mode 1 + 학생사본 2 + 챗봇 2)
+- Backend: 466 → **474 routes** (+8)
+- 새 모델: PostAttachmentCopy, CourseChatbot (2개) + ChatSession.system_prompt_text 컬럼
+- alembic migrations: 4개 (storage_volume_id, post_attachment_copies, course_chatbots, system_prompt_text)
+- 새 sub-router: classroom/student_copy.py + classroom/chatbots.py
+- 새 frontend: CourseChatbots.tsx + DetectMountsModal.tsx + 기존 컴포넌트 확장
+- 테스트: pytest 32/32 + frontend tsc 0 error 매 commit 통과
+- 사용자 다른 세션 작업 4개 .sh 파일은 fs metadata(executable bit)만 변경됐던 것 → chmod +x 복원
+
+### 다음 세션 후보
+1. **챗봇 첨부 type 통합** — 글 attachment에 `type: "chatbot"` 추가, 학생 클릭 시 챗봇 자동 시작
+2. **챗봇 컨텍스트 자료 첨부** — `CourseChatbot.context_attachments` 활용 (강좌 자료를 system prompt에 자동 주입)
+3. **Storage Volume Step 2 Phase 2** — files/router.py에서 storage_volume_id 보고 root 분기, 업로드 endpoint 적용
+4. **5대 노트북 클러스터 자동 셋업 스크립트** (Option C) — 사용자가 필요성 결정 후
+5. **AI 회귀 감사 — F2 발견 HIGH 2건 처리**:
+   - is_course_editor SSOT 채택 (co_teacher가 본인 강좌 글 작성·삭제 못함)
+   - batch-organize atomic rollback 강화 (`except Exception` + undo replay)
+
+다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
