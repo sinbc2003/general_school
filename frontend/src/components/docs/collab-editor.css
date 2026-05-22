@@ -91,6 +91,94 @@
   cursor: ew-resize;
 }
 
+/* ── Heading (H1/H2/H3/H4/H5/H6) ──
+ * 본 프로젝트는 @tailwindcss/typography 플러그인 미설치 → prose 클래스가 비어있어
+ * heading 스타일이 안 잡힘. 직접 명시. ## space로 markdown shortcut 적용 시
+ * heading <h2>는 들어가지만 시각적으로 평문과 동일해 사용자가 "안 됨" 느낌이었음.
+ */
+.ProseMirror h1 {
+  font-size: 1.875em;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0.8em 0 0.4em;
+  color: var(--text-primary, #111);
+}
+.ProseMirror h2 {
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.7em 0 0.35em;
+  color: var(--text-primary, #222);
+}
+.ProseMirror h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.6em 0 0.3em;
+  color: var(--text-primary, #333);
+}
+.ProseMirror h4 {
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.5em 0 0.25em;
+}
+.ProseMirror h5,
+.ProseMirror h6 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+}
+
+/* ── 단락 + 목록 + 인용 + 코드 ── */
+.ProseMirror p { margin: 0.5em 0; line-height: 1.7; }
+.ProseMirror ul,
+.ProseMirror ol { margin: 0.5em 0; padding-left: 1.6em; }
+.ProseMirror ul { list-style: disc outside; }
+.ProseMirror ol { list-style: decimal outside; }
+.ProseMirror li { margin: 0.2em 0; }
+.ProseMirror li > p { margin: 0; }
+.ProseMirror li > ul,
+.ProseMirror li > ol { margin: 0.2em 0; }
+.ProseMirror blockquote {
+  border-left: 3px solid #d1d5db;
+  padding: 0.2em 0.9em;
+  color: #555;
+  margin: 0.6em 0;
+  background: #fafafa;
+}
+.ProseMirror code {
+  background: #f3f4f6;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+}
+.ProseMirror pre {
+  background: #1f2937;
+  color: #f9fafb;
+  padding: 0.8em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.ProseMirror pre code { background: transparent; padding: 0; color: inherit; }
+.ProseMirror hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+}
+.ProseMirror a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.ProseMirror strong { font-weight: 700; }
+.ProseMirror em { font-style: italic; }
+.ProseMirror s { text-decoration: line-through; }
+
 /* ── 이미지 ── */
 .ProseMirror img {
   max-width: 100%;
