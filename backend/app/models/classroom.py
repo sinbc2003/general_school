@@ -206,3 +206,43 @@ class CoursePostComment(Base):
         Index("ix_classroom_post_comments_author_id", "author_id"),
         Index("ix_classroom_post_comments_post_created", "post_id", "created_at"),
     )
+
+
+class PostAttachmentCopy(Base):
+    """글 첨부 자료의 학생별 사본 매핑.
+
+    share_mode="copy"인 첨부를 학생이 첫 접속(lazy) 시 학생 본인 사본을
+    자동 생성하고, 이 매핑 row를 만든다. 교사 채점 페이지에서 학생별
+    사본을 조회하는 데도 사용.
+
+    UNIQUE(post_id, attachment_idx, student_id) — 학생당 사본 1개.
+    copy_type/copy_id는 generic FK 없음 (type마다 별도 모델 — ClassroomDocument
+    / ClassroomSheet / ClassroomPresentation / ClassroomHwp).
+    """
+    __tablename__ = "post_attachment_copies"
+    __table_args__ = (
+        UniqueConstraint("post_id", "attachment_idx", "student_id",
+                         name="uq_post_attachment_copy_per_student"),
+        Index("ix_post_attachment_copies_post", "post_id", "attachment_idx"),
+        Index("ix_post_attachment_copies_student", "student_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_posts.id", ondelete="CASCADE"), nullable=False,
+    )
+    # post.attachments JSON list 안에서의 0-based 인덱스. 글 편집 시 attachment
+    # 순서 변경되면 매핑 깨질 수 있으므로 backend의 사본 lookup 헬퍼는 attachment
+    # type+id 조합도 함께 검증 (idx만 믿지 X).
+    attachment_idx: Mapped[int] = mapped_column(Integer, nullable=False)
+    student_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    # "doc" | "sheet" | "deck" | "hwp"
+    copy_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 사본 자료의 id (해당 type 모델). 자료 삭제 시 row는 남아있을 수 있어
+    # endpoint에서 db.get으로 None 처리 (휴지통/삭제 자료 무시).
+    copy_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
