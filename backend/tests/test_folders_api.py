@@ -289,6 +289,91 @@ async def test_copy_other_user_item_blocked(
     assert r.status_code == 403
 
 
+@pytest.mark.security
+@pytest.mark.asyncio
+async def test_batch_organize_returns_undo_log_and_can_undo(
+    app_client, db_session, teacher_user, auth_headers,
+):
+    """batch_organize 응답에 undo_log 포함 + undo로 복원 가능."""
+    from app.models import ClassroomDocument
+    doc = ClassroomDocument(owner_id=teacher_user.id, title="원본 제목")
+    db_session.add(doc)
+    await db_session.commit()
+    doc_id = doc.id
+
+    # 정리: 새 폴더 + 자료 이름변경 + 이동
+    r1 = await app_client.post(
+        "/api/drive/items/_batch-organize",
+        json={
+            "actions": [
+                {"action": "create_folder", "folder_name": "정리함", "temp_id": "F1"},
+                {
+                    "action": "rename_and_move",
+                    "item_type": "docs", "item_id": doc_id,
+                    "new_title": "01. 정리된 제목",
+                    "target_temp_id": "F1",
+                },
+            ],
+        },
+        headers=auth_headers(teacher_user),
+    )
+    assert r1.status_code == 200, r1.text
+    data = r1.json()
+    assert "undo_log" in data
+    assert len(data["undo_log"]) >= 2
+
+    # 자료 변경 확인
+    await db_session.refresh(doc)
+    assert doc.title == "01. 정리된 제목"
+    assert doc.folder_id is not None
+
+    # undo
+    r2 = await app_client.post(
+        "/api/drive/items/_undo-organize",
+        json={"undo_log": data["undo_log"]},
+        headers=auth_headers(teacher_user),
+    )
+    assert r2.status_code == 200, r2.text
+    u = r2.json()
+    assert u["renamed"] >= 1
+    assert u["moved"] >= 1
+    assert u["folders_deleted"] >= 1
+
+    # 자료 원상복구
+    await db_session.refresh(doc)
+    assert doc.title == "원본 제목"
+    assert doc.folder_id is None
+
+
+@pytest.mark.security
+@pytest.mark.asyncio
+async def test_undo_organize_only_owns_items(
+    app_client, db_session, teacher_user, student_user, auth_headers,
+):
+    """다른 사용자 자료를 undo_log에 끼워도 cross-user 변경 차단."""
+    from app.models import ClassroomDocument
+    other_doc = ClassroomDocument(owner_id=teacher_user.id, title="교사 문서")
+    db_session.add(other_doc)
+    await db_session.commit()
+
+    # 학생이 가짜 undo_log 보내서 교사 자료 복원 시도
+    fake_undo = [
+        {"undo": "rename", "item_type": "docs", "item_id": other_doc.id,
+         "prev_title": "해킹된 제목"},
+    ]
+    r = await app_client.post(
+        "/api/drive/items/_undo-organize",
+        json={"undo_log": fake_undo},
+        headers=auth_headers(student_user),
+    )
+    # 200이지만 renamed=0 (cross-user skip)
+    assert r.status_code == 200
+    assert r.json()["renamed"] == 0
+    # 자료 제목 안 바뀜
+    await db_session.refresh(other_doc)
+    assert other_doc.title == "교사 문서"
+
+
 @pytest.mark.asyncio
 async def test_delete_folder_with_children_rejected(
     app_client, teacher_user, auth_headers,

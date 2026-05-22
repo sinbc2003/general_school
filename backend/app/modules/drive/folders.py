@@ -620,6 +620,8 @@ async def batch_organize(
     created_folders: list[int] = []
     renamed: list[tuple[str, int, str]] = []  # (type, id, prev_title)
     moved: list[tuple[str, int, int | None]] = []  # (type, id, prev_folder_id)
+    # undo_log — 역방향 정보. frontend가 "되돌리기" 클릭 시 backend로 보냄.
+    undo_log: list[dict] = []
 
     async def _resolve_folder(fid: int | None, tid: str | None) -> int | None:
         if tid:
@@ -666,6 +668,8 @@ async def batch_organize(
                 await db.flush()
                 temp_to_real[a.temp_id] = f.id
                 created_folders.append(f.id)
+                # undo: 새로 만든 폴더 삭제
+                undo_log.append({"undo": "delete_folder", "folder_id": f.id})
                 continue
 
             # rename / move / rename_and_move
@@ -685,10 +689,18 @@ async def batch_organize(
                 if not a.new_title:
                     raise HTTPException(400, f"action[{i}]: new_title required")
                 renamed.append((a.item_type, a.item_id, obj.title))
+                undo_log.append({
+                    "undo": "rename", "item_type": a.item_type, "item_id": a.item_id,
+                    "prev_title": obj.title,
+                })
                 obj.title = a.new_title.strip()[:255]
             if a.action in ("move", "rename_and_move"):
                 target = await _resolve_folder(a.target_folder_id, a.target_temp_id)
                 moved.append((a.item_type, a.item_id, obj.folder_id))
+                undo_log.append({
+                    "undo": "move", "item_type": a.item_type, "item_id": a.item_id,
+                    "prev_folder_id": obj.folder_id,
+                })
                 obj.folder_id = target
             await db.flush()
 
@@ -715,7 +727,116 @@ async def batch_organize(
         "renamed": len(renamed),
         "moved": len(moved),
         "temp_to_real": temp_to_real,
+        # 역방향 정보 — frontend가 "되돌리기" 클릭 시 _undo-organize endpoint로 전달.
+        # 역순 실행: 자료를 먼저 원상복구 후 빈 폴더 삭제.
+        "undo_log": undo_log,
     }
+
+
+class UndoOrganizeReq(BaseModel):
+    undo_log: list[dict] = Field(default_factory=list, max_length=1000)
+
+
+@router.post("/items/_undo-organize")
+async def undo_organize(
+    body: UndoOrganizeReq,
+    user: User = Depends(require_permission("drive.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """AI 정리 일괄 되돌리기.
+
+    Frontend가 batch_organize의 응답 undo_log를 그대로 보냄.
+    역순으로 실행: rename/move 복원 후 새로 만든 폴더 삭제.
+    본인 자료만 (cross-user 차단).
+    """
+    from app.models import (
+        ClassroomDocument, ClassroomHwp, ClassroomPresentation,
+        ClassroomSheet, Survey,
+    )
+    type_models = {
+        "docs": ClassroomDocument, "sheets": ClassroomSheet,
+        "decks": ClassroomPresentation, "surveys": Survey, "hwps": ClassroomHwp,
+    }
+    owner_field_map = {
+        "docs": "owner_id", "sheets": "owner_id", "decks": "owner_id",
+        "surveys": "author_id", "hwps": "owner_id",
+    }
+
+    restored = {"renamed": 0, "moved": 0, "folders_deleted": 0, "errors": []}
+
+    # 역순 — rename/move 먼저 (자료를 폴더 밖으로 빼야 빈 폴더 삭제 가능)
+    for entry in reversed(body.undo_log):
+        try:
+            kind = entry.get("undo")
+            if kind == "rename":
+                t = entry.get("item_type")
+                if t not in type_models:
+                    continue
+                Model = type_models[t]
+                obj = await db.get(Model, entry.get("item_id"))
+                if not obj:
+                    continue
+                owner_field = owner_field_map[t]
+                if getattr(obj, owner_field) != user.id and user.role != "super_admin":
+                    continue
+                obj.title = (entry.get("prev_title") or obj.title)[:255]
+                restored["renamed"] += 1
+            elif kind == "move":
+                t = entry.get("item_type")
+                if t not in type_models:
+                    continue
+                Model = type_models[t]
+                obj = await db.get(Model, entry.get("item_id"))
+                if not obj:
+                    continue
+                owner_field = owner_field_map[t]
+                if getattr(obj, owner_field) != user.id and user.role != "super_admin":
+                    continue
+                obj.folder_id = entry.get("prev_folder_id")
+                restored["moved"] += 1
+            elif kind == "delete_folder":
+                fid = entry.get("folder_id")
+                f = await db.get(Folder, fid) if fid else None
+                if not f:
+                    continue
+                if f.owner_id != user.id and user.role != "super_admin":
+                    continue
+                # 자식 폴더 / 자료가 있으면 skip (사용자가 그새 채워뒀을 수 있음)
+                child = (await db.execute(
+                    select(Folder).where(
+                        Folder.parent_id == fid, Folder.deleted_at.is_(None),
+                    ).limit(1)
+                )).scalar_one_or_none()
+                if child:
+                    restored["errors"].append(f"folder {fid}: 하위 폴더 있어 삭제 skip")
+                    continue
+                # 자료 있는지 확인 (5종)
+                has_content = False
+                for t, Model in type_models.items():
+                    cnt = (await db.execute(
+                        select(Model).where(Model.folder_id == fid).limit(1)
+                    )).scalar_one_or_none()
+                    if cnt:
+                        has_content = True
+                        break
+                if has_content:
+                    restored["errors"].append(f"folder {fid}: 자료 들어있어 삭제 skip")
+                    continue
+                await db.delete(f)
+                restored["folders_deleted"] += 1
+        except Exception as e:
+            restored["errors"].append(str(e)[:200])
+
+    await db.flush()
+    await log_action(
+        db, user, "drive.batch_organize.undo",
+        detail=(
+            f"renamed={restored['renamed']} moved={restored['moved']} "
+            f"folders_deleted={restored['folders_deleted']} "
+            f"errors={len(restored['errors'])}"
+        ),
+    )
+    return restored
 
 
 @router.post("/folders/_sync-all")

@@ -16,7 +16,7 @@
  */
 
 import { useState } from "react";
-import { X, FolderPlus, Pencil, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
+import { X, FolderPlus, Pencil, ArrowRight, AlertCircle, CheckCircle2, Undo2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
 export interface ProposalAction {
@@ -54,6 +54,9 @@ export function DriveProposalModal({
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ created: number; renamed: number; moved: number } | null>(null);
+  const [undoLog, setUndoLog] = useState<any[] | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [undone, setUndone] = useState<{ renamed: number; moved: number; folders_deleted: number } | null>(null);
 
   // temp_id → folder_name 매핑 (preview용)
   const tempNames: Record<string, string> = {};
@@ -73,16 +76,41 @@ export function DriveProposalModal({
     setApplying(true);
     setError(null);
     try {
-      const r = await api.post<{ created_folders: number; renamed: number; moved: number }>(
+      const r = await api.post<{
+        created_folders: number;
+        renamed: number;
+        moved: number;
+        undo_log?: any[];
+      }>(
         "/api/drive/items/_batch-organize",
         { actions },
       );
       setDone({ created: r.created_folders, renamed: r.renamed, moved: r.moved });
+      setUndoLog(r.undo_log || null);
       onApplied();
     } catch (e: any) {
       setError(e?.detail || e?.message || "적용 실패");
     } finally {
       setApplying(false);
+    }
+  };
+
+  const undo = async () => {
+    if (!undoLog || undoLog.length === 0) return;
+    if (!confirm("AI 정리를 모두 되돌립니까?\n자료의 이름과 폴더 위치가 원래대로 돌아갑니다.")) return;
+    setUndoing(true);
+    setError(null);
+    try {
+      const r = await api.post<{
+        renamed: number; moved: number; folders_deleted: number; errors: string[];
+      }>("/api/drive/items/_undo-organize", { undo_log: undoLog });
+      setUndone({ renamed: r.renamed, moved: r.moved, folders_deleted: r.folders_deleted });
+      setUndoLog(null);
+      onApplied(); // list 새로고침
+    } catch (e: any) {
+      setError(e?.detail || e?.message || "되돌리기 실패");
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -183,10 +211,16 @@ export function DriveProposalModal({
             <AlertCircle size={14} /> {error}
           </div>
         )}
-        {done && (
+        {done && !undone && (
           <div className="px-5 py-2 flex items-center gap-2 bg-emerald-50 border-t border-emerald-200 text-[13px] text-emerald-900">
             <CheckCircle2 size={14} />
             완료 — 새 폴더 {done.created}개, 이름변경 {done.renamed}개, 이동 {done.moved}개
+          </div>
+        )}
+        {undone && (
+          <div className="px-5 py-2 flex items-center gap-2 bg-amber-50 border-t border-amber-200 text-[13px] text-amber-900">
+            <Undo2 size={14} />
+            되돌림 — 이름 {undone.renamed}개 복원, 이동 {undone.moved}개 복원, 빈 폴더 {undone.folders_deleted}개 삭제
           </div>
         )}
 
@@ -206,6 +240,17 @@ export function DriveProposalModal({
               className="px-4 py-1.5 text-[13px] bg-accent text-white rounded hover:opacity-90 disabled:opacity-50"
             >
               {applying ? "적용 중..." : `동의 — ${actions.length}개 적용`}
+            </button>
+          )}
+          {done && undoLog && undoLog.length > 0 && !undone && (
+            <button
+              type="button"
+              onClick={undo}
+              disabled={undoing}
+              className="px-4 py-1.5 text-[13px] bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              title="방금 적용한 AI 정리를 모두 되돌립니다"
+            >
+              <Undo2 size={13} /> {undoing ? "되돌리는 중..." : "되돌리기"}
             </button>
           )}
         </div>
