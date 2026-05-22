@@ -139,6 +139,10 @@ export default function StorageVolumesPage() {
         <p className="text-[12px] text-text-tertiary mt-2">
           📡 자동: backend가 6시간마다 active 볼륨 헬스체크 + 사용량 갱신. 90% 도달 시 최고관리자에게 알림 (24h 쿨다운).
         </p>
+        <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2">
+          ℹ️ 현재 모든 업로드는 기본 <code className="bg-bg-secondary px-1 rounded">backend/storage/</code> 디렉터리를 사용합니다.
+          여기 등록된 볼륨은 헬스체크·모니터링용으로만 활용되며, 실 업로드 라우팅은 후속 단계에서 endpoint별 검증 후 단계적으로 통합됩니다.
+        </p>
       </div>
 
       {showCreate && <CreateVolumeModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}

@@ -101,6 +101,23 @@ production/
 | 같은 협업 문서 동접 | **20명 이하 권장** — 모둠별 8명씩 분산 권고 |
 | PDF 동시 5건 | 영향 없음 (asyncio.to_thread 적용됨) |
 
+## Storage Volume (외장 SSD 운영)
+
+`/system/storage` 페이지에서 외장 SSD/HDD를 추가 볼륨으로 등록할 수 있다. 6시간 cron이
+mount/사용량을 자동 체크하고, 90% 도달 시 최고관리자에게 알림이 간다.
+
+**현재 상태 (Phase 2-Q 1단계 완료)**:
+- 등록된 볼륨의 mount 상태·사용량 모니터링만 지원
+- **실제 업로드는 여전히 `backend/storage/` 고정 디렉터리만 사용**
+- 백업 ZIP(`/system/backup`) + cron(`production/scripts/backup.sh`)도 `backend/storage/`만 백업
+
+볼륨 라우팅 통합은 endpoint별 검증 후 단계적으로 진행 예정 (artifacts·assignments 등).
+외장 볼륨에 직접 파일을 옮겨두고 그쪽으로 새 업로드를 받기 시작하려면 후속 마이그레이션을 기다릴 것.
+
+당장 단일 디스크 용량이 모자란 경우, 임시 운용:
+- `backend/storage/` 를 외장 SSD에 symlink (예: `ln -s /mnt/external1/storage backend/storage`)
+- backup.sh가 따라가서 정상 백업됨
+
 ## 점검 체크리스트 (매월)
 
 - [ ] 디스크 여유 (`df -h` — `backend/storage/` 폭증 확인, 50GB 이하면 정리)

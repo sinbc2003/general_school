@@ -22,16 +22,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Trash2, AlertTriangle, Search, X,
-  Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
+  Globe, PanelRightOpen, PanelRightClose,
   LayoutGrid, List as ListIcon,
-  Folder as FolderIcon, ChevronRight,
+  ChevronRight,
   Sparkles, Activity,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { useAIAssistant } from "@/lib/ai-assistant-context";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
-import type { ApplyHandler } from "@/components/tool-ai/types";
 import { GoogleDriveSidePanel } from "./GoogleDriveSidePanel";
 import { ShareFromDrive } from "./ShareFromDrive";
 import { BulkActionBar } from "./BulkActionBar";
@@ -39,11 +38,10 @@ import { DriveContextMenu } from "./DriveContextMenu";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { DriveProposalModal, type ProposalAction } from "./DriveProposalModal";
 import { DriveActivityModal } from "./DriveActivityModal";
-import type { FolderNode } from "./FolderSidebar";
 import {
   TYPE_META, formatMB, hrefForItem, buildDriveContext,
   type ItemType, type SortKey, type SortDir,
-  type DriveItem, type DriveInfo,
+  type DriveItem,
 } from "./_drive-shared";
 import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
 import { useDriveRubberBand } from "./useDriveRubberBand";
@@ -51,12 +49,12 @@ import { useDriveSearch } from "./useDriveSearch";
 import { useSearchHistory } from "./useSearchHistory";
 import { useDriveFetch } from "./useDriveFetch";
 import { useDriveRename } from "./useDriveRename";
+import { useDriveDragDrop } from "./useDriveDragDrop";
 import { DriveBackupActions } from "./DriveBackupActions";
-import { FolderRow } from "./FolderRow";
-import { ItemRow } from "./ItemRow";
-import { FolderCard } from "./FolderCard";
-import { ItemCard } from "./ItemCard";
-import { SortableTh } from "./SortableTh";
+import { DriveListView } from "./DriveListView";
+import { DriveGridView } from "./DriveGridView";
+import { NewItemMenu } from "./NewItemMenu";
+import type { FolderNode } from "./FolderSidebar";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 휴지통 모드 (탭 대신 단순 boolean)
@@ -77,8 +75,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // clipMode: 'cut' = 이동(move), 'copy' = 복제(copy)
   const [cutKeys, setCutKeys] = useState<Set<string>>(new Set());
   const [clipMode, setClipMode] = useState<"cut" | "copy">("cut");
-  // 드래그&드롭 — 현재 hover 중인 폴더 ID (visual highlight)
-  const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showGooglePanel, setShowGooglePanel] = useState(false);
@@ -160,6 +156,11 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   // 빈영역 드래그 박스 다중 선택 — useDriveRubberBand
   const { dragBox, startRubberBand } = useDriveRubberBand({ selected, setSelected });
+
+  // 드래그&드롭 — 폴더 hover state + drop handler (useDriveDragDrop)
+  const {
+    dragOverFolderId, onDragOverFolder, onDragLeaveFolder, onDrop: onFolderDrop,
+  } = useDriveDragDrop({ fetchAll, setSelected });
 
   // backend 검색 — 본문/제목/폴더 통합 검색 (debounce 400ms, 2자 이상)
   const driveSearch = useDriveSearch(search, trashMode);
@@ -477,6 +478,25 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       ? "#f59e0b"
       : "#3b82f6";
 
+  // ── DriveListView / DriveGridView에 전달할 단일 객체 props (drilling 압축)
+  const selectionProps = {
+    selected, setSelected, cutKeys, favoritesSet, toggleFavorite,
+    menuOpen, setMenuOpen,
+    onItemClick: handleItemClick,
+    onItemDoubleClick: handleItemDoubleClick,
+    onItemContextMenu: handleItemContextMenu,
+    onSoftDelete: doSoftDelete,
+    onRestore: doRestore,
+    onPermanent: doPermanent,
+    items, itemKey,
+  };
+  const renameProps = {
+    renamingKey, renameDraft, setRenameDraft, commitRename, cancelRename,
+  };
+  const dragDropProps = {
+    dragOverFolderId, onDragOverFolder, onDragLeaveFolder, onDrop: onFolderDrop,
+  };
+
   return (
     // -m-6 으로 admin/student layout의 main p-6 padding을 상쇄하여 viewport 가득 채움
     <div
@@ -583,59 +603,14 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             <Trash2 size={13} /> 휴지통
           </button>
           {/* "+ 신규" 드롭다운 */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
-              disabled={creating}
-              className="px-4 py-2 text-[13px] bg-accent text-white rounded-md hover:opacity-90 flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Plus size={14} /> 신규 <ChevronDown size={12} />
-            </button>
-            {showNewMenu && (
-              <div
-                className="absolute right-0 top-full mt-1 z-20 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[200px] py-1"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setShowNewMenu(false);
-                    const raw = prompt("새 폴더 이름");
-                    if (!raw?.trim()) return;
-                    try {
-                      await api.post("/api/drive/folders", {
-                        name: raw.trim(),
-                        parent_id: currentFolderId,
-                      });
-                      await fetchAll();
-                    } catch (e: any) {
-                      alert(e?.detail || e?.message || "폴더 생성 실패");
-                    }
-                  }}
-                  className="w-full text-left px-3 py-2 text-[13px] hover:bg-bg-secondary flex items-center gap-2 text-text-primary"
-                >
-                  <FolderIcon size={14} className="text-amber-500" /> 새 폴더
-                </button>
-                <div className="my-1 border-t border-border-default/50" />
-                {(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => {
-                  const m = TYPE_META[t];
-                  const Icon = m.icon;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => createNew(t)}
-                      className="w-full text-left px-3 py-2 text-[13px] hover:bg-bg-secondary flex items-center gap-2 text-text-primary"
-                    >
-                      <Icon size={14} style={{ color: m.color }} />
-                      {m.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <NewItemMenu
+            show={showNewMenu}
+            setShow={setShowNewMenu}
+            creating={creating}
+            currentFolderId={currentFolderId}
+            fetchAll={fetchAll}
+            createNew={createNew}
+          />
           <button
             type="button"
             onClick={() => setShowGooglePanel(!showGooglePanel)}
@@ -825,186 +800,29 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           )}
         </div>
       ) : viewMode === "list" ? (
-        /* 자세히(리스트) 뷰 — 구글 드라이브 식. overflow-visible로 ⋮ 메뉴 잘림 방지 */
-        <div className="bg-bg-primary border border-border-default rounded-lg">
-          <table className="w-full text-[13px]">
-            <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary sticky top-0 z-10">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium w-10"></th>
-                <SortableTh sortKey="name" currentKey={sortKey} dir={sortDir} onClick={toggleSort}>
-                  이름
-                </SortableTh>
-                <th className="px-2 py-2 text-left font-medium w-32">유형</th>
-                <SortableTh
-                  sortKey="updated"
-                  currentKey={sortKey}
-                  dir={sortDir}
-                  onClick={toggleSort}
-                  className="w-40"
-                >
-                  {trashMode ? "삭제일" : "수정일"}
-                </SortableTh>
-                <SortableTh
-                  sortKey="size"
-                  currentKey={sortKey}
-                  dir={sortDir}
-                  onClick={toggleSort}
-                  align="right"
-                  className="w-24"
-                >
-                  크기
-                </SortableTh>
-                <th className="px-2 py-2 w-12"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* 폴더 행 — 휴지통 아닐 때만 */}
-              {!trashMode && filteredFolders.map((f) => (
-                <FolderRow
-                  key={`folder:${f.id}`}
-                  folder={f}
-                  isSelected={selected.has(`folder:${f.id}`)}
-                  isDragOver={dragOverFolderId === f.id}
-                  onClickSelect={(key, additive) => {
-                    if (additive) {
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(key)) next.delete(key);
-                        else next.add(key);
-                        return next;
-                      });
-                    } else {
-                      setSelected(new Set([key]));
-                    }
-                  }}
-                  onEnter={(fid) => { setCurrentFolderId(fid); setSelected(new Set()); }}
-                  onDragOverFolder={(fid) => setDragOverFolderId(fid)}
-                  onDragLeaveFolder={(fid) => { if (dragOverFolderId === fid) setDragOverFolderId(null); }}
-                  onDrop={async (fid, list) => {
-                    setDragOverFolderId(null);
-                    try {
-                      for (const t of list) {
-                        await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: fid });
-                      }
-                      setSelected(new Set());
-                      fetchAll();
-                    } catch (err: any) {
-                      alert(err?.detail || err?.message || "이동 실패");
-                    }
-                  }}
-                />
-              ))}
-              {filtered.map((it) => {
-                const menuKey = `${it.type}:${it.id}`;
-                const match = driveSearch.matchMap.get(menuKey);
-                return (
-                  <ItemRow
-                    key={menuKey}
-                    item={it}
-                    trashMode={trashMode}
-                    isSelected={selected.has(menuKey)}
-                    isCut={cutKeys.has(menuKey)}
-                    isMenuOpen={menuOpen === menuKey}
-                    renaming={renamingKey === menuKey}
-                    renameDraft={renameDraft}
-                    setRenameDraft={setRenameDraft}
-                    commitRename={commitRename}
-                    cancelRename={cancelRename}
-                    onClick={(e) => handleItemClick(it, e)}
-                    onDoubleClick={(e) => handleItemDoubleClick(it, e)}
-                    onContextMenu={(e) => handleItemContextMenu(it, e)}
-                    onMenuToggle={() => setMenuOpen(menuOpen === menuKey ? null : menuKey)}
-                    onMenuClose={() => setMenuOpen(null)}
-                    onSoftDelete={doSoftDelete}
-                    onRestore={doRestore}
-                    onPermanent={doPermanent}
-                    getDragPayload={() =>
-                      selected.has(menuKey)
-                        ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
-                        : [{ type: it.type, id: it.id }]
-                    }
-                    searchSnippet={match?.snippet}
-                    searchMatchField={match?.matchField}
-                    isFavorited={favoritesSet.has(menuKey)}
-                    onToggleFavorite={toggleFavorite}
-                  />
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DriveListView
+          trashMode={trashMode}
+          filtered={filtered}
+          filteredFolders={filteredFolders}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          toggleSort={toggleSort}
+          setCurrentFolderId={setCurrentFolderId}
+          selection={selectionProps}
+          rename={renameProps}
+          dragDrop={dragDropProps}
+          matchMap={driveSearch.matchMap}
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {/* 폴더 카드 — 휴지통이 아닐 때만 */}
-          {!trashMode && filteredFolders.map((f) => (
-            <FolderCard
-              key={`folder:${f.id}`}
-              folder={f}
-              isSelected={selected.has(`folder:${f.id}`)}
-              isDragOver={dragOverFolderId === f.id}
-              onClickSelect={(key, additive) => {
-                if (additive) {
-                  setSelected((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(key)) next.delete(key);
-                    else next.add(key);
-                    return next;
-                  });
-                } else {
-                  setSelected(new Set([key]));
-                }
-              }}
-              onEnter={(fid) => { setCurrentFolderId(fid); setSelected(new Set()); }}
-              onDragOverFolder={(fid) => setDragOverFolderId(fid)}
-              onDragLeaveFolder={(fid) => { if (dragOverFolderId === fid) setDragOverFolderId(null); }}
-              onDrop={async (fid, list) => {
-                setDragOverFolderId(null);
-                try {
-                  for (const t of list) {
-                    await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: fid });
-                  }
-                  setSelected(new Set());
-                  fetchAll();
-                } catch (err: any) {
-                  alert(err?.detail || err?.message || "이동 실패");
-                }
-              }}
-            />
-          ))}
-          {filtered.map((it) => {
-            const menuKey = `${it.type}:${it.id}`;
-            return (
-              <ItemCard
-                key={menuKey}
-                item={it}
-                trashMode={trashMode}
-                isSelected={selected.has(menuKey)}
-                isCut={cutKeys.has(menuKey)}
-                isMenuOpen={menuOpen === menuKey}
-                renaming={renamingKey === menuKey}
-                renameDraft={renameDraft}
-                setRenameDraft={setRenameDraft}
-                commitRename={commitRename}
-                cancelRename={cancelRename}
-                onClick={(e) => handleItemClick(it, e)}
-                onDoubleClick={(e) => handleItemDoubleClick(it, e)}
-                onContextMenu={(e) => handleItemContextMenu(it, e)}
-                onMenuToggle={() => setMenuOpen(menuOpen === menuKey ? null : menuKey)}
-                onMenuClose={() => setMenuOpen(null)}
-                onSoftDelete={doSoftDelete}
-                onRestore={doRestore}
-                onPermanent={doPermanent}
-                getDragPayload={() =>
-                  selected.has(menuKey)
-                    ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
-                    : [{ type: it.type, id: it.id }]
-                }
-                isFavorited={favoritesSet.has(menuKey)}
-                onToggleFavorite={toggleFavorite}
-              />
-            );
-          })}
-        </div>
+        <DriveGridView
+          trashMode={trashMode}
+          filtered={filtered}
+          filteredFolders={filteredFolders}
+          setCurrentFolderId={setCurrentFolderId}
+          selection={selectionProps}
+          rename={renameProps}
+          dragDrop={dragDropProps}
+        />
       )}
       </div>{/* /파일 list 영역 (flex-1 overflow-y-auto) */}
       </div>{/* /좌측 main (flex flex-col) */}
