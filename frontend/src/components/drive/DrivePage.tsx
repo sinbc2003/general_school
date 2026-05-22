@@ -47,6 +47,7 @@ import {
 } from "./_drive-shared";
 import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
 import { useDriveRubberBand } from "./useDriveRubberBand";
+import { useDriveSearch } from "./useDriveSearch";
 import { FolderRow } from "./FolderRow";
 import { ItemRow } from "./ItemRow";
 import { FolderCard } from "./FolderCard";
@@ -157,6 +158,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 빈영역 드래그 박스 다중 선택 — useDriveRubberBand
   const { dragBox, startRubberBand } = useDriveRubberBand({ selected, setSelected });
 
+  // backend 검색 — 본문/제목/폴더 통합 검색 (debounce 400ms, 2자 이상)
+  const driveSearch = useDriveSearch(search, trashMode);
+
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
     if (typeof window === "undefined") return "list";
@@ -217,8 +221,30 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // 정렬 적용 후 자료 목록 (검색 포함)
+  // 검색 모드 (backend 결과) vs 일반 모드 (현재 폴더 자료)
+  // - driveSearch.active=true: 본문/제목/폴더 backend 검색 결과 사용 (전체 드라이브)
+  // - false: 현재 폴더 안 자료만 (client-side 정렬)
+  const searchActive = driveSearch.active && !!driveSearch.results;
+  const searchResults = driveSearch.results;
+
+  // 정렬 적용 후 자료 목록
   const filtered = useMemo(() => {
+    if (searchActive && searchResults) {
+      // backend 결과 → DriveItem 호환 형식으로 매핑
+      return searchResults.items.map((r): DriveItem => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        course_id: r.course_id,
+        owner_id: null,
+        folder_id: r.folder_id,
+        updated_at: r.updated_at,
+        created_at: null,
+        deleted_at: null,
+        storage_bytes: 0,
+      }));
+    }
+    // 일반 모드 — title client-side filter (검색어 짧을 때 fallback)
     const q = search.trim().toLowerCase();
     let list = items.slice();
     if (q) list = list.filter((it) => it.title.toLowerCase().includes(q));
@@ -237,23 +263,35 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     };
     list.sort(cmp);
     return list;
-  }, [items, search, sortKey, sortDir]);
+  }, [items, search, sortKey, sortDir, searchActive, searchResults]);
 
-  // 정렬된 폴더 (검색 포함)
+  // 정렬된 폴더 (검색 모드면 backend 결과 사용)
   const filteredFolders = useMemo(() => {
+    if (searchActive && searchResults) {
+      return searchResults.folders.map((f) => ({
+        id: f.id,
+        owner_id: 0,
+        parent_id: f.parent_id,
+        name: f.name,
+        auto_kind: null,
+        semester_id: null,
+        source_kind: null,
+        source_id: null,
+        sort_order: f.sort_order,
+        is_system_locked: f.is_system_locked,
+      } as FolderNode));
+    }
     const q = search.trim().toLowerCase();
     let list = folders.slice();
     if (q) list = list.filter((f) => f.name.toLowerCase().includes(q));
     const cmp = (a: FolderNode, b: FolderNode) => {
       let v = 0;
       if (sortKey === "name") {
-        // 자동 폴더는 sort_order로 정렬, 그 안에서 이름순
         if (a.is_system_locked && b.is_system_locked) v = a.sort_order - b.sort_order;
         else if (a.is_system_locked) v = -1;
         else if (b.is_system_locked) v = 1;
         else v = a.name.localeCompare(b.name, "ko");
       } else if (sortKey === "updated") {
-        // FolderNode에 updated_at 있음
         v = String((a as any).updated_at || "").localeCompare(String((b as any).updated_at || ""));
       } else {
         v = a.name.localeCompare(b.name, "ko");
@@ -262,7 +300,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     };
     list.sort(cmp);
     return list;
-  }, [folders, search, sortKey, sortDir]);
+  }, [folders, search, sortKey, sortDir, searchActive, searchResults]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -852,7 +890,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
           <input
             type="text"
-            placeholder="제목 검색..."
+            placeholder="제목·본문·폴더 검색 (2자 이상)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-9 py-2 text-[13px] border border-border-default rounded-md bg-bg-primary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
@@ -867,6 +905,23 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             </button>
           )}
         </div>
+        {/* 검색 상태 — 본문 backend 검색 중 또는 결과 카운트 */}
+        {driveSearch.active && (
+          <div className="text-[12px] text-text-tertiary inline-flex items-center gap-1.5">
+            {driveSearch.loading ? (
+              <span>본문 검색 중...</span>
+            ) : driveSearch.results ? (
+              <span>
+                <b className="text-accent">{driveSearch.results.total}</b>건 매칭
+                {driveSearch.results.folders.length > 0 && (
+                  <span className="ml-1 text-text-tertiary">
+                    (폴더 {driveSearch.results.folders.length})
+                  </span>
+                )}
+              </span>
+            ) : null}
+          </div>
+        )}
         {trashMode && items.length > 0 && (
           <button
             type="button"
