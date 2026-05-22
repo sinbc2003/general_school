@@ -18,15 +18,14 @@
  * admin/student 분기: mode prop으로 path 결정.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Trash2, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon,
-  Folder as FolderIcon, ChevronRight, ArrowUp, ArrowDown,
-  Sparkles, Download, Upload, Activity,
+  Folder as FolderIcon, ChevronRight,
+  Sparkles, Activity,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
@@ -42,7 +41,7 @@ import { DriveProposalModal, type ProposalAction } from "./DriveProposalModal";
 import { DriveActivityModal } from "./DriveActivityModal";
 import type { FolderNode } from "./FolderSidebar";
 import {
-  TYPE_META, formatMB, hrefForItem,
+  TYPE_META, formatMB, hrefForItem, buildDriveContext,
   type ItemType, type SortKey, type SortDir,
   type DriveItem, type DriveInfo,
 } from "./_drive-shared";
@@ -50,17 +49,27 @@ import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
 import { useDriveRubberBand } from "./useDriveRubberBand";
 import { useDriveSearch } from "./useDriveSearch";
 import { useSearchHistory } from "./useSearchHistory";
+import { useDriveFetch } from "./useDriveFetch";
+import { useDriveRename } from "./useDriveRename";
+import { DriveBackupActions } from "./DriveBackupActions";
 import { FolderRow } from "./FolderRow";
 import { ItemRow } from "./ItemRow";
 import { FolderCard } from "./FolderCard";
 import { ItemCard } from "./ItemCard";
+import { SortableTh } from "./SortableTh";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 휴지통 모드 (탭 대신 단순 boolean)
   const [trashMode, setTrashMode] = useState(false);
-  const [items, setItems] = useState<DriveItem[]>([]);
-  const [folders, setFolders] = useState<FolderNode[]>([]);
-  const [breadcrumb, setBreadcrumb] = useState<{ id: number; name: string }[]>([]);
+  // 폴더 — 현재 보기 폴더 (null = 루트, number = 그 폴더 안)
+  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
+  // ── fetch state (useDriveFetch hook) ──
+  const {
+    items, folders, breadcrumb, info,
+    loading, error,
+    fetchAll,
+    favoritesSet, toggleFavorite,
+  } = useDriveFetch({ trashMode, currentFolderId });
   // 정렬
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -70,11 +79,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [clipMode, setClipMode] = useState<"cut" | "copy">("cut");
   // 드래그&드롭 — 현재 hover 중인 폴더 ID (visual highlight)
   const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
-  const [info, setInfo] = useState<DriveInfo | null>(null);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [showGooglePanel, setShowGooglePanel] = useState(false);
   const [panelWidth, setPanelWidth] = useState<number>(360);
   const [resizing, setResizing] = useState(false);
@@ -148,45 +154,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   // Rubber band drag — useDriveRubberBand hook으로 분리 (line ↓)
 
-  // 이름 바꾸기 (F2 / 우클릭 메뉴) — 현재 편집 중인 키 + draft
-  const [renamingKey, setRenamingKey] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-
-  // 폴더 — 현재 보기 폴더 (null = 루트, number = 그 폴더 안)
-  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [moveTargets, setMoveTargets] = useState<DriveItem[] | null>(null);
 
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
 
   // 빈영역 드래그 박스 다중 선택 — useDriveRubberBand
   const { dragBox, startRubberBand } = useDriveRubberBand({ selected, setSelected });
-
-  // 즐겨찾기 — backend list 후 set으로 보관
-  const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
-  const fetchFavorites = useCallback(async () => {
-    try {
-      const r = await api.get<{ items: { type: ItemType; id: number }[] }>("/api/drive/favorites");
-      setFavoritesSet(new Set(r.items.map((x) => `${x.type}:${x.id}`)));
-    } catch {
-      setFavoritesSet(new Set());
-    }
-  }, []);
-  useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
-
-  const toggleFavorite = useCallback(async (it: DriveItem) => {
-    const key = `${it.type}:${it.id}`;
-    try {
-      const r = await api.post<{ favorited: boolean }>(`/api/drive/items/${it.type}/${it.id}/favorite`, {});
-      setFavoritesSet((prev) => {
-        const next = new Set(prev);
-        if (r.favorited) next.add(key);
-        else next.delete(key);
-        return next;
-      });
-    } catch (e: any) {
-      alert(e?.detail || e?.message || "즐겨찾기 실패");
-    }
-  }, []);
 
   // backend 검색 — 본문/제목/폴더 통합 검색 (debounce 400ms, 2자 이상)
   const driveSearch = useDriveSearch(search, trashMode);
@@ -211,54 +184,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     try { localStorage.setItem("drive.viewMode", m); } catch {}
   };
 
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // 휴지통: 자료만 (폴더 없음, breadcrumb 없음)
-      if (trashMode) {
-        const [i, list] = await Promise.all([
-          api.get<DriveInfo>("/api/drive/me"),
-          api.get<{ items: DriveItem[] }>(`/api/drive/items?trash=true&type=all`),
-        ]);
-        setInfo(i);
-        setItems(list.items);
-        setFolders([]);
-        setBreadcrumb([]);
-        return;
-      }
-      // 일반: 현재 폴더의 직속 폴더 + 직속 자료 + breadcrumb
-      const itemsQS =
-        currentFolderId === null ? "&no_folder=true" : `&folder_id=${currentFolderId}`;
-      const folderParent = currentFolderId === null ? 0 : currentFolderId; // 0 → IS NULL
-      const promises: Promise<any>[] = [
-        api.get<DriveInfo>("/api/drive/me"),
-        api.get<{ items: DriveItem[] }>(
-          `/api/drive/items?trash=false&type=all${itemsQS}`
-        ),
-        api.get<{ items: FolderNode[] }>(`/api/drive/folders?parent_id=${folderParent}`),
-      ];
-      if (currentFolderId !== null) {
-        promises.push(
-          api.get<{ breadcrumb: { id: number; name: string }[] }>(
-            `/api/drive/folders/${currentFolderId}`
-          )
-        );
-      }
-      const [i, list, foldersR, detail] = await Promise.all(promises);
-      setInfo(i);
-      setItems(list.items);
-      setFolders(foldersR.items);
-      setBreadcrumb(detail?.breadcrumb || []);
-    } catch (e: any) {
-      setError(e?.message || "불러오기 실패");
-    } finally {
-      setLoading(false);
-    }
-  }, [trashMode, currentFolderId]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   // 검색 모드 (backend 결과) vs 일반 모드 (현재 폴더 자료)
   // - driveSearch.active=true: 본문/제목/폴더 backend 검색 결과 사용 (전체 드라이브)
@@ -473,52 +398,11 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     fetchAll, doBulkSoftDelete, doBulkPermanent, toast,
   });
 
-  // 이름 바꾸기
-  const RENAME_PATH: Partial<Record<ItemType, string>> = {
-    docs: "/api/classroom/docs",
-    sheets: "/api/classroom/sheets",
-    decks: "/api/classroom/decks",
-    surveys: "/api/classroom/surveys",
-    hwps: "/api/classroom/hwps",
-  };
-
-  const startRename = (it: DriveItem) => {
-    setRenamingKey(itemKey(it));
-    setRenameDraft(it.title);
-  };
-
-  const commitRename = async (it: DriveItem) => {
-    const next = renameDraft.trim();
-    setRenamingKey(null);
-    if (!next || next === it.title) return;
-    const base = RENAME_PATH[it.type];
-    if (!base) return;
-    try {
-      await api.put(`${base}/${it.id}`, { title: next });
-      await fetchAll();
-    } catch (e: any) {
-      alert(e?.detail || "이름 바꾸기 실패");
-    }
-  };
-
-  // F2 / Enter 단축키 — 단일 선택 시 이름 바꾸기 시작
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-      if ((e.key === "F2" || e.key === "Enter") && selected.size === 1 && !renamingKey) {
-        const onlyKey = Array.from(selected)[0];
-        const it = items.find((x) => itemKey(x) === onlyKey);
-        if (it && !trashMode) {
-          e.preventDefault();
-          startRename(it);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, items, trashMode, renamingKey]);
+  // 이름 바꾸기 — F2/Enter 단축키 + commitRename hook
+  const {
+    renamingKey, renameDraft, setRenameDraft,
+    startRename, cancelRename, commitRename,
+  } = useDriveRename({ selected, items, trashMode, fetchAll });
 
   const createNew = async (type: ItemType) => {
     setCreating(true);
@@ -660,126 +544,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* 백업 다운로드 — 학교 이동 시 */}
-          {!trashMode && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-                  const tokenKey = localStorage.getItem("access_token");
-                  toast.show("백업 만드는 중... (자료 많으면 수십 초)", "info");
-                  const res = await fetch(`${API_URL}/api/drive/backup/download`, {
-                    method: "POST",
-                    headers: tokenKey ? { Authorization: `Bearer ${tokenKey}` } : {},
-                  });
-                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                  const blob = await res.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-                  a.download = `drive-backup-${today}.zip`;
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                  URL.revokeObjectURL(url);
-                  toast.show("백업 다운로드 완료", "success");
-                } catch (e: any) {
-                  alert(e?.message || "백업 실패");
-                }
-              }}
-              className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
-              title="내 드라이브 전체 ZIP 다운로드 (학교 이동 시)"
-            >
-              <Download size={13} /> 백업 ZIP
-            </button>
-          )}
-          {/* 복원 (ZIP 업로드) */}
-          {!trashMode && (
-            <>
-              <input
-                type="file"
-                accept=".zip,application/zip"
-                style={{ display: "none" }}
-                id="drive-restore-input"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  e.target.value = ""; // reset
-                  if (!confirm(
-                    `"${f.name}" 백업을 내 드라이브에 복원합니다.\n` +
-                    `기존 자료는 그대로 유지됩니다 (새 자료로 추가).\n` +
-                    `진행하시겠습니까?`
-                  )) return;
-                  try {
-                    toast.show("복원 중... (자료 많으면 수십 초)", "info");
-                    const r = await api.upload<{
-                      imported: { folders: number; docs: number; sheets: number; decks: number; surveys: number; hwps: number };
-                      consumed_bytes: number;
-                      note: string;
-                    }>("/api/drive/backup/import", f);
-                    const i = r.imported;
-                    alert(
-                      `복원 완료\n\n` +
-                      `폴더: ${i.folders}\n` +
-                      `문서: ${i.docs}\n` +
-                      `시트: ${i.sheets}\n` +
-                      `프리젠테이션: ${i.decks}\n` +
-                      `설문지: ${i.surveys}\n` +
-                      `HWP: ${i.hwps}\n\n` +
-                      `${r.note}`
-                    );
-                    fetchAll();
-                  } catch (err: any) {
-                    alert(err?.detail || err?.message || "복원 실패");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => document.getElementById("drive-restore-input")?.click()}
-                className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
-                title="다른 학교에서 가져온 백업 ZIP을 복원"
-              >
-                <Upload size={13} /> 복원
-              </button>
-            </>
-          )}
-          {/* Google Drive 일괄 export */}
-          {!trashMode && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!confirm("본인 문서·스프레드시트를 Google Drive로 일괄 업로드합니다.\n(프리젠테이션·설문지·한컴은 미지원 — ZIP 백업 권장)\n진행하시겠습니까?")) return;
-                try {
-                  toast.show("Google Drive로 업로드 중... (자료 많으면 시간 걸림)", "info");
-                  const r = await api.post<{ ok: number; failed: number; total: number }>(
-                    "/api/google/export/my-drive-bulk", {},
-                  );
-                  toast.show(
-                    `Google Drive 백업 완료 — ${r.ok}/${r.total} 성공${r.failed ? `, ${r.failed} 실패` : ""}`,
-                    r.failed > 0 ? "error" : "success",
-                  );
-                } catch (e: any) {
-                  const msg = e?.detail || e?.message || "";
-                  if (msg.includes("토큰") || msg.includes("Google") || e?.status === 400) {
-                    alert(
-                      "Google 계정이 연결되지 않았습니다.\n" +
-                      "/system/integrations/google 페이지에서 먼저 Google 계정을 연결하세요.\n\n" +
-                      `(${msg || "연결 필요"})`
-                    );
-                  } else {
-                    alert(msg || "Google Drive 백업 실패");
-                  }
-                }
-              }}
-              className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
-              title="문서·시트를 본인 Google Drive로 일괄 업로드"
-            >
-              <Globe size={13} /> Google 백업
-            </button>
-          )}
+          {/* 백업 ZIP / 복원 / Google 백업 */}
+          <DriveBackupActions trashMode={trashMode} toast={toast} fetchAll={fetchAll} />
           {/* AI 정리 토글 */}
           {!trashMode && (
             <button
@@ -1143,7 +909,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     renameDraft={renameDraft}
                     setRenameDraft={setRenameDraft}
                     commitRename={commitRename}
-                    cancelRename={() => setRenamingKey(null)}
+                    cancelRename={cancelRename}
                     onClick={(e) => handleItemClick(it, e)}
                     onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                     onContextMenu={(e) => handleItemContextMenu(it, e)}
@@ -1219,7 +985,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                 renameDraft={renameDraft}
                 setRenameDraft={setRenameDraft}
                 commitRename={commitRename}
-                cancelRename={() => setRenamingKey(null)}
+                cancelRename={cancelRename}
                 onClick={(e) => handleItemClick(it, e)}
                 onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                 onContextMenu={(e) => handleItemContextMenu(it, e)}
@@ -1392,72 +1158,5 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         />
       )}
     </div>
-  );
-}
-
-
-/**
- * Drive AI에 보낼 현재 드라이브 상태 (메타만 — 본문 X).
- * 자료는 type/id/제목/현재 folder_id. 폴더는 id/이름/parent/잠금 여부.
- * 토큰 절약 위해 간결한 line 포맷.
- */
-function buildDriveContext(items: DriveItem[], folders: FolderNode[]): string {
-  const folderLines = folders.map(
-    (f) =>
-      `F${f.id} parent=${f.parent_id ?? "root"} name="${f.name}"${f.is_system_locked ? " [LOCKED]" : ""}`,
-  );
-  const itemLines = items.map(
-    (it) =>
-      `${it.type}:${it.id} folder=${it.folder_id ?? "root"} title="${it.title}"`,
-  );
-  return [
-    "# 현재 드라이브 상태",
-    "",
-    `## 폴더 (${folders.length})`,
-    ...folderLines,
-    "",
-    `## 자료 (${items.length})`,
-    ...itemLines,
-    "",
-    "위 자료를 분석해 drive_propose_organization 도구로 정리안을 한 번 호출하세요.",
-    "삭제 금지. rename은 '01. 원본이름' 식 prefix. 새 카테고리 폴더는 create_folder.",
-    "잠금 폴더(LOCKED)는 그 자체 수정/삭제 금지. 그 안에 자료 이동은 OK.",
-  ].join("\n");
-}
-
-
-// ── 정렬 가능 컬럼 헤더 ───────────────────────────────────────────────
-
-function SortableTh({
-  sortKey,
-  currentKey,
-  dir,
-  onClick,
-  align,
-  className,
-  children,
-}: {
-  sortKey: SortKey;
-  currentKey: SortKey;
-  dir: SortDir;
-  onClick: (k: SortKey) => void;
-  align?: "left" | "right";
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const isActive = sortKey === currentKey;
-  return (
-    <th className={`px-2 py-2 font-medium ${className || ""} ${align === "right" ? "text-right" : "text-left"}`}>
-      <button
-        type="button"
-        onClick={() => onClick(sortKey)}
-        className={`inline-flex items-center gap-1 hover:text-text-primary ${
-          isActive ? "text-text-primary" : ""
-        }`}
-      >
-        {children}
-        {isActive && (dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
-      </button>
-    </th>
   );
 }

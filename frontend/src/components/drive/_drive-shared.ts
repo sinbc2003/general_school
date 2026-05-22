@@ -104,3 +104,35 @@ export function hrefForItem(
   if (it.type === "surveys") return `${baseDocs}/forms/${it.id}`;
   return "#";
 }
+
+/**
+ * Drive AI에 보낼 현재 드라이브 상태 (메타만 — 본문 X).
+ * 자료는 type/id/제목/현재 folder_id. 폴더는 id/이름/parent/잠금 여부.
+ * 토큰 절약 위해 간결한 line 포맷.
+ */
+export function buildDriveContext(
+  items: DriveItem[],
+  folders: { id: number; parent_id: number | null; name: string; is_system_locked: boolean }[],
+): string {
+  const folderLines = folders.map(
+    (f) =>
+      `F${f.id} parent=${f.parent_id ?? "root"} name="${f.name}"${f.is_system_locked ? " [LOCKED]" : ""}`,
+  );
+  const itemLines = items.map(
+    (it) =>
+      `${it.type}:${it.id} folder=${it.folder_id ?? "root"} title="${it.title}"`,
+  );
+  return [
+    "# 현재 드라이브 상태",
+    "",
+    `## 폴더 (${folders.length})`,
+    ...folderLines,
+    "",
+    `## 자료 (${items.length})`,
+    ...itemLines,
+    "",
+    "위 자료를 분석해 drive_propose_organization 도구로 정리안을 한 번 호출하세요.",
+    "삭제 금지. rename은 '01. 원본이름' 식 prefix. 새 카테고리 폴더는 create_folder.",
+    "잠금 폴더(LOCKED)는 그 자체 수정/삭제 금지. 그 안에 자료 이동은 OK.",
+  ].join("\n");
+}

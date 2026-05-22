@@ -32,6 +32,34 @@ function formatGB(bytes: number | null | undefined): string {
   return `${gb.toFixed(1)} GB`;
 }
 
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return "미점검";
+  try {
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return "미점검";
+    const diff = Date.now() - t;
+    if (diff < 0) return "방금";
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return `${sec}초 전`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}분 전`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}시간 전`;
+    const day = Math.floor(hr / 24);
+    return `${day}일 전`;
+  } catch { return "미점검"; }
+}
+
+function statusColors(status: string | null | undefined): { fg: string; bg: string; label: string } {
+  if (!status) return { fg: "text-gray-500", bg: "bg-gray-100", label: "미점검" };
+  if (status === "mounted") return { fg: "text-emerald-700", bg: "bg-emerald-100", label: "mounted" };
+  if (status === "missing") return { fg: "text-red-700", bg: "bg-red-100", label: "missing" };
+  if (status === "readonly") return { fg: "text-amber-700", bg: "bg-amber-100", label: "readonly" };
+  if (status.startsWith("error")) return { fg: "text-red-700", bg: "bg-red-100", label: status };
+  if (status === "unreachable") return { fg: "text-red-700", bg: "bg-red-100", label: "unreachable" };
+  return { fg: "text-amber-700", bg: "bg-amber-100", label: status };
+}
+
 export default function StorageVolumesPage() {
   const [items, setItems] = useState<Volume[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +136,9 @@ export default function StorageVolumesPage() {
           <li>"체크" 버튼으로 mount 상태 확인 (mounted/missing/error)</li>
           <li>active 토글로 새 업로드 받기 시작</li>
         </ol>
+        <p className="text-[12px] text-text-tertiary mt-2">
+          📡 자동: backend가 6시간마다 active 볼륨 헬스체크 + 사용량 갱신. 90% 도달 시 최고관리자에게 알림 (24h 쿨다운).
+        </p>
       </div>
 
       {showCreate && <CreateVolumeModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
@@ -129,8 +160,17 @@ export default function StorageVolumesPage() {
             const used = total - (v.runtime_free_bytes ?? 0);
             const ratio = total > 0 ? used / total : 0;
             const barColor = ratio >= 0.9 ? "#dc2626" : ratio >= 0.8 ? "#f59e0b" : "#3b82f6";
+            // last_status가 ok(mounted)가 아니면 카드 보더 amber 강조 (90%+ 사용량은 게이지 색으로 별도)
+            const statusOk = v.last_status === "mounted";
+            const cardBorder = !statusOk && v.last_status
+              ? "border-amber-300"
+              : "border-border-default";
+            const st = statusColors(v.last_status);
             return (
-              <div key={v.id} className="bg-bg-primary border border-border-default rounded-lg p-4">
+              <div
+                key={v.id}
+                className={`bg-bg-primary border ${cardBorder} rounded-lg p-4`}
+              >
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -140,16 +180,19 @@ export default function StorageVolumesPage() {
                       ) : (
                         <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">disabled</span>
                       )}
-                      {v.last_status === "mounted" && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600">
-                          <CheckCircle2 size={10} /> mounted
-                        </span>
-                      )}
-                      {v.last_status && v.last_status !== "mounted" && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600">
-                          <AlertTriangle size={10} /> {v.last_status}
-                        </span>
-                      )}
+                      <span
+                        className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded ${st.bg} ${st.fg}`}
+                        title={v.last_checked_at ? `최근 점검: ${new Date(v.last_checked_at).toLocaleString()}` : "아직 점검되지 않음"}
+                      >
+                        {statusOk ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                        {st.label}
+                      </span>
+                      <span
+                        className="text-[10px] text-text-tertiary"
+                        title={v.last_checked_at || ""}
+                      >
+                        {formatRelativeTime(v.last_checked_at)} 점검됨
+                      </span>
                       <span className="text-[11px] text-text-tertiary">우선순위 {v.priority}</span>
                     </div>
                     <code className="text-[11px] text-text-tertiary block mt-1">{v.path}</code>

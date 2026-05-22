@@ -23,7 +23,9 @@
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.models.assignment import Assignment, AssignmentSubmission
 from app.models.classroom import Course, CourseStudent
+from app.models.storage_volume import StorageVolume
 from app.models.user import User
 
 log = logging.getLogger(__name__)
@@ -286,6 +289,100 @@ async def _maybe_purge_old_revisions(db: AsyncSession) -> int:
     return deleted
 
 
+# Storage Volume 사용량/헬스체크 tick — 6시간 1회.
+# shutil.disk_usage 호출은 비교적 비용 있고 외장 장치 spin-up 발생 가능 → 너무 자주 X.
+STORAGE_VOLUME_INTERVAL_HOURS = 6
+STORAGE_VOLUME_WARN_THRESHOLD = 0.9  # 90% 도달 시 super_admin 경고
+_last_volume_check_at: datetime | None = None
+
+
+async def _update_storage_volumes() -> int:
+    """6시간 1회 active 볼륨 사용량 + 헬스체크 자동 업데이트.
+
+    동작:
+      - shutil.disk_usage 비동기(asyncio.to_thread)로 호출
+      - 모든 active 볼륨 순회 (한 볼륨 실패해도 다음 계속)
+      - 경로 없으면 last_status="missing", 접근 불가/예외면 "error: ..."
+      - 정상이면 last_status="mounted", used_bytes/capacity_bytes 갱신, last_checked_at 마크
+      - used/capacity >= 90% 도달 시 super_admin 경고 알림 (24h 쿨다운)
+
+    returns: 체크한 볼륨 수
+    """
+    global _last_volume_check_at
+    now = datetime.now(timezone.utc)
+    if _last_volume_check_at and (now - _last_volume_check_at) < timedelta(
+        hours=STORAGE_VOLUME_INTERVAL_HOURS,
+    ):
+        return 0
+    # 시도 즉시 마커 업데이트 — 실패해도 다음 6h tick까지 재시도 안 함 (외장 장치 spin-up 폭주 차단)
+    _last_volume_check_at = now
+
+    checked = 0
+    warned: list[tuple[str, float, int, int]] = []  # (name, ratio, used, capacity)
+    try:
+        async with async_session_factory() as db:
+            rows = (await db.execute(
+                select(StorageVolume).where(StorageVolume.is_active == True)
+            )).scalars().all()
+
+            for v in rows:
+                try:
+                    if not v.path or not await asyncio.to_thread(
+                        lambda p=v.path: Path(p).exists()
+                    ):
+                        v.last_status = "missing"
+                        v.last_checked_at = now
+                        checked += 1
+                        continue
+
+                    usage = await asyncio.to_thread(shutil.disk_usage, v.path)
+                    v.used_bytes = usage.used
+                    # 등록 시 0이었거나 변경된 경우만 capacity 갱신
+                    if not v.capacity_bytes or v.capacity_bytes == 0:
+                        v.capacity_bytes = usage.total
+                    v.last_status = "mounted"
+                    v.last_checked_at = now
+                    checked += 1
+
+                    # 사용량 90% 도달 시 경고 후보
+                    cap = v.capacity_bytes or usage.total or 0
+                    if cap > 0:
+                        ratio = (v.used_bytes or 0) / cap
+                        if ratio >= STORAGE_VOLUME_WARN_THRESHOLD:
+                            warned.append((v.name, ratio, v.used_bytes or 0, cap))
+                except Exception as e:
+                    v.last_status = f"error: {str(e)[:50]}"
+                    v.last_checked_at = now
+                    checked += 1
+
+            await db.commit()
+
+        # 경고 알림 (24h 쿨다운, error_type별)
+        if warned:
+            for name, ratio, used, cap in warned:
+                used_gb = used / 1024 / 1024 / 1024
+                cap_gb = cap / 1024 / 1024 / 1024
+                pct = ratio * 100
+                try:
+                    await _notify_scheduler_failure(
+                        f"storage_volume_full:{name}",
+                        f"{name}: {pct:.1f}% 사용 중 ({used_gb:.1f}/{cap_gb:.1f} GB) — /system/storage 확인",
+                    )
+                except Exception:
+                    log.exception("storage volume warn notify failed name=%s", name)
+
+        if checked > 0:
+            log.info("[NOTIF SCHED] 스토리지 볼륨 체크 — %d개 (경고 %d개)", checked, len(warned))
+    except Exception as e:
+        log.exception("_update_storage_volumes top-level failure")
+        try:
+            await _notify_scheduler_failure("storage_volume_check", str(e))
+        except Exception:
+            log.exception("_notify_scheduler_failure (storage) call failed")
+
+    return checked
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick."""
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
@@ -311,6 +408,12 @@ async def _scheduler_loop() -> None:
                         await _notify_scheduler_failure("notification_scheduler_tick", str(e))
                     except Exception:
                         log.exception("_notify_scheduler_failure call failed")
+
+            # 스토리지 볼륨 사용량/헬스체크 — 자체 session + 6h 쿨다운 (메인 tick과 분리)
+            try:
+                await _update_storage_volumes()
+            except Exception:
+                log.exception("[NOTIF SCHED] _update_storage_volumes outer failure")
         except asyncio.CancelledError:
             log.info("[NOTIF SCHED] 정상 종료")
             raise
