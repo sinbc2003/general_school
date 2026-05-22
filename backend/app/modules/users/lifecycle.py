@@ -68,11 +68,14 @@ async def update_lifecycle(
         target.status = "approved"
 
     await db.flush()
+    # 인사이동(departed/graduated/transferred)은 민감 — 계정 비활성화와 함께 자료 접근 차단 효과.
+    # active 복귀도 권한 회복이므로 sensitive로 통일.
     await log_action(
         db, user, "user_lifecycle",
         target=target.email,
         detail=f"lifecycle={body.lifecycle_status} disable={body.disable_account}",
         request=request,
+        is_sensitive=True,
     )
     return _user_response(target)
 
@@ -140,11 +143,13 @@ async def transfer_ownership(
         await release_quota(db, source, transferred_bytes)
         await consume_quota(db, successor, transferred_bytes, check=False, notify_threshold=False)
 
+    # 자료 ownership 일괄 이관 — 후임자가 원 소유자의 모든 협업 자료에 접근 권한 획득.
     await log_action(
         db, user, "ownership_transfer",
         target=f"{source.email}→{successor.email}",
         detail=f"items={transferred_count} bytes={transferred_bytes}",
         request=request,
+        is_sensitive=True,
     )
     return {
         "ok": True,

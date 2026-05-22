@@ -24,6 +24,7 @@ import {
   type onLoadDocumentPayload,
 } from "@hocuspocus/server";
 import * as Y from "yjs";
+import { removeAwarenessStates } from "y-protocols/awareness.js";
 import { config } from "./config.js";
 import {
   extractTarget,
@@ -80,7 +81,8 @@ const server = Server.configure({
 
     let perm: DocPermission;
     try {
-      perm = await fetchTargetPermission(target, token);
+      // LRU 캐시 활용 — userId × (kind, targetId) 5분 캐시
+      perm = await fetchTargetPermission(target, token, payload.sub);
     } catch (e: any) {
       console.warn(`[hocuspocus] auth reject: permission lookup failed (${documentName}): ${e?.message ?? e}`);
       throw new Error(`permission check failed: ${e?.message ?? e}`);
@@ -164,7 +166,7 @@ const server = Server.configure({
     }
   },
 
-  async onDisconnect({ documentName, document }: onDisconnectPayload) {
+  async onDisconnect({ documentName, document, context }: onDisconnectPayload) {
     // 마지막 client 떠날 때 즉시 snapshot (debounce 무시)
     const target = extractTarget(documentName);
     const key = `${target.kind}-${target.id}`;
@@ -183,6 +185,30 @@ const server = Server.configure({
     // 다른 client가 남아있어도 다음 onChange에서 getOrInitDocState가 재생성.
     // 손실되는 정보는 lastEditorId 1회뿐 — 다음 편집 시 다시 채워짐.
     docStates.delete(key);
+
+    // Awareness cleanup — 강제 종료(브라우저 크래시·네트워크 단절)로 ghost cursor 잔존 차단.
+    // Hocuspocus 내부 removeConnection이 WS clientID 기준으로 정리하지만,
+    // 사용자가 여러 tab/창에서 같은 문서를 열었다가 한 곳이 강제 종료되는 경우
+    // 또는 awareness state.user.id ↔ WS clientID 불일치로 leak되는 ghost를 방어 정리.
+    const userId = (context as any)?.userId;
+    if (userId != null && document.awareness) {
+      try {
+        const awareness = document.awareness;
+        const toRemove: number[] = [];
+        for (const [clientId, st] of awareness.getStates().entries()) {
+          const stateUserId = (st as any)?.user?.id;
+          if (stateUserId === userId && clientId !== awareness.clientID) {
+            toRemove.push(clientId);
+          }
+        }
+        if (toRemove.length > 0) {
+          removeAwarenessStates(awareness, toRemove, "disconnect");
+        }
+      } catch (e) {
+        // best-effort — 실패해도 정상 종료 흐름 안 막음
+        console.warn(`[hocuspocus] awareness cleanup ${documentName} 실패:`, e);
+      }
+    }
   },
 });
 

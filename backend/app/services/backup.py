@@ -15,6 +15,7 @@
   - Alembic revision이 다르면 안내 (downgrade 막음)
 """
 
+import asyncio
 import io
 import json
 import tarfile
@@ -72,6 +73,25 @@ def _deserialize(v: Any, py_type=None) -> Any:
         except ValueError:
             return None
     return v
+
+
+# ── tarfile 동기 헬퍼 (asyncio.to_thread로 감쌀 대상) ──
+
+def _tar_storage_to_bytes_sync(storage_dir: str) -> bytes:
+    """storage 디렉토리 → tar.gz bytes (동기, CPU+IO 무거움)."""
+    tar_buf = io.BytesIO()
+    with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+        tar.add(storage_dir, arcname="storage")
+    return tar_buf.getvalue()
+
+
+def _tar_extract_storage_sync(tar_bytes: bytes, dest_parent: str) -> None:
+    """tar.gz bytes → 디렉토리 추출 (동기, CPU+IO 무거움).
+
+    Python 3.12+ filter='data' — symlink escape 차단.
+    """
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
+        tar.extractall(path=dest_parent, filter="data")
 
 
 async def _alembic_revision(db: AsyncSession) -> str | None:
@@ -134,10 +154,10 @@ async def export_all(db: AsyncSession) -> bytes:
 
         # storage/ 디렉터리 (있을 때만)
         if STORAGE_DIR.exists() and any(STORAGE_DIR.iterdir()):
-            tar_buf = io.BytesIO()
-            with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
-                tar.add(str(STORAGE_DIR), arcname="storage")
-            zf.writestr("storage.tar.gz", tar_buf.getvalue())
+            tar_bytes = await asyncio.to_thread(
+                _tar_storage_to_bytes_sync, str(STORAGE_DIR),
+            )
+            zf.writestr("storage.tar.gz", tar_bytes)
 
     return buf.getvalue()
 
@@ -256,9 +276,9 @@ async def restore_all(
         # 기존 storage 비우기 (조심: 사용자 업로드 파일이 다 사라짐 — 복원 시 의도된 동작)
         # 단순 처리: tar 풀기 (기존 파일 덮어씀)
         tar_bytes = zf.read("storage.tar.gz")
-        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
-            # Python 3.12+ filter — symlink escape 차단. Python 3.14에서 default.
-            tar.extractall(path=str(STORAGE_DIR.parent), filter="data")
+        await asyncio.to_thread(
+            _tar_extract_storage_sync, tar_bytes, str(STORAGE_DIR.parent),
+        )
 
     await db.flush()
 

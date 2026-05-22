@@ -9,13 +9,15 @@ User=__USER__
 Group=__USER__
 WorkingDirectory=__INSTALL_DIR__/backend
 EnvironmentFile=__INSTALL_DIR__/.env
-# gunicorn -w (worker 수) 는 보통 (CPU 코어 × 2) + 1. 4코어 노트북이면 4~9. 6 권장.
+# gunicorn -w (worker 수): (2×cores + 1) but capped for 16GB RAM laptop.
+# 8코어/16GB 기준 9 worker × ~400MB = ~3.6GB → MemoryMax=4G와 일치.
 # 더 늘리면 메모리·DB connection pool 부담. 줄이면 동시처리 부족.
+# --timeout 300: nginx /api/ proxy_read_timeout 300s와 일치 (PDF/CSV 등 느린 endpoint 대비).
 ExecStart=__INSTALL_DIR__/backend/venv/bin/gunicorn app.main:app \
-    --workers 6 \
+    --workers 9 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 127.0.0.1:8002 \
-    --timeout 120 \
+    --timeout 300 \
     --graceful-timeout 30 \
     --max-requests 2000 \
     --max-requests-jitter 200 \

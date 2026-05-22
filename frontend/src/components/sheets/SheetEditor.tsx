@@ -25,6 +25,7 @@ import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import * as Y from "yjs";
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 import { api } from "@/lib/api/client";
+import ActiveUserBanner from "@/components/collab/ActiveUserBanner";
 // fortune-sheet CSS — 누락 시 toolbar/grid가 raw HTML로 펼쳐져 보임
 import "@fortune-sheet/react/dist/index.css";
 
@@ -75,6 +76,7 @@ export function SheetEditor({
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
   const [authError, setAuthError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [activeCount, setActiveCount] = useState(0);
 
   const docRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
@@ -141,6 +143,18 @@ export function SheetEditor({
       });
     } catch {}
 
+    // awareness 사용자 수 추적 (20명+ banner 표시용)
+    const aw = (prov as any).awareness;
+    const onAwarenessChange = () => {
+      try {
+        setActiveCount(aw?.getStates()?.size ?? 0);
+      } catch { /* noop */ }
+    };
+    try {
+      aw?.on("change", onAwarenessChange);
+      onAwarenessChange();
+    } catch { /* noop */ }
+
     // Y.Map observe — 다른 사용자의 변경을 받음
     const onYMapChange = (_event: Y.YMapEvent<any>, transaction: Y.Transaction) => {
       // 내가 일으킨 변경(transaction.local)은 무시 — onChange가 이미 처리
@@ -157,6 +171,7 @@ export function SheetEditor({
 
     return () => {
       yMap.unobserve(onYMapChange);
+      try { aw?.off("change", onAwarenessChange); } catch { /* noop */ }
       if (debounceRef.current) clearTimeout(debounceRef.current);
       try { prov.destroy(); } catch {}
       try { yDoc.destroy(); } catch {}
@@ -280,6 +295,11 @@ export function SheetEditor({
           </span>
         )}
       </div>
+      {activeCount >= 20 && (
+        <div className="px-3 pt-2 flex-shrink-0">
+          <ActiveUserBanner count={activeCount} />
+        </div>
+      )}
 
       {/* fortune-sheet workbook — 부모 flex-1 영역 가득 채움 */}
       <div className="relative flex-1 min-h-[400px]">

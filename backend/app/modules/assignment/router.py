@@ -262,25 +262,39 @@ async def submit_assignment(
 @router.get("/{aid}/submissions")
 async def list_submissions(
     aid: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("assignment.manage.review")),
     db: AsyncSession = Depends(get_db),
 ):
+    """과제 제출물 목록 (페이지네이션). 기본 50, 최대 200.
+
+    학교 단위 운영 시 한 과제당 1000명+ 제출 가능 → 폭증 방지.
+    """
+    total = (await db.execute(
+        select(func.count(AssignmentSubmission.id))
+        .where(AssignmentSubmission.assignment_id == aid)
+    )).scalar() or 0
     rows = (await db.execute(
         select(AssignmentSubmission, User.name, User.email)
         .join(User, User.id == AssignmentSubmission.user_id)
         .where(AssignmentSubmission.assignment_id == aid)
         .order_by(desc(AssignmentSubmission.submitted_at))
+        .offset(offset).limit(limit)
     )).all()
-    return [
-        {
-            "id": s[0].id, "user_id": s[0].user_id,
-            "name": s[1], "email": s[2],
-            "filename": s[0].filename, "status": s[0].status.value,
-            "submitted_at": s[0].submitted_at.isoformat() if s[0].submitted_at else None,
-            "review_comment": s[0].review_comment,
-        }
-        for s in rows
-    ]
+    return {
+        "items": [
+            {
+                "id": s[0].id, "user_id": s[0].user_id,
+                "name": s[1], "email": s[2],
+                "filename": s[0].filename, "status": s[0].status.value,
+                "submitted_at": s[0].submitted_at.isoformat() if s[0].submitted_at else None,
+                "review_comment": s[0].review_comment,
+            }
+            for s in rows
+        ],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.put("/{aid}/submissions/{sid}/review")

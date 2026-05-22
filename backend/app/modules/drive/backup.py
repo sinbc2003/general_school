@@ -31,6 +31,7 @@ ZIP 구조:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -523,10 +524,12 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"docs/{d.id}_{_safe_name(d.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            # pycrdt 디코드 + HTML 생성 (CPU bound) → to_thread
             try:
+                html_text = await asyncio.to_thread(_doc_to_html, d)
                 z.writestr(
                     f"docs/{d.id}_{_safe_name(d.title)}.html",
-                    _doc_to_html(d),
+                    html_text,
                 )
             except Exception:
                 pass
@@ -544,9 +547,14 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"sheets/{s.id}_{_safe_name(s.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            # pycrdt 디코드 + openpyxl Workbook.save 모두 CPU+IO 무거움 → to_thread
             try:
-                snap = _extract_sheet_snapshot(s.yjs_state)
-                xlsx_bytes = _sheet_snapshot_to_xlsx(snap, s.title or "Sheet")
+                snap = await asyncio.to_thread(
+                    _extract_sheet_snapshot, s.yjs_state,
+                )
+                xlsx_bytes = await asyncio.to_thread(
+                    _sheet_snapshot_to_xlsx, snap, s.title or "Sheet",
+                )
                 z.writestr(
                     f"sheets/{s.id}_{_safe_name(s.title)}.xlsx",
                     xlsx_bytes,

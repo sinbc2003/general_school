@@ -13,6 +13,7 @@ import { ArrowLeft, Share2, ExternalLink, Sparkles } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { HwpEditor } from "@/components/hwp/HwpEditor";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 import { EditableTitle } from "@/components/ui/EditableTitle";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
@@ -104,6 +105,7 @@ export default function StudentStandaloneHwpPage() {
       className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
       style={ai.open ? { marginRight: 0 } : undefined}
     >
+      <CollabPrecautionModal toolKind="hwps" />
       <div className="flex-shrink-0 px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
           <Link

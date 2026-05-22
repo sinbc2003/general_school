@@ -22,7 +22,7 @@ export function MockExamsTab({ studentId }: { studentId: number }) {
     setLoading(true);
     try {
       const data = await api.get(`/api/students/${studentId}/mock-exams`);
-      setRecords(Array.isArray(data) ? data : []);
+      setRecords(Array.isArray(data) ? data : (data?.items ?? []));
     } catch { setRecords([]); }
     finally { setLoading(false); }
   }, [studentId]);

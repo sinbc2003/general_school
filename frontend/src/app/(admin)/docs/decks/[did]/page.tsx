@@ -15,6 +15,7 @@ import { DeckEditor } from "@/components/decks/DeckEditor";
 import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 
 interface Slide {
   id: number;
@@ -80,6 +81,7 @@ export default function AdminStandaloneDeckPage() {
 
   return (
     <div className="w-full">
+      <CollabPrecautionModal toolKind="decks" />
       <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
         <Link
           href="/drive"

@@ -34,6 +34,7 @@ from app.core.audit import log_action
 from app.core.config import settings as app_settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
+from app.core.quota import adjust_quota
 from app.models.classroom import Course, CourseStudent
 from app.models.classroom_sheets import ClassroomSheet, SheetMember
 from app.models.classroom_surveys import (
@@ -407,9 +408,20 @@ async def put_user_snapshot(
     # 크기 제한 (10MB) — 악의적 큰 데이터 차단
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, "snapshot이 너무 큽니다 (10MB 한도)")
+    old_bytes = sh.storage_bytes or 0
     sh.yjs_state = data
     sh.storage_bytes = len(data)
+    new_bytes = sh.storage_bytes
     await db.flush()
+
+    # quota 조정 (best-effort)
+    try:
+        owner = await db.get(User, sh.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=new_bytes)
+    except Exception:
+        pass
+
     return {"ok": True, "byte_size": len(data)}
 
 
@@ -475,9 +487,20 @@ async def put_yjs_snapshot(
         data = base64.b64decode(body.state_base64)
     except Exception:
         raise HTTPException(400, "잘못된 base64")
+    old_bytes = sh.storage_bytes or 0
     sh.yjs_state = data
     sh.storage_bytes = len(data)
+    new_bytes = sh.storage_bytes
     await db.flush()
+
+    # quota 조정 (best-effort)
+    try:
+        owner = await db.get(User, sh.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=new_bytes)
+    except Exception:
+        pass
+
     return {"ok": True, "byte_size": len(data)}
 
 

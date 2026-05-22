@@ -19,6 +19,8 @@ import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
 import type { Editor } from "@tiptap/react";
 import { marked } from "marked";
+import DOMPurify from "isomorphic-dompurify";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 
 interface Permission {
   can_read: boolean;
@@ -57,10 +59,12 @@ export default function AdminStandaloneDocPage() {
     if (!editor) { alert("편집기가 아직 준비되지 않았습니다."); return; }
     if (call.name === "doc_append_markdown") {
       const html = await marked.parse(String(call.arguments.markdown || ""));
-      editor.chain().focus("end").insertContent(html as string).run();
+      const clean = DOMPurify.sanitize(html as string);
+      editor.chain().focus("end").insertContent(clean).run();
     } else if (call.name === "doc_replace_all") {
       const html = await marked.parse(String(call.arguments.markdown || ""));
-      editor.chain().focus().setContent(html as string, { emitUpdate: true }).run();
+      const clean = DOMPurify.sanitize(html as string);
+      editor.chain().focus().setContent(clean, { emitUpdate: true }).run();
     }
   };
 
@@ -90,6 +94,7 @@ export default function AdminStandaloneDocPage() {
 
   return (
     <div className="w-full">
+      <CollabPrecautionModal toolKind="docs" />
       <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
         <Link
           href="/drive"

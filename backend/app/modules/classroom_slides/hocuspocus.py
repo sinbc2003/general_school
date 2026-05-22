@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.quota import adjust_quota
 from app.models.classroom_slides import ClassroomPresentation
 from app.models.user import User
 from app.modules.classroom_slides._helpers import resolve_permission
@@ -84,8 +85,19 @@ async def save_yjs_snapshot(
     except Exception:
         raise HTTPException(400, "state_base64 디코딩 실패")
 
+    old_bytes = d.storage_bytes or 0
     d.yjs_state = state
     d.storage_bytes = len(state)
+    new_bytes = d.storage_bytes
     # plain_text는 deck 전체 검색용 (slide-by-slide 분리는 향후).
     await db.flush()
+
+    # quota 조정 (best-effort, 원 저장 작업 안 막음)
+    try:
+        owner = await db.get(User, d.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=new_bytes)
+    except Exception:
+        pass
+
     return {"ok": True, "byte_size": len(state)}

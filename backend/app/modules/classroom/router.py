@@ -726,14 +726,14 @@ async def remove_student_from_course(
 @router.get("/courses/{cid}/posts")
 async def list_course_posts(
     cid: int,
-    limit: int = Query(30, ge=1, le=200),
+    limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("classroom.post.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """강좌 글 목록 (페이지네이션). 기본 30, 최대 200.
+    """강좌 글 목록 (페이지네이션). 기본 30, 최대 100.
 
-    학기당 글 200+ 누적 시 응답 폭증 방지. is_pinned 우선 정렬 유지.
+    학기당 글 100+ 누적 시 응답 폭증 방지. is_pinned 우선 정렬 유지.
     """
     c = await db.get(Course, cid)
     if not c:
@@ -898,10 +898,12 @@ async def delete_course_post(
 @router.get("/posts/{pid}/comments")
 async def list_post_comments(
     pid: int,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("classroom.post.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """글 댓글 목록 (최신순 아니라 시간순 — 채팅처럼)."""
+    """글 댓글 목록 (시간순 — 채팅처럼). 기본 100, 최대 500."""
     p = await db.get(CoursePost, pid)
     if not p:
         raise HTTPException(404)
@@ -910,11 +912,16 @@ async def list_post_comments(
         raise HTTPException(404)
     await _assert_course_access(db, user, course)
 
+    total = (await db.execute(
+        select(func.count(CoursePostComment.id))
+        .where(CoursePostComment.post_id == pid)
+    )).scalar() or 0
     rows = (await db.execute(
         select(CoursePostComment, User.name)
         .join(User, User.id == CoursePostComment.author_id, isouter=True)
         .where(CoursePostComment.post_id == pid)
         .order_by(CoursePostComment.created_at)
+        .offset(offset).limit(limit)
     )).all()
     return {
         "items": [
@@ -924,7 +931,8 @@ async def list_post_comments(
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
             for c, name in rows
-        ]
+        ],
+        "limit": limit, "offset": offset, "total": int(total),
     }
 
 

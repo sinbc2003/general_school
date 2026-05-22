@@ -356,7 +356,16 @@ async def update_user(
         except Exception:
             pass
 
-    await log_action(db, user, "user_updated", target=target.email, request=request)
+    # role/status/is_grade_lead 변경은 권한·접근 범위에 영향 — 민감 audit.
+    sensitive_fields = {"role", "status", "is_grade_lead"}
+    update_payload = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else (body.dict(exclude_unset=True) if hasattr(body, "dict") else {})
+    is_sensitive = bool(sensitive_fields & set(update_payload.keys()))
+    await log_action(
+        db, user, "user_updated",
+        target=target.email,
+        request=request,
+        is_sensitive=is_sensitive,
+    )
     return _user_response(target)
 
 
@@ -387,5 +396,6 @@ async def delete_user(
     await _invalidate_user_sessions(db, target.id)
     await db.flush()
 
-    await log_action(db, user, "user_disabled", target=target.email, request=request)
+    # 계정 비활성화 = 사실상 삭제 + 세션 차단 — 민감.
+    await log_action(db, user, "user_disabled", target=target.email, request=request, is_sensitive=True)
     return {"ok": True}

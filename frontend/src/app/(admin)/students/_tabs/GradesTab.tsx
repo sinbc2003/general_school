@@ -27,7 +27,7 @@ export function GradesTab({ studentId }: { studentId: number }) {
       if (year) params.set("year", year);
       if (semester) params.set("semester", semester);
       const data = await api.get(`/api/students/${studentId}/grades?${params}`);
-      setRecords(Array.isArray(data) ? data : []);
+      setRecords(Array.isArray(data) ? data : (data?.items ?? []));
     } catch { setRecords([]); }
     finally { setLoading(false); }
   }, [studentId, year, semester]);

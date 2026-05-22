@@ -17,8 +17,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -117,7 +117,8 @@ async def list_my_items(
     type: str = "all",
     folder_id: int | None = None,
     no_folder: bool = False,
-    limit: int = 200,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("drive.use")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -126,6 +127,7 @@ async def list_my_items(
     trash=False → 활성 자료만, trash=True → 휴지통(deleted_at IS NOT NULL).
     type='all'이면 5가지 모두, 아니면 docs|sheets|decks|surveys|hwps 중 하나.
     folder_id 지정 시 그 폴더 안 자료만. no_folder=true면 폴더 밖(루트) 자료만.
+    limit 200 기본, 최대 500. offset으로 페이지 이동.
     """
     types_to_query: list[str] = (
         list(ITEM_TYPES.keys()) if type == "all" else [type]
@@ -134,18 +136,28 @@ async def list_my_items(
         raise HTTPException(400, f"잘못된 type: {type}")
 
     items: list[dict[str, Any]] = []
+    total = 0
+    # per-fetch 상한 — limit + offset 보다 약간 넉넉히 잡아 type별 합산 후 sort/slice
+    per_fetch_cap = limit + offset
     for t in types_to_query:
         Model, owner_field, _ = ITEM_TYPES[t]
-        q = select(Model).where(getattr(Model, owner_field) == user.id)
+        base_where = [getattr(Model, owner_field) == user.id]
         if trash:
-            q = q.where(Model.deleted_at.isnot(None))
+            base_where.append(Model.deleted_at.isnot(None))
         else:
-            q = q.where(Model.deleted_at.is_(None))
+            base_where.append(Model.deleted_at.is_(None))
         if folder_id is not None:
-            q = q.where(Model.folder_id == folder_id)
+            base_where.append(Model.folder_id == folder_id)
         elif no_folder:
-            q = q.where(Model.folder_id.is_(None))
-        q = q.order_by(Model.updated_at.desc()).limit(limit)
+            base_where.append(Model.folder_id.is_(None))
+
+        # total count (모든 type 합산)
+        cnt = (await db.execute(
+            select(func.count(Model.id)).where(*base_where)
+        )).scalar() or 0
+        total += int(cnt)
+
+        q = select(Model).where(*base_where).order_by(Model.updated_at.desc()).limit(per_fetch_cap)
         rows = (await db.execute(q)).scalars().all()
         items.extend(_serialize(r, t) for r in rows)
 
@@ -153,7 +165,14 @@ async def list_my_items(
     key = "deleted_at" if trash else "updated_at"
     items.sort(key=lambda x: (x.get(key) or ""), reverse=True)
 
-    return {"items": items[:limit], "trash": trash, "folder_id": folder_id}
+    # 통합 정렬 후 offset+limit 슬라이스
+    sliced = items[offset:offset + limit]
+
+    return {
+        "items": sliced,
+        "limit": limit, "offset": offset, "total": total,
+        "trash": trash, "folder_id": folder_id,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

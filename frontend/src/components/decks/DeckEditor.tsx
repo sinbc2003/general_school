@@ -24,6 +24,7 @@ import { api } from "@/lib/api/client";
 import { SlideEditor } from "./SlideEditor";
 import { ThemePicker } from "./ThemePicker";
 import { getTheme } from "./themes";
+import ActiveUserBanner from "@/components/collab/ActiveUserBanner";
 
 const DEFAULT_HOCUSPOCUS_URL =
   process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
@@ -58,6 +59,7 @@ export function DeckEditor({
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [activeCount, setActiveCount] = useState(0);
 
   const currentTheme = getTheme(themeId);
 
@@ -109,6 +111,22 @@ export function DeckEditor({
       try { doc.destroy(); } catch {}
     };
   }, [doc, provider]);
+
+  // Awareness 사용자 수 추적 (20명+ 시 banner 표시용)
+  useEffect(() => {
+    const aw = (provider as any).awareness;
+    if (!aw) return;
+    const update = () => {
+      try {
+        setActiveCount(aw.getStates()?.size ?? 0);
+      } catch { /* noop */ }
+    };
+    aw.on("change", update);
+    update();
+    return () => {
+      try { aw.off("change", update); } catch { /* noop */ }
+    };
+  }, [provider]);
 
   // 14분 token refresh
   useEffect(() => {
@@ -172,6 +190,12 @@ export function DeckEditor({
   const active = slides.find((s) => s.id === activeSlideId) ?? slides[0];
 
   return (
+    <>
+      {activeCount >= 20 && (
+        <div className="mb-2">
+          <ActiveUserBanner count={activeCount} />
+        </div>
+      )}
     <div className="grid grid-cols-1 lg:grid-cols-[210px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[500px]">
       {/* 좌측 썸네일 list */}
       <aside className="bg-bg-primary border border-border-default rounded-lg p-2 overflow-y-auto">
@@ -274,6 +298,7 @@ export function DeckEditor({
         />
       )}
     </div>
+    </>
   );
 }
 

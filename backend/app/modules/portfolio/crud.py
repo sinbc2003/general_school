@@ -5,8 +5,8 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import crud'로 등록.
 """
 
-from fastapi import Depends, HTTPException, Request
-from sqlalchemy import desc, select
+from fastapi import Depends, HTTPException, Query, Request
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -31,24 +31,37 @@ from app.modules.portfolio.schemas import (
 async def list_grades(
     sid: int,
     year: int | None = None, semester: int | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.grade.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    """학생 성적 list — 페이지네이션. 3학년 12학기 × 10과목 × 2회 ≈ 720 가능."""
     await assert_can_view_student(db, user, sid)
-    q = select(StudentGrade).where(StudentGrade.student_id == sid)
+    base_where = [StudentGrade.student_id == sid]
     if year:
-        q = q.where(StudentGrade.year == year)
+        base_where.append(StudentGrade.year == year)
     if semester:
-        q = q.where(StudentGrade.semester == semester)
-    rows = (await db.execute(q.order_by(StudentGrade.year, StudentGrade.semester, StudentGrade.subject))).scalars().all()
-    return [{
-        "id": g.id, "year": g.year, "semester": g.semester,
-        "exam_type": g.exam_type, "subject": g.subject,
-        "score": g.score, "max_score": g.max_score,
-        "grade_rank": g.grade_rank, "class_rank": g.class_rank,
-        "total_students": g.total_students, "average": g.average,
-        "standard_deviation": g.standard_deviation, "comment": g.comment,
-    } for g in rows]
+        base_where.append(StudentGrade.semester == semester)
+    total = (await db.execute(
+        select(func.count(StudentGrade.id)).where(*base_where)
+    )).scalar() or 0
+    rows = (await db.execute(
+        select(StudentGrade).where(*base_where)
+        .order_by(StudentGrade.year, StudentGrade.semester, StudentGrade.subject)
+        .offset(offset).limit(limit)
+    )).scalars().all()
+    return {
+        "items": [{
+            "id": g.id, "year": g.year, "semester": g.semester,
+            "exam_type": g.exam_type, "subject": g.subject,
+            "score": g.score, "max_score": g.max_score,
+            "grade_rank": g.grade_rank, "class_rank": g.class_rank,
+            "total_students": g.total_students, "average": g.average,
+            "standard_deviation": g.standard_deviation, "comment": g.comment,
+        } for g in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/grades")
@@ -78,20 +91,30 @@ async def create_grade(
 @router.get("/{sid}/mock-exams")
 async def list_mock_exams(
     sid: int,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.mockexam.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
+    total = (await db.execute(
+        select(func.count(StudentMockExam.id))
+        .where(StudentMockExam.student_id == sid)
+    )).scalar() or 0
     rows = (await db.execute(
         select(StudentMockExam).where(StudentMockExam.student_id == sid)
         .order_by(desc(StudentMockExam.exam_date))
+        .offset(offset).limit(limit)
     )).scalars().all()
-    return [{
-        "id": m.id, "exam_name": m.exam_name, "exam_date": m.exam_date.isoformat(),
-        "subject": m.subject, "raw_score": m.raw_score,
-        "standard_score": m.standard_score, "percentile": m.percentile,
-        "grade_level": m.grade_level,
-    } for m in rows]
+    return {
+        "items": [{
+            "id": m.id, "exam_name": m.exam_name, "exam_date": m.exam_date.isoformat(),
+            "subject": m.subject, "raw_score": m.raw_score,
+            "standard_score": m.standard_score, "percentile": m.percentile,
+            "grade_level": m.grade_level,
+        } for m in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/mock-exams")
@@ -121,20 +144,30 @@ async def create_mock_exam(
 @router.get("/{sid}/awards")
 async def list_awards(
     sid: int,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.award.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
+    total = (await db.execute(
+        select(func.count(StudentAward.id))
+        .where(StudentAward.student_id == sid)
+    )).scalar() or 0
     rows = (await db.execute(
         select(StudentAward).where(StudentAward.student_id == sid)
         .order_by(desc(StudentAward.award_date))
+        .offset(offset).limit(limit)
     )).scalars().all()
-    return [{
-        "id": a.id, "title": a.title, "award_type": a.award_type,
-        "category": a.category, "award_level": a.award_level,
-        "award_date": a.award_date.isoformat(), "organizer": a.organizer,
-        "description": a.description,
-    } for a in rows]
+    return {
+        "items": [{
+            "id": a.id, "title": a.title, "award_type": a.award_type,
+            "category": a.category, "award_level": a.award_level,
+            "award_date": a.award_date.isoformat(), "organizer": a.organizer,
+            "description": a.description,
+        } for a in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/awards")
@@ -162,19 +195,29 @@ async def create_award(
 @router.get("/{sid}/theses")
 async def list_theses(
     sid: int,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.thesis.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
+    total = (await db.execute(
+        select(func.count(StudentThesis.id))
+        .where(StudentThesis.student_id == sid)
+    )).scalar() or 0
     rows = (await db.execute(
         select(StudentThesis).where(StudentThesis.student_id == sid)
         .order_by(desc(StudentThesis.created_at))
+        .offset(offset).limit(limit)
     )).scalars().all()
-    return [{
-        "id": t.id, "title": t.title, "thesis_type": t.thesis_type,
-        "abstract": t.abstract, "status": t.status,
-        "journal": t.journal, "coauthors": t.coauthors,
-    } for t in rows]
+    return {
+        "items": [{
+            "id": t.id, "title": t.title, "thesis_type": t.thesis_type,
+            "abstract": t.abstract, "status": t.status,
+            "journal": t.journal, "coauthors": t.coauthors,
+        } for t in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/theses")
@@ -200,19 +243,31 @@ async def create_thesis(
 @router.get("/{sid}/counselings")
 async def list_counselings(
     sid: int,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.counseling.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
-    q = select(StudentCounseling).where(StudentCounseling.student_id == sid)
+    base_where = [StudentCounseling.student_id == sid]
     if user.role not in ("super_admin", "designated_admin"):
-        q = q.where(StudentCounseling.counselor_id == user.id)
-    rows = (await db.execute(q.order_by(desc(StudentCounseling.counseling_date)))).scalars().all()
-    return [{
-        "id": c.id, "counseling_date": c.counseling_date.isoformat(),
-        "counseling_type": c.counseling_type, "title": c.title,
-        "content": c.content, "follow_up": c.follow_up,
-    } for c in rows]
+        base_where.append(StudentCounseling.counselor_id == user.id)
+    total = (await db.execute(
+        select(func.count(StudentCounseling.id)).where(*base_where)
+    )).scalar() or 0
+    rows = (await db.execute(
+        select(StudentCounseling).where(*base_where)
+        .order_by(desc(StudentCounseling.counseling_date))
+        .offset(offset).limit(limit)
+    )).scalars().all()
+    return {
+        "items": [{
+            "id": c.id, "counseling_date": c.counseling_date.isoformat(),
+            "counseling_type": c.counseling_type, "title": c.title,
+            "content": c.content, "follow_up": c.follow_up,
+        } for c in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/counselings")
@@ -241,18 +296,30 @@ async def create_counseling(
 @router.get("/{sid}/records")
 async def list_records(
     sid: int, year: int | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("portfolio.record.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_can_view_student(db, user, sid)
-    q = select(StudentRecord).where(StudentRecord.student_id == sid)
+    base_where = [StudentRecord.student_id == sid]
     if year:
-        q = q.where(StudentRecord.year == year)
-    rows = (await db.execute(q.order_by(StudentRecord.year, StudentRecord.semester))).scalars().all()
-    return [{
-        "id": r.id, "year": r.year, "semester": r.semester,
-        "record_type": r.record_type, "content": r.content,
-    } for r in rows]
+        base_where.append(StudentRecord.year == year)
+    total = (await db.execute(
+        select(func.count(StudentRecord.id)).where(*base_where)
+    )).scalar() or 0
+    rows = (await db.execute(
+        select(StudentRecord).where(*base_where)
+        .order_by(StudentRecord.year, StudentRecord.semester)
+        .offset(offset).limit(limit)
+    )).scalars().all()
+    return {
+        "items": [{
+            "id": r.id, "year": r.year, "semester": r.semester,
+            "record_type": r.record_type, "content": r.content,
+        } for r in rows],
+        "limit": limit, "offset": offset, "total": int(total),
+    }
 
 
 @router.post("/{sid}/records")

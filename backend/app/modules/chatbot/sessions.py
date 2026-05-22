@@ -49,6 +49,14 @@ async def list_all_sessions(
     """관리자: 전체 사용자 대화 세션 조회 (모니터링).
     limit 50 기본, 최대 500. 대용량 학교는 offset으로 페이지 이동.
     """
+    # total count (admin 모니터링용)
+    count_where = [ChatSession.archived == archived]
+    if user_id:
+        count_where.append(ChatSession.user_id == user_id)
+    total = (await db.execute(
+        select(func.count(ChatSession.id)).where(*count_where)
+    )).scalar() or 0
+
     q = select(ChatSession, User.username, User.name, User.role).join(
         User, User.id == ChatSession.user_id
     ).where(ChatSession.archived == archived)
@@ -60,7 +68,7 @@ async def list_all_sessions(
     )
     rows = (await db.execute(q)).all()
     return {
-        "limit": limit, "offset": offset,
+        "limit": limit, "offset": offset, "total": int(total),
         "items": [
             {
                 "id": s.id, "title": s.title, "audience": s.audience,
@@ -87,6 +95,12 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
 ):
     """내 대화 세션 목록. limit 100 기본 (활동 많은 교사도 1년치 100개씩 페이지)."""
+    total = (await db.execute(
+        select(func.count(ChatSession.id)).where(
+            ChatSession.user_id == user.id,
+            ChatSession.archived == archived,
+        )
+    )).scalar() or 0
     q = select(ChatSession).where(
         ChatSession.user_id == user.id,
         ChatSession.archived == archived,
@@ -96,7 +110,7 @@ async def list_sessions(
     ).offset(offset).limit(limit)
     rows = (await db.execute(q)).scalars().all()
     return {
-        "limit": limit, "offset": offset,
+        "limit": limit, "offset": offset, "total": int(total),
         "items": [
             {
                 "id": s.id, "title": s.title, "audience": s.audience,

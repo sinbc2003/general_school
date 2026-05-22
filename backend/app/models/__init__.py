@@ -182,6 +182,8 @@ __all__ = [
     "ShortLink",
     # Classroom Sheets
     "ClassroomSheet", "SheetMember",
+    # Classroom HWP
+    "ClassroomHwp", "HwpMember",
     # Notifications
     "Notification",
     # Google

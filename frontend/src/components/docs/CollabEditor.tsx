@@ -48,6 +48,7 @@ import { SlashMenu, SLASH_ITEMS, useSlashCommand } from "./SlashCommand";
 import { KoreanMarkdownShortcuts } from "./KoreanMarkdownShortcuts";
 import { EditorContextMenu } from "./EditorContextMenu";
 import { TableBubbleMenu } from "./TableBubbleMenu";
+import ActiveUserBanner from "@/components/collab/ActiveUserBanner";
 import "./collab-editor.css";
 import "katex/dist/katex.min.css";
 
@@ -78,6 +79,7 @@ export default function CollabEditor({
 }: CollabEditorProps) {
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [activeCount, setActiveCount] = useState(0);
 
   // Y.Doc + HocuspocusProvider — docId 단위로 한 번만 생성 (useMemo)
   // token은 함수로 전달 → 매 (재)연결 시점에 fresh access_token 반환.
@@ -161,6 +163,24 @@ export default function CollabEditor({
       doc.destroy();
     };
   }, [doc, provider]);
+
+  // Awareness 사용자 수 추적 (20명+ 시 banner 표시용)
+  useEffect(() => {
+    const aw = (provider as any).awareness;
+    if (!aw) return;
+    const update = () => {
+      try {
+        setActiveCount(aw.getStates()?.size ?? 0);
+      } catch {
+        /* noop */
+      }
+    };
+    aw.on("change", update);
+    update();
+    return () => {
+      try { aw.off("change", update); } catch { /* noop */ }
+    };
+  }, [provider]);
 
   // 노션식 슬래시 명령 메뉴 (`/` 키 → floating popup)
   const slash = useSlashCommand({ items: SLASH_ITEMS });
@@ -270,6 +290,11 @@ export default function CollabEditor({
           <span className="text-caption text-text-tertiary">읽기 전용</span>
         )}
       </div>
+      {activeCount >= 20 && (
+        <div className="px-3 pt-2">
+          <ActiveUserBanner count={activeCount} />
+        </div>
+      )}
       {canWrite && <Toolbar editor={editor} />}
       <EditorContent editor={editor} />
       {canWrite && (

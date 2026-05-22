@@ -12,7 +12,8 @@ class AnthropicAdapter(LLMAdapter):
 
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        self._client = AsyncAnthropic(api_key=api_key)
+        # timeout=60s — LLM 응답 지연 시 무한 대기로 worker 점유되는 것 방지 (1500명 부하 대응).
+        self._client = AsyncAnthropic(api_key=api_key, timeout=60.0)
 
     async def chat_stream(
         self,

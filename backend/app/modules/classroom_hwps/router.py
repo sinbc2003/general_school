@@ -21,7 +21,7 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.files import write_bytes_async, ensure_dir_async, unlink_async
 from app.core.permissions import require_permission
-from app.core.quota import consume_quota, release_quota
+from app.core.quota import adjust_quota, consume_quota, release_quota
 from app.core.upload import POLICY_HWP, validate_upload
 from app.models.classroom import Course, CourseStudent
 from app.models.classroom_hwp import ClassroomHwp, HwpMember
@@ -259,28 +259,30 @@ async def upload_hwp_file(
     fname = f"{token}.{fmt}"
     fpath = sub / fname
 
-    # 기존 파일 삭제 + quota 환원
+    # 기존 파일 삭제
     if h.file_path:
         try:
             await unlink_async(STORAGE_BASE.parent / h.file_path)
         except FileNotFoundError:
             pass
-        if h.storage_bytes:
-            owner = await db.get(User, h.owner_id)
-            if owner:
-                release_quota(owner, h.storage_bytes)
 
     await write_bytes_async(fpath, data)
+    old_bytes = h.storage_bytes or 0
     h.file_path = f"hwps/{hid}/{fname}"
     h.file_format = fmt
     h.storage_bytes = len(data)
-
-    # quota 차감 (owner)
-    owner = await db.get(User, h.owner_id)
-    if owner:
-        consume_quota(owner, len(data))
+    new_bytes = h.storage_bytes
 
     await db.flush()
+
+    # quota 조정 (best-effort, 원 저장 작업 안 막음)
+    try:
+        owner = await db.get(User, h.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=new_bytes)
+    except Exception:
+        pass
+
     await log_action(db, user, "classroom.hwp.upload", target=f"hwp:{hid} {fmt} {len(data)}B", request=request)
     return {"ok": True, "file_path": h.file_path, "file_format": fmt, "storage_bytes": h.storage_bytes}
 

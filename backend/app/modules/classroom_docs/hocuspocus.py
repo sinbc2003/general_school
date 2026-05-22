@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.quota import adjust_quota
 from app.models.classroom_docs import ClassroomDocument, DocumentRevision
 from app.models.user import User
 from app.modules.classroom_docs._helpers import resolve_permission
@@ -92,8 +93,10 @@ async def save_yjs_snapshot(
     except Exception:
         raise HTTPException(400, "state_base64 디코딩 실패")
 
+    old_bytes = d.storage_bytes or 0
     d.yjs_state = state
     d.storage_bytes = len(state) + (len(body.plain_text) if body.plain_text else 0)
+    new_bytes = d.storage_bytes
     if body.plain_text is not None:
         d.plain_text = body.plain_text
 
@@ -105,4 +108,13 @@ async def save_yjs_snapshot(
     )
     db.add(rev)
     await db.flush()
+
+    # quota 조정 (best-effort, 원 저장 작업 안 막음)
+    try:
+        owner = await db.get(User, d.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=new_bytes)
+    except Exception:
+        pass
+
     return {"ok": True, "revision_id": rev.id, "byte_size": len(state)}

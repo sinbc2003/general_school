@@ -27,6 +27,7 @@ from app.core.quota import check_quota, consume_quota, release_quota
 from app.core.upload import POLICY_IMAGE, validate_upload
 from app.models import Course, User
 from app.modules.classroom.router import router
+from app.modules.classroom.teachers import is_course_editor
 
 
 def _delete_banner_file_sync(file_url: str | None) -> int:
@@ -89,8 +90,10 @@ async def customize_course(
     course = await db.get(Course, cid)
     if not course:
         raise HTTPException(404, "강좌를 찾을 수 없습니다")
-    if not (user.role in ("super_admin", "designated_admin") or course.teacher_id == user.id):
-        raise HTTPException(403, "강좌 소유자만 디자인을 변경할 수 있습니다")
+    is_admin = user.role in ("super_admin", "designated_admin")
+    editor = is_admin or await is_course_editor(db, course, user)
+    if not editor:
+        raise HTTPException(403, "강좌 소유자/공동교사만 디자인을 변경할 수 있습니다")
 
     if body.banner_color is not None:
         course.banner_color = body.banner_color
@@ -138,8 +141,10 @@ async def upload_banner_image(
     course = await db.get(Course, cid)
     if not course:
         raise HTTPException(404, "강좌를 찾을 수 없습니다")
-    if not (user.role in ("super_admin", "designated_admin") or course.teacher_id == user.id):
-        raise HTTPException(403, "강좌 소유자만 이미지를 업로드할 수 있습니다")
+    is_admin = user.role in ("super_admin", "designated_admin")
+    editor = is_admin or await is_course_editor(db, course, user)
+    if not editor:
+        raise HTTPException(403, "강좌 소유자/공동교사만 이미지를 업로드할 수 있습니다")
 
     # 1) 입력 검증 + 읽기 (POLICY_IMAGE: ext/mime/size 일괄 검증)
     raw = await validate_upload(file, POLICY_IMAGE)

@@ -21,6 +21,8 @@ Yjs CRDT 기반 실시간 동시 편집(Google Docs 식). FastAPI backend와 함
 - `HOCUSPOCUS_INTERNAL_TOKEN` — FastAPI 환경변수와 일치. snapshot POST endpoint 인증에 사용.
 - `FASTAPI_URL` — 기본 `http://localhost:8002`.
 - `PORT` — 기본 1234.
+- `SNAPSHOT_DEBOUNCE_MS` — snapshot debounce (ms). 기본 `15000` (15초).
+  서버 다운 시 손실 최대 ~15초. 큰 학교(1500명+)에서 DB POST 폭주 우려 시 30000으로 늘리기.
 
 ## 빠른 시작 (개발)
 
@@ -101,10 +103,12 @@ CMD ["node", "dist/server.js"]
 
 1. **연결**: 브라우저가 `ws://host:1234/?token=JWT&documentName=doc-42`
 2. **인증**: `onAuthenticate` — JWT 검증 + FastAPI `/api/classroom/docs/42/permission` 호출
+   - **LRU 캐시**: userId × (kind, targetId) 5분 캐시. 1500명 동접 시 FastAPI 부하 차단.
+   - 권한 변경(공유 mode·멤버 추가) 최대 5분 지연 적용 — trade-off.
 3. **로딩**: `onLoadDocument` — FastAPI `/api/classroom/docs/42/yjs-snapshot` GET → Y.applyUpdate
 4. **편집**: 클라이언트들의 update를 in-memory Y.Doc에서 자동 merge (CRDT)
-5. **저장 (debounce)**: `onChange` → 60초 후 FastAPI `/api/classroom/docs/42/yjs-snapshot` POST
-6. **연결 종료**: `onDisconnect` — 즉시 최종 snapshot POST
+5. **저장 (debounce)**: `onChange` → 15초 후 FastAPI `/api/classroom/docs/42/yjs-snapshot` POST
+6. **연결 종료**: `onDisconnect` — 즉시 최종 snapshot POST + awareness ghost cursor 정리
 
 ## 트러블슈팅
 

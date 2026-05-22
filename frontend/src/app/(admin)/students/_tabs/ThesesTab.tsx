@@ -22,7 +22,7 @@ export function ThesesTab({ studentId }: { studentId: number }) {
     setLoading(true);
     try {
       const data = await api.get(`/api/students/${studentId}/theses`);
-      setRecords(Array.isArray(data) ? data : []);
+      setRecords(Array.isArray(data) ? data : (data?.items ?? []));
     } catch { setRecords([]); }
     finally { setLoading(false); }
   }, [studentId]);

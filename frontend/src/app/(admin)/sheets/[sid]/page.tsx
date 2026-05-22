@@ -22,6 +22,7 @@ import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Permission {
@@ -127,6 +128,7 @@ export default function SheetEditorPage() {
       className="-m-6 flex flex-col h-screen overflow-hidden bg-bg-secondary"
       style={ai.open ? { marginRight: 0 } : undefined}
     >
+      <CollabPrecautionModal toolKind="sheets" />
       <div className="flex-shrink-0 px-6 pt-5 pb-3">
         <div className="flex items-center justify-between gap-2 mb-2">
           <Link

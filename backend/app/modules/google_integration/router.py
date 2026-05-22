@@ -213,10 +213,13 @@ async def get_auth_url(
         )
     # state는 secrets.token_urlsafe만 — user_id 평문 노출 차단
     state = secrets.token_urlsafe(32)
-    # SchoolConfig에 value="user_id|timestamp"로 저장 — callback에서 TTL 검증
+    # SchoolConfig에 value="user_id|timestamp|redirect_uri"로 저장 — callback에서 TTL + redirect 일치 검증
     from datetime import datetime, timezone
     ts = int(datetime.now(timezone.utc).timestamp())
-    await _set_config(db, f"oauth.google.state.{state}", f"{user.id}|{ts}", encrypt_it=False)
+    # `|` 구분자 충돌 방지를 위해 redirect_uri는 b64url encode (URL-safe, no padding 손실 무관)
+    import base64
+    redirect_b64 = base64.urlsafe_b64encode((redirect_uri or "").encode("utf-8")).decode("ascii")
+    await _set_config(db, f"oauth.google.state.{state}", f"{user.id}|{ts}|{redirect_b64}", encrypt_it=False)
     params = {
         "client_id": cid,
         "redirect_uri": redirect_uri,
@@ -236,17 +239,26 @@ async def callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Google이 redirect로 호출. code → 토큰 교환 → DB 저장."""
-    # state 검증 (TTL + 1회용)
+    # state 검증 (TTL + 1회용 + redirect_uri 일치)
     saved = await _get_config(db, f"oauth.google.state.{state}")
     if not saved:
         raise HTTPException(400, "잘못된 state (재시도 필요)")
-    # value format: "user_id|timestamp"
+    # value format: "user_id|timestamp|redirect_b64" (legacy: "user_id|timestamp")
+    parts = saved.split("|")
+    if len(parts) < 2:
+        raise HTTPException(400, "state 형식 오류")
     try:
-        uid_str, ts_str = saved.split("|", 1)
-        user_id = int(uid_str)
-        issued_at = int(ts_str)
+        user_id = int(parts[0])
+        issued_at = int(parts[1])
     except (ValueError, AttributeError):
         raise HTTPException(400, "state 형식 오류")
+    saved_redirect: str | None = None
+    if len(parts) >= 3:
+        import base64
+        try:
+            saved_redirect = base64.urlsafe_b64decode(parts[2].encode("ascii")).decode("utf-8")
+        except Exception:
+            raise HTTPException(400, "state redirect_uri decode 실패")
     from datetime import datetime, timezone
     now = int(datetime.now(timezone.utc).timestamp())
     # state 1회용 — 즉시 삭제 (TTL 초과여도 삭제)
@@ -259,6 +271,15 @@ async def callback(
     redirect_uri = await _get_config(db, "oauth.google.redirect_uri")
     if not all([cid, cs, redirect_uri]):
         raise HTTPException(503, "Google OAuth가 설정되지 않았습니다")
+
+    # redirect_uri 일치 검증 — auth-url 발급 시점과 callback 시점이 동일해야 함.
+    # 관리자가 둘 사이에 redirect_uri를 바꾸면 토큰이 의도치 않은 origin으로 발급될 수 있음 (open redirect).
+    # Google에 보낼 redirect_uri는 반드시 state에 기록된 값(=auth-url 발급 시점의 admin 설정)과 동일해야 함.
+    if saved_redirect is not None and saved_redirect != redirect_uri:
+        raise HTTPException(
+            400,
+            "redirect_uri가 변경되었습니다 — 관리자에게 문의 후 OAuth를 다시 시작하세요",
+        )
 
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(GOOGLE_TOKEN_URL, data={

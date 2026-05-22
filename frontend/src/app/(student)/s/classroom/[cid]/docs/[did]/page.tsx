@@ -19,6 +19,8 @@ import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
 import type { Editor } from "@tiptap/react";
 import { marked } from "marked";
+import DOMPurify from "isomorphic-dompurify";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Permission {
@@ -60,10 +62,12 @@ export default function StudentDocEditorPage() {
     if (!editor) return;
     if (call.name === "doc_append_markdown") {
       const html = await marked.parse(String(call.arguments.markdown || ""));
-      editor.chain().focus("end").insertContent(html as string).run();
+      const clean = DOMPurify.sanitize(html as string);
+      editor.chain().focus("end").insertContent(clean).run();
     } else if (call.name === "doc_replace_all") {
       const html = await marked.parse(String(call.arguments.markdown || ""));
-      editor.chain().focus().setContent(html as string, { emitUpdate: true }).run();
+      const clean = DOMPurify.sanitize(html as string);
+      editor.chain().focus().setContent(clean, { emitUpdate: true }).run();
     }
   };
 
@@ -93,6 +97,7 @@ export default function StudentDocEditorPage() {
 
   return (
     <div className="w-full">
+      <CollabPrecautionModal toolKind="docs" />
       <div className="mb-3">
         <Link
           href="/s/drive"

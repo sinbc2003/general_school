@@ -15,6 +15,7 @@ import { DeckEditor } from "@/components/decks/DeckEditor";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
 import type { ApplyHandler } from "@/components/tool-ai/types";
 import { EditableTitle } from "@/components/ui/EditableTitle";
+import CollabPrecautionModal from "@/components/collab/CollabPrecautionModal";
 import { useAutoCollapseSidebar } from "@/lib/hooks/use-auto-collapse-sidebar";
 
 interface Permission {
@@ -89,6 +90,7 @@ export default function StudentCourseDeckEditorPage() {
 
   return (
     <div className="w-full">
+      <CollabPrecautionModal toolKind="decks" />
       <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
         <Link
           href="/s/drive"

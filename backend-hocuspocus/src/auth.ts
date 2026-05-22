@@ -9,6 +9,7 @@
 
 import jwt from "jsonwebtoken";
 import { config } from "./config.js";
+import { getCached, permKey, setCached } from "./permission-cache.js";
 
 export interface TokenPayload {
   sub: string;
@@ -64,9 +65,27 @@ export function resourcePath(kind: TargetKind): string {
   return "docs";
 }
 
+/**
+ * 권한 조회 (LRU 캐시 적용).
+ *
+ * 1500명 동접 시 매 onAuthenticate마다 FastAPI를 때리면 worker 고갈.
+ * userId × (kind, targetId)당 5분 캐시. 권한 변경(공유 mode/멤버 추가)은
+ * 최대 5분 지연 적용됨 — 학교 환경에서 안전한 trade-off.
+ *
+ * userId가 없으면 (cold call) cache bypass — 권한 조회 후에야 userId 알 수 있는
+ * 경우는 없지만, 안전한 fallback.
+ */
 export async function fetchTargetPermission(
-  target: TargetRef, token: string,
+  target: TargetRef, token: string, userId?: number | string,
 ): Promise<DocPermission> {
+  const cacheable = userId !== undefined && userId !== null;
+  const key = cacheable ? permKey(userId, target.kind, target.id) : "";
+
+  if (cacheable) {
+    const hit = getCached<DocPermission>(key);
+    if (hit) return hit;
+  }
+
   const url = `${config.fastapiUrl}/api/classroom/${resourcePath(target.kind)}/${target.id}/permission`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -75,5 +94,10 @@ export async function fetchTargetPermission(
     const body = await res.text();
     throw new Error(`permission lookup failed: ${res.status} ${body}`);
   }
-  return (await res.json()) as DocPermission;
+  const perm = (await res.json()) as DocPermission;
+
+  if (cacheable) {
+    setCached(key, perm);
+  }
+  return perm;
 }

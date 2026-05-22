@@ -24,25 +24,30 @@ from app.modules.departments.schemas import (
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 
 
-async def _serialize(db: AsyncSession, d: Department) -> dict:
-    lead_name = None
-    lead_email = None
-    if d.lead_user_id:
-        lead = await db.get(User, d.lead_user_id)
-        if lead:
-            lead_name = lead.name
-            lead_email = lead.email
+def _serialize_with_map(d: Department, leads_map: dict[int, User]) -> dict:
+    """leads_map에서 dict lookup으로 lead 정보 채움 (N+1 회피)."""
+    lead = leads_map.get(d.lead_user_id) if d.lead_user_id else None
     return {
         "id": d.id,
         "name": d.name,
         "description": d.description,
         "lead_user_id": d.lead_user_id,
-        "lead_name": lead_name,
-        "lead_email": lead_email,
+        "lead_name": lead.name if lead else None,
+        "lead_email": lead.email if lead else None,
         "sort_order": d.sort_order,
         "created_at": d.created_at.isoformat() if d.created_at else None,
         "updated_at": d.updated_at.isoformat() if d.updated_at else None,
     }
+
+
+async def _serialize(db: AsyncSession, d: Department) -> dict:
+    """단일 객체 직렬화 (create/update에서 사용)."""
+    leads_map: dict[int, User] = {}
+    if d.lead_user_id:
+        lead = await db.get(User, d.lead_user_id)
+        if lead:
+            leads_map[d.lead_user_id] = lead
+    return _serialize_with_map(d, leads_map)
 
 
 @router.get("")
@@ -55,7 +60,15 @@ async def list_departments(
             select(Department).order_by(Department.sort_order, Department.name)
         )
     ).scalars().all()
-    items = [await _serialize(db, d) for d in rows]
+    # N+1 회피: lead_user_id 모두 한 번에 batch fetch
+    lead_ids = {d.lead_user_id for d in rows if d.lead_user_id}
+    leads_map: dict[int, User] = {}
+    if lead_ids:
+        urows = (await db.execute(
+            select(User).where(User.id.in_(lead_ids))
+        )).scalars().all()
+        leads_map = {u.id: u for u in urows}
+    items = [_serialize_with_map(d, leads_map) for d in rows]
     return {"items": items}
 
 

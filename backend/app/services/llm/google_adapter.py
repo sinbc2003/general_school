@@ -13,7 +13,12 @@ class GoogleAdapter(LLMAdapter):
 
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        self._client = genai.Client(api_key=api_key)
+        # timeout=60s (HttpOptions.timeout 단위는 milliseconds) — Anthropic/OpenAI와 동일하게 통일.
+        # 1500명 부하 대응: LLM 응답 지연 시 worker 점유 차단.
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(timeout=60_000),
+        )
 
     async def chat_stream(
         self,

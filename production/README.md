@@ -63,7 +63,7 @@ sudo systemctl restart gs-backend gs-frontend gs-hocuspocus
 production/
 ├── README.md              # 이 문서
 ├── systemd/               # systemd unit 파일 (템플릿 — __INSTALL_DIR__/__USER__ 치환)
-│   ├── gs-backend.service       # gunicorn 6 worker
+│   ├── gs-backend.service       # gunicorn 9 worker, --timeout 300 (nginx 일치)
 │   ├── gs-frontend.service      # Next.js standalone node
 │   └── gs-hocuspocus.service    # Yjs WebSocket
 ├── nginx/
@@ -123,7 +123,7 @@ sudo journalctl -u gs-backend -p err                 # 에러만
 
 **메모리 부족**:
 - `free -h`로 확인
-- `gs-backend.service`의 `--workers 6`을 4로 줄임
+- `gs-backend.service`의 `--workers 9`을 6 또는 4로 줄임 (worker당 ~400MB)
 - PostgreSQL `shared_buffers` 줄임
 
 **데이터 복구**:
