@@ -119,6 +119,9 @@ from app.models.storage_volume import StorageVolume
 # ── Drive Folder (사용자별 폴더 트리 — 자동/수동 생성, 다단계 중첩) ──
 from app.models.folder import Folder
 
+# ── 자료 즐겨찾기 (사용자별 별표) ──
+from app.models.user_favorite_item import UserFavoriteItem
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -187,4 +190,6 @@ __all__ = [
     "StorageVolume",
     # Drive Folder
     "Folder",
+    # Drive Favorite
+    "UserFavoriteItem",
 ]

@@ -8,7 +8,7 @@
  * - ⋮ 메뉴: 휴지통/복구/영구삭제
  */
 
-import { MoreVertical, RotateCcw, Trash2 } from "lucide-react";
+import { MoreVertical, RotateCcw, Trash2, Star } from "lucide-react";
 import { TYPE_META, formatMB, type DriveItem, type ItemType } from "./_drive-shared";
 
 interface Props {
@@ -33,6 +33,12 @@ interface Props {
   onPermanent: (item: DriveItem) => void;
   // 드래그 시작 시 페이로드 — 부모가 selected 처리해 payload 결정
   getDragPayload: () => { type: ItemType; id: number }[];
+  // 검색 모드 — 매칭 snippet (본문 일부 발췌)
+  searchSnippet?: string | null;
+  searchMatchField?: string;
+  // 즐겨찾기
+  isFavorited?: boolean;
+  onToggleFavorite?: (item: DriveItem) => void;
 }
 
 export function ItemRow({
@@ -40,6 +46,8 @@ export function ItemRow({
   renaming, renameDraft, setRenameDraft, commitRename, cancelRename,
   onClick, onDoubleClick, onContextMenu, onMenuToggle, onMenuClose,
   onSoftDelete, onRestore, onPermanent, getDragPayload,
+  searchSnippet, searchMatchField,
+  isFavorited, onToggleFavorite,
 }: Props) {
   const m = TYPE_META[item.type];
   const Icon = m.icon;
@@ -53,7 +61,7 @@ export function ItemRow({
       data-drive-row
       data-drive-key={menuKey}
       draggable={!trashMode}
-      className={`border-b border-border-default/50 cursor-pointer ${
+      className={`group border-b border-border-default/50 cursor-pointer ${
         isCut ? "opacity-50" : ""
       } ${
         isSelected ? "bg-[#e8def8] hover:bg-[#d7c4f3]" : "hover:bg-bg-secondary/50"
@@ -68,7 +76,21 @@ export function ItemRow({
       }}
     >
       <td className="px-4 py-2">
-        <Icon size={18} style={{ color: m.color }} />
+        <div className="flex items-center gap-1.5">
+          <Icon size={18} style={{ color: m.color }} />
+          {onToggleFavorite && !trashMode && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleFavorite(item); }}
+              className={`p-0.5 rounded hover:bg-bg-secondary ${
+                isFavorited ? "text-amber-500" : "text-text-tertiary opacity-0 group-hover:opacity-100"
+              }`}
+              title={isFavorited ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+            >
+              <Star size={13} fill={isFavorited ? "currentColor" : "none"} />
+            </button>
+          )}
+        </div>
       </td>
       <td className="px-2 py-2">
         {renaming ? (
@@ -86,7 +108,20 @@ export function ItemRow({
             className="px-2 py-0.5 border border-accent rounded outline-none bg-white text-text-primary w-full max-w-md"
           />
         ) : (
-          <span className="text-text-primary">{item.title}</span>
+          <div className="min-w-0">
+            <span className="text-text-primary">{item.title}</span>
+            {searchSnippet && (
+              <div className="text-[11px] text-text-tertiary mt-0.5 truncate" title={searchSnippet}>
+                <span className="inline-block px-1 py-0.5 mr-1 rounded bg-bg-secondary text-[10px] font-medium">
+                  {searchMatchField === "body" ? "본문" :
+                   searchMatchField === "slide_body" ? "슬라이드" :
+                   searchMatchField === "question" ? "질문" :
+                   searchMatchField === "description" ? "설명" : "일치"}
+                </span>
+                {searchSnippet}
+              </div>
+            )}
+          </div>
         )}
       </td>
       <td className="px-2 py-2 text-text-secondary">{m.label}</td>

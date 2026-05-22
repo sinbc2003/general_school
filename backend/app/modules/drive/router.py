@@ -341,3 +341,5 @@ async def purge_expired_trash(db: AsyncSession) -> dict[str, int]:
 from app.modules.drive import folders  # noqa: E402, F401
 from app.modules.drive import backup  # noqa: E402, F401
 from app.modules.drive import search  # noqa: E402, F401
+from app.modules.drive import favorites  # noqa: E402, F401
+from app.modules.drive import activity  # noqa: E402, F401

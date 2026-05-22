@@ -26,7 +26,7 @@ import {
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon,
   Folder as FolderIcon, ChevronRight, ArrowUp, ArrowDown,
-  Sparkles, Download, Upload,
+  Sparkles, Download, Upload, Activity,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
@@ -39,6 +39,7 @@ import { BulkActionBar } from "./BulkActionBar";
 import { DriveContextMenu } from "./DriveContextMenu";
 import { MoveToFolderModal } from "./MoveToFolderModal";
 import { DriveProposalModal, type ProposalAction } from "./DriveProposalModal";
+import { DriveActivityModal } from "./DriveActivityModal";
 import type { FolderNode } from "./FolderSidebar";
 import {
   TYPE_META, formatMB, hrefForItem,
@@ -48,6 +49,7 @@ import {
 import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
 import { useDriveRubberBand } from "./useDriveRubberBand";
 import { useDriveSearch } from "./useDriveSearch";
+import { useSearchHistory } from "./useSearchHistory";
 import { FolderRow } from "./FolderRow";
 import { ItemRow } from "./ItemRow";
 import { FolderCard } from "./FolderCard";
@@ -117,6 +119,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // Drive AI 패널
   const [showAI, setShowAI] = useState(false);
   const [proposal, setProposal] = useState<{ summary: string; actions: ProposalAction[] } | null>(null);
+  const [showActivity, setShowActivity] = useState(false);
   // AI 분석용 전체 드라이브 스냅샷 (현재 폴더 무관) — AI 켤 때만 fetch
   const [aiSnapshotItems, setAiSnapshotItems] = useState<DriveItem[]>([]);
   const [aiSnapshotFolders, setAiSnapshotFolders] = useState<FolderNode[]>([]);
@@ -158,8 +161,44 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 빈영역 드래그 박스 다중 선택 — useDriveRubberBand
   const { dragBox, startRubberBand } = useDriveRubberBand({ selected, setSelected });
 
+  // 즐겨찾기 — backend list 후 set으로 보관
+  const [favoritesSet, setFavoritesSet] = useState<Set<string>>(new Set());
+  const fetchFavorites = useCallback(async () => {
+    try {
+      const r = await api.get<{ items: { type: ItemType; id: number }[] }>("/api/drive/favorites");
+      setFavoritesSet(new Set(r.items.map((x) => `${x.type}:${x.id}`)));
+    } catch {
+      setFavoritesSet(new Set());
+    }
+  }, []);
+  useEffect(() => { fetchFavorites(); }, [fetchFavorites]);
+
+  const toggleFavorite = useCallback(async (it: DriveItem) => {
+    const key = `${it.type}:${it.id}`;
+    try {
+      const r = await api.post<{ favorited: boolean }>(`/api/drive/items/${it.type}/${it.id}/favorite`, {});
+      setFavoritesSet((prev) => {
+        const next = new Set(prev);
+        if (r.favorited) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    } catch (e: any) {
+      alert(e?.detail || e?.message || "즐겨찾기 실패");
+    }
+  }, []);
+
   // backend 검색 — 본문/제목/폴더 통합 검색 (debounce 400ms, 2자 이상)
   const driveSearch = useDriveSearch(search, trashMode);
+  const searchHistory = useSearchHistory();
+  const [showHistory, setShowHistory] = useState(false);
+  // 검색 결과 도달 시 히스토리 자동 기록
+  useEffect(() => {
+    if (driveSearch.results && driveSearch.results.total > 0) {
+      searchHistory.record(search);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveSearch.results?.query]);
 
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
@@ -755,6 +794,15 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               <Sparkles size={13} /> AI 정리
             </button>
           )}
+          {/* 활동 기록 모달 */}
+          <button
+            type="button"
+            onClick={() => setShowActivity(true)}
+            className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
+            title="드라이브 활동 기록 — 최근 변경 이력"
+          >
+            <Activity size={13} /> 활동
+          </button>
           {/* 휴지통 토글 */}
           <button
             type="button"
@@ -893,6 +941,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             placeholder="제목·본문·폴더 검색 (2자 이상)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setShowHistory(true)}
+            onBlur={() => setTimeout(() => setShowHistory(false), 150)}
             className="w-full pl-9 pr-9 py-2 text-[13px] border border-border-default rounded-md bg-bg-primary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
           {search && (
@@ -903,6 +953,43 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             >
               <X size={14} />
             </button>
+          )}
+          {/* 검색 히스토리 dropdown */}
+          {showHistory && !search && searchHistory.history.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-bg-primary border border-border-default rounded-md shadow-lg py-1 max-h-64 overflow-y-auto">
+              <div className="px-3 py-1 text-[10px] text-text-tertiary uppercase tracking-wide flex items-center justify-between">
+                <span>최근 검색</span>
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); searchHistory.clear(); }}
+                  className="text-text-tertiary hover:text-text-primary text-[10px]"
+                >
+                  전체 삭제
+                </button>
+              </div>
+              {searchHistory.history.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setSearch(q);
+                    setShowHistory(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[12.5px] hover:bg-bg-secondary flex items-center justify-between group"
+                >
+                  <span className="text-text-primary inline-flex items-center gap-1.5">
+                    <Search size={11} className="text-text-tertiary" /> {q}
+                  </span>
+                  <span
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); searchHistory.remove(q); }}
+                    className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error p-0.5"
+                  >
+                    <X size={11} />
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
         {/* 검색 상태 — 본문 backend 검색 중 또는 결과 카운트 */}
@@ -1043,6 +1130,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               ))}
               {filtered.map((it) => {
                 const menuKey = `${it.type}:${it.id}`;
+                const match = driveSearch.matchMap.get(menuKey);
                 return (
                   <ItemRow
                     key={menuKey}
@@ -1069,6 +1157,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                         ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
                         : [{ type: it.type, id: it.id }]
                     }
+                    searchSnippet={match?.snippet}
+                    searchMatchField={match?.matchField}
+                    isFavorited={favoritesSet.has(menuKey)}
+                    onToggleFavorite={toggleFavorite}
                   />
                 );
               })}
@@ -1141,6 +1233,8 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
                     ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
                     : [{ type: it.type, id: it.id }]
                 }
+                isFavorited={favoritesSet.has(menuKey)}
+                onToggleFavorite={toggleFavorite}
               />
             );
           })}
@@ -1242,6 +1336,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           onChanged={fetchAll}
         />
       )}
+
+      {/* 활동 기록 모달 */}
+      {showActivity && <DriveActivityModal onClose={() => setShowActivity(false)} />}
 
       {/* 폴더 이동 모달 */}
       {moveTargets && moveTargets.length > 0 && (

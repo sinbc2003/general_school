@@ -50,6 +50,17 @@ export function useDriveSearch(query: string, trashMode: boolean) {
   const trimmed = query.trim();
   const active = trimmed.length >= MIN_LENGTH;
 
+  // snippet/matchField 매핑 ({type}:{id} → {snippet, matchField})
+  const matchMap: Map<string, { snippet: string | null; matchField: string }> = new Map();
+  if (active && results) {
+    for (const r of results.items) {
+      matchMap.set(`${r.type}:${r.id}`, {
+        snippet: r.snippet,
+        matchField: r.match_field,
+      });
+    }
+  }
+
   useEffect(() => {
     if (!active) {
       setResults(null);
@@ -87,5 +98,5 @@ export function useDriveSearch(query: string, trashMode: boolean) {
     };
   }, [trimmed, active, trashMode]);
 
-  return { active, results, loading };
+  return { active, results, loading, matchMap };
 }

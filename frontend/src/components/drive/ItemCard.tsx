@@ -4,7 +4,7 @@
  * 드라이브 grid view의 자료 카드.
  */
 
-import { MoreVertical, RotateCcw, Trash2 } from "lucide-react";
+import { MoreVertical, RotateCcw, Trash2, Star } from "lucide-react";
 import { TYPE_META, formatMB, type DriveItem, type ItemType } from "./_drive-shared";
 
 interface Props {
@@ -27,6 +27,8 @@ interface Props {
   onRestore: (item: DriveItem) => void;
   onPermanent: (item: DriveItem) => void;
   getDragPayload: () => { type: ItemType; id: number }[];
+  isFavorited?: boolean;
+  onToggleFavorite?: (item: DriveItem) => void;
 }
 
 export function ItemCard({
@@ -34,6 +36,7 @@ export function ItemCard({
   renaming, renameDraft, setRenameDraft, commitRename, cancelRename,
   onClick, onDoubleClick, onContextMenu, onMenuToggle, onMenuClose,
   onSoftDelete, onRestore, onPermanent, getDragPayload,
+  isFavorited, onToggleFavorite,
 }: Props) {
   const m = TYPE_META[item.type];
   const Icon = m.icon;
@@ -61,10 +64,22 @@ export function ItemCard({
       }}
     >
       <div
-        className={`px-4 py-6 flex items-center justify-center ${trashMode ? "opacity-60" : ""}`}
+        className={`relative px-4 py-6 flex items-center justify-center ${trashMode ? "opacity-60" : ""}`}
         style={{ background: m.bg, minHeight: "100px" }}
       >
         <Icon size={36} style={{ color: m.color }} />
+        {onToggleFavorite && !trashMode && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(item); }}
+            className={`absolute top-2 right-2 p-1 rounded-full bg-white/80 hover:bg-white ${
+              isFavorited ? "text-amber-500" : "text-text-tertiary opacity-0 group-hover:opacity-100"
+            }`}
+            title={isFavorited ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+          >
+            <Star size={14} fill={isFavorited ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
       <div className="px-4 py-3">
         <div className="flex items-start justify-between gap-2">
