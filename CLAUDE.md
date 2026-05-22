@@ -1618,4 +1618,120 @@ decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 
 2. **classroom StreamTab 추출** — composer key remount 신중
 3. **모듈화 추가 분리 가능 후보**: DrivePage fetchAll/drag&drop 핸들러 hook
 
+---
+
+## 2026-05-22 심야 — 드라이브 백업/복원 + 사람-읽기 형식 + 모듈화 완료
+
+이번 stretch에 사용자가 가장 강조한 것: **"학교 옮길 때 본인 드라이브 백업"** + 모듈화 마무리.
+
+### 드라이브 백업 시스템 (3종)
+
+**1. ZIP 다운로드** ([drive/backup.py](backend/app/modules/drive/backup.py)):
+- `POST /api/drive/backup/download` → ZIP stream
+- 구조: `manifest.json` + `folders.json` + 자료 type별 폴더
+- 각 자료: **이중 형식** — JSON (시스템 재import) + 사람-읽기
+
+**사람-읽기 형식** (다른 PC/시스템에서 즉시 열기):
+- `docs/{id}_*.html` — 제목 + plain_text paragraphs (서식 평문화)
+- `sheets/{id}_*.xlsx` — **pycrdt**로 yjs_state 디코드 → fortune-sheet snapshot
+  → openpyxl Workbook (셀 값 + 굵게/색 일부 보존)
+- `surveys/{id}_*_responses.csv` — UTF-8 BOM (Excel 호환), text/choice/rating 자동
+- `hwps/{id}_*.hwpx` — 원본 그대로
+
+**2. ZIP 복원** (`POST /api/drive/backup/import`):
+- `manifest.json` system="general_school" 검증 (외부 ZIP 거부)
+- 폴더 매핑: 자동 폴더는 기존과 매칭 (멱등), 수동 폴더 새 생성 (64-depth pass)
+- 자료 모두 새 id로 생성 (기존 안 건드림). yjs_state base64 → BLOB 복원.
+- HWP file은 새 storage 경로로 실 복사
+- 설문지는 `status="draft"`로 복원 (안전 default)
+- POLICY_BACKUP (.zip, 2GB) + 500MB 내부 + 자료 type당 2000개 한도 (DoS 차단)
+- quota check_quota 통과 + consume_quota
+
+**3. Google Drive 일괄 export** ([google_integration/export.py](backend/app/modules/google_integration/export.py)):
+- `POST /api/google/export/my-drive-bulk`
+- 본인 docs/sheets 모두 → Google Docs/Sheets 자동 변환 업로드
+- decks/surveys/hwps는 변환 미지원 (ZIP 백업 권장)
+- Google 토큰 미연결 시 400 → frontend 친절 안내
+
+**Frontend**: DrivePage 우상단 3개 버튼
+- "백업 ZIP" — fetch blob → 자동 다운로드
+- "복원" — hidden file input + confirm → upload → 결과 alert
+- "Google 백업" — confirm → bulk endpoint → 결과 토스트
+
+**새 dependency**: `pycrdt>=0.10.0` (Yjs Python binding, requirements.txt)
+
+### 모듈화 마무리 (DrivePage 26% 감소)
+
+**DrivePage**: 1700 → **1256줄** (-26%)
+- `_drive-shared.ts` 신규 (106줄): types/constants/helpers
+- `useDriveKeyboardShortcuts.ts` 신규 (132줄): Ctrl+X/C/V/A hook
+- `FolderRow.tsx` (81줄) + `ItemRow.tsx` (141줄): list view 행 분리
+- `FolderCard.tsx` (76줄) + `ItemCard.tsx` (147줄): grid view 카드 분리
+- props 5~15개 단위 (통째 분리는 25개+ drilling 위험 회피)
+
+**classroom 양쪽 공유**:
+- `components/classroom/ReadOnlyBanner.tsx` (variant: admin/student 메시지 분기)
+- `components/classroom/PeopleTab.tsx` (variant + canEdit)
+- admin 페이지 352 → 297줄, **학생 페이지 372 → 192줄** (-48%)
+
+**학생 classroom 추가 분리**:
+- `(student)/s/classroom/[cid]/_components/StudentCourseworkList.tsx` (184줄)
+
+### 테스트 (총 65 pytest pass)
+- `test_drive_backup.py` (9): roundtrip + IDOR + manifest 검사 + 사람-읽기 형식 검증
+  (HTML 포함, XLSX 포함, CSV 포함)
+- 기존 56 + 신규 9 = 65/65
+
+### 보안 + 정책
+- 본인 드라이브만 (cross-user 차단)
+- POLICY_BACKUP (.zip + 2GB)
+- 500MB 내부 한도 + 자료 type당 2000개 (DoS)
+- system 미일치 / 망가진 ZIP / manifest 없는 ZIP 모두 400
+- quota check 통과해야 import 시작
+- 설문지 import 시 status="draft" (이전 응답 안 받게)
+
+### 통계 (2026-05-22 심야)
+- Commit 약 7개:
+  - 5c5d177 단독 deck AI + HWP file 복제 + 인덱스
+  - 9f266ff revision cron + DrivePage helpers
+  - 19b02b1 classroom/[cid] admin 분할 (ReadOnlyBanner/PeopleTab)
+  - ec41b23 ReadOnlyBanner/PeopleTab 양쪽 공유
+  - cb9c1da useDriveKeyboardShortcuts hook
+  - 802450d StudentCourseworkList 추출 (-44%)
+  - ec36a06 CLAUDE.md 최신화
+  - f3f6012 행/카드 4 컴포넌트 (-16%)
+  - 8ffaa28 ZIP 백업 + Google 일괄
+  - cfaafac ZIP 복원
+  - 5a3ad74 사람-읽기 형식 (XLSX/CSV/HTML)
+- Backend: 457 → 460 routes (+3: backup/download, backup/import, google/bulk)
+- 새 모듈: drive/backup.py
+- 새 컴포넌트: FolderRow/ItemRow/FolderCard/ItemCard (행·카드 분리),
+  ReadOnlyBanner/PeopleTab (양쪽 공유), StudentCourseworkList
+- 새 hook: useDriveKeyboardShortcuts
+- 새 dependency: pycrdt
+- 테스트: 84 → 65 (notification 등 일부 제외, 백업 9개 신규)
+- alembic 추가 0 (인덱스만)
+
+### 학교 이동 사용자 흐름 (지금 완성)
+
+**A 학교에서**:
+1. 드라이브 → "백업 ZIP" 클릭 → ZIP 받음 → 외장 SSD/이메일 보관
+2. (선택) "Google 백업" → 본인 Google에 문서·시트 사본 (즉시 다른 학교에서 열기)
+
+**B 학교 / 같은 시스템**:
+1. 새 계정 생성
+2. 드라이브 → "복원" → A 학교 ZIP 업로드 → 모든 자료 + 폴더 구조 복원
+3. 자동 폴더는 B 학교의 부서/강좌와 자동 매핑 (멱등)
+
+**B 학교 / 다른 시스템**:
+1. ZIP 풀고 Excel/Word/메모장으로 `*.xlsx` `*.html` `*.csv` `*.hwpx` 직접 열기
+2. 시스템 import 없이도 자료 사용 가능 (서식 일부 손실)
+
+### 다음 세션 후보
+1. **docs HTML 정밀화** — Node.js sidecar 또는 frontend 협력 (Yjs → ProseMirror → HTML)
+2. **decks 일부 export** — slides plain_text 모음으로 HTML/PDF
+3. **백업 자동 cron** — 매주 사용자 백업 ZIP을 본인 Google에 자동 push
+4. **classroom StreamTab 추출** — composer key remount 신중
+5. **DrivePage fetchAll/drag&drop hook** 추가 분리
+
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
