@@ -86,10 +86,13 @@ start-backend.bat
 - `trycloudflare.com` URL은 **누구나 접속 가능**. 회원가입 화면도 열려 있음.
 - 데모 직전에 **첫 가입자(super_admin) 계정의 비밀번호를 강한 값으로** 잠시 바꿔두기 권장.
 - 데모 DB가 실제 학생 데이터를 담고 있다면 데모용 사본 DB로 띄우는 게 안전:
+  ```bash
+  # PostgreSQL 사본 DB
+  createdb -O app general_school_demo
+  pg_dump -F c general_school | pg_restore -d general_school_demo
   ```
-  copy backend\general_school.db backend\general_school_demo.db
-  ```
-  그리고 `demo-tunnel.bat`이나 backend 환경변수에 `DATABASE_URL=sqlite+aiosqlite:///general_school_demo.db` 사용.
+  그리고 `demo-tunnel.bat`이나 backend 환경변수에
+  `DATABASE_URL=postgresql+asyncpg://app:xxxxx@localhost:5432/general_school_demo` 사용.
 - 시연 끝나면 즉시 `Ctrl+C`로 터널 끊기.
 
 ---
@@ -117,7 +120,7 @@ start-backend.bat
        ├─ /(react pages)   → 그대로 렌더
        └─ /api/* (rewrites) → http://localhost:8002 (backend)
                                       ↓
-                              [FastAPI + SQLite]
+                              [FastAPI + PostgreSQL]
 ```
 
 ---

@@ -1,8 +1,15 @@
 # 클래스룸 도구 — 인수인계 (Handoff)
 
-> **새 세션이 이 문서 하나만 읽고 작업 시작할 수 있도록 self-contained.**
-> 작성: 2026-05-19 / 작성자: 신병철 + Claude
-> 진행 시: CLAUDE.md (프로젝트 가이드)와 본 문서를 함께 읽고 시작.
+> ⚠️ **이 문서는 이미 완료된 작업의 작업카드 (역사적 참조용).**
+> 협업 도구(문서·시트·슬라이드·설문·HWP) + 단축 링크 + QR 코드 모두 **구현 완료**되어
+> 현재 production에 운영 중. 진행 상황과 다음 단계는 [CLAUDE.md](./CLAUDE.md)의 "최근 세션 변경사항" 참조.
+>
+> 운영/설치 가이드를 찾는다면:
+> - 설치: [SETUP.md](./SETUP.md) 또는 [DEPLOY_TO_SCHOOL.md](./DEPLOY_TO_SCHOOL.md)
+> - 운영 명령: [production/README.md](./production/README.md)
+> - HWP 통합 배경 (왜 단독 편집만 되는지): [docs/HWP_INTEGRATION.md](./docs/HWP_INTEGRATION.md)
+>
+> 원본 작성: 2026-05-19 / 신병철 + Claude. 아래는 당시 기획 시점의 작업 카드.
 
 ---
 

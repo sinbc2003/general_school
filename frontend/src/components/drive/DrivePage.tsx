@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Trash2, AlertTriangle, Search, X,
+  Trash2,
   Globe, PanelRightOpen, PanelRightClose,
   LayoutGrid, List as ListIcon,
   ChevronRight,
@@ -54,6 +54,8 @@ import { DriveBackupActions } from "./DriveBackupActions";
 import { DriveListView } from "./DriveListView";
 import { DriveGridView } from "./DriveGridView";
 import { NewItemMenu } from "./NewItemMenu";
+import { DriveSearchBar } from "./DriveSearchBar";
+import { DriveQuotaGauge } from "./DriveQuotaGauge";
 import type { FolderNode } from "./FolderSidebar";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
@@ -165,7 +167,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // backend 검색 — 본문/제목/폴더 통합 검색 (debounce 400ms, 2자 이상)
   const driveSearch = useDriveSearch(search, trashMode);
   const searchHistory = useSearchHistory();
-  const [showHistory, setShowHistory] = useState(false);
   // 검색 결과 도달 시 히스토리 자동 기록
   useEffect(() => {
     if (driveSearch.results && driveSearch.results.total > 0) {
@@ -468,16 +469,6 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
     }
   };
 
-  // ── 사용량 게이지 색
-  const gaugeColor =
-    info && info.unlimited
-      ? "#10b981"
-      : info && info.usage_ratio >= 0.9
-      ? "#dc2626"
-      : info && info.usage_ratio >= 0.8
-      ? "#f59e0b"
-      : "#3b82f6";
-
   // ── DriveListView / DriveGridView에 전달할 단일 객체 props (drilling 압축)
   const selectionProps = {
     selected, setSelected, cutKeys, favoritesSet, toggleFavorite,
@@ -627,112 +618,12 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
         </div>
       </div>
 
-      {/* 만료 임박 배너 */}
-      {info?.days_until_expire != null && info.days_until_expire <= 7 && (
-        <div className="mb-4 flex items-start gap-2 px-3 py-2 rounded bg-amber-50 border border-amber-200">
-          <AlertTriangle size={16} className="text-amber-600 mt-0.5" />
-          <div className="text-[13px] text-amber-900">
-            계정이 <strong>{info.days_until_expire}일 후</strong> 만료됩니다. 보관하실 자료는 미리 백업하세요.
-          </div>
-        </div>
-      )}
-
-      {/* Quota 게이지 */}
-      {info && (
-        <div className="mb-6 bg-bg-primary border border-border-default rounded-lg px-5 py-4">
-          <div className="flex items-baseline justify-between mb-2">
-            <div className="text-[13px] text-text-secondary">사용량</div>
-            <div className="text-[13px] text-text-secondary">
-              {info.unlimited ? (
-                <span className="text-emerald-600 font-semibold">무제한</span>
-              ) : (
-                <>
-                  <span className="font-semibold text-text-primary">
-                    {formatMB(info.used_bytes)}
-                  </span>{" "}
-                  / {formatMB(info.quota_bytes)}{" "}
-                  <span className="text-text-tertiary">({Math.round(info.usage_ratio * 100)}%)</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="h-2 bg-bg-secondary rounded-full overflow-hidden">
-            <div
-              className="h-full transition-all"
-              style={{
-                width: info.unlimited ? "100%" : `${Math.min(100, info.usage_ratio * 100)}%`,
-                backgroundColor: gaugeColor,
-              }}
-            />
-          </div>
-          {!info.unlimited && info.usage_ratio >= 0.8 && (
-            <div className="text-[12px] text-amber-700 mt-2">
-              용량이 부족하면 휴지통을 비우거나 관리자에게 증설을 요청하세요.
-            </div>
-          )}
-        </div>
-      )}
+      {/* 만료 임박 배너 + Quota 게이지 */}
+      <DriveQuotaGauge info={info} />
 
       {/* 검색 + 휴지통 비우기 */}
       <div className="flex items-center gap-2 mb-4">
-        <div className="relative flex-1 max-w-md">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
-          <input
-            type="text"
-            placeholder="제목·본문·폴더 검색 (2자 이상)..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onFocus={() => setShowHistory(true)}
-            onBlur={() => setTimeout(() => setShowHistory(false), 150)}
-            className="w-full pl-9 pr-9 py-2 text-[13px] border border-border-default rounded-md bg-bg-primary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary"
-            >
-              <X size={14} />
-            </button>
-          )}
-          {/* 검색 히스토리 dropdown */}
-          {showHistory && !search && searchHistory.history.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-bg-primary border border-border-default rounded-md shadow-lg py-1 max-h-64 overflow-y-auto">
-              <div className="px-3 py-1 text-[10px] text-text-tertiary uppercase tracking-wide flex items-center justify-between">
-                <span>최근 검색</span>
-                <button
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); searchHistory.clear(); }}
-                  className="text-text-tertiary hover:text-text-primary text-[10px]"
-                >
-                  전체 삭제
-                </button>
-              </div>
-              {searchHistory.history.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setSearch(q);
-                    setShowHistory(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-[12.5px] hover:bg-bg-secondary flex items-center justify-between group"
-                >
-                  <span className="text-text-primary inline-flex items-center gap-1.5">
-                    <Search size={11} className="text-text-tertiary" /> {q}
-                  </span>
-                  <span
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); searchHistory.remove(q); }}
-                    className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error p-0.5"
-                  >
-                    <X size={11} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <DriveSearchBar value={search} onChange={setSearch} history={searchHistory} />
         {/* 검색 상태 — 본문 backend 검색 중 또는 결과 카운트 */}
         {driveSearch.active && (
           <div className="text-[12px] text-text-tertiary inline-flex items-center gap-1.5">

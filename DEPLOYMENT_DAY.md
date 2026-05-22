@@ -1,6 +1,13 @@
-# 학교 셋업 — Day 1 체크리스트
+# 학교 셋업 — Day 1 step-by-step
 
-내일 학교 방문해서 따라할 단계별 가이드. 각 박스 [ ] 클릭(또는 동그라미)하며 진행.
+학교 방문해서 따라할 **저수준 단계별** 가이드 (윈도우 노트북에서 우분투부터 설치할 때).
+각 박스 [ ] 클릭(또는 동그라미)하며 진행.
+
+**이 문서**: 우분투 사전 설치 안 된 윈도우 노트북 받았을 때 + 처음부터 끝까지 step-by-step.
+
+**우분투 사전 설치돼 있고 시간 압박 있을 때**: [DEPLOY_TO_SCHOOL.md](./DEPLOY_TO_SCHOOL.md) (high-level 체크리스트, 1~2시간) 참조.
+
+**가동 후 운영 명령**: [production/README.md](./production/README.md).
 
 **시나리오**:
 - 학교에서 윈도우 노트북 2대 받음
@@ -554,9 +561,16 @@ A에서 SSH로 B 접속한 상태에서. 또는 B 직접.
 
 ---
 
-## 🚀 Production 모드 전환 (1시간, 운영 안정화 후)
+## 🚀 Production 모드 전환 (10분, 운영 안정화 후)
 
-여기까지 오면 dev 모드로 동작 중. **production 셋업은 학교 운영 시작 직전 또는 며칠 안정 운영 후** 진행해도 OK. 빠지면 `SETUP.md` Section 10 참고.
+여기까지 오면 dev 모드로 동작 중. **production 셋업은 학교 운영 시작 직전 또는 며칠 안정 운영 후** 진행해도 OK.
+
+```bash
+cd ~/general_school
+bash scripts/setup-production.sh
+```
+
+이 한 줄이 자동으로 nginx + ufw + systemd 3개(gs-backend/gs-frontend/gs-hocuspocus) + 매일 백업 cron 셋업. 상세는 [production/README.md](./production/README.md).
 
 (시간 없으면 dev 모드로 1주일 운영하면서 production은 나중에)
 

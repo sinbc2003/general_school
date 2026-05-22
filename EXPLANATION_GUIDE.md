@@ -30,7 +30,8 @@
               │                                         │
    교실 PC ──→│  Backend (Python FastAPI, port 8002)     │
    교사 노트북─┤  Frontend (Next.js, port 3000)          │
-   학생 휴대폰─┤  DB: SQLite 파일 1개 (general_school.db) │
+   학생 휴대폰─┤  Hocuspocus (Yjs WebSocket, 1234)       │
+              │  DB: PostgreSQL                          │
               │  파일 저장: backend/storage/             │
               └─────────────────────────────────────────┘
                             │
@@ -63,8 +64,8 @@
 └─────┬─────────────┬─────────────────────┬──────────────┘
       │             │                     │
       ↓             ↓                     ↓
-   SQLite        파일 저장             AI API
-   (단일 .db)  (backend/storage/)   (OpenAI/Claude/Gemini)
+   PostgreSQL    파일 저장             AI API
+   (학교 노트북)  (backend/storage/)   (OpenAI/Claude/Gemini)
 ```
 
 ### 3-2. Frontend — Next.js 14 (App Router) + TypeScript + Tailwind
@@ -137,27 +138,21 @@ async def create_announcement(
 
 ---
 
-### 3-4. DB — SQLite (운영) / PostgreSQL (확장)
+### 3-4. DB — PostgreSQL (dev/운영 표준)
 
-| 항목 | SQLite | PostgreSQL |
-|---|---|---|
-| 형태 | 단일 `.db` 파일 | 별도 서버 |
-| 동시 접속 | ~80명 | 무제한 |
-| 백업 | 파일 복사 | pg_dump 명령 |
-| 설치 | Python 내장 | 별도 설치 필요 |
-| 현재 상태 | ✅ 사용 중 | 한 줄로 전환 가능 |
+**2026-05-14부 PostgreSQL이 dev/운영 모두 표준**. 1300명 운영의 동시 쓰기 안정성과 백업 자동화를 위해 SQLite 지원 중단.
 
-**전환 방법**:
-```bash
-# .env 파일 한 줄만 변경
-DATABASE_URL=postgresql+asyncpg://user:pw@localhost/general_school
-```
-모델 코드 변경 0줄. SQLAlchemy가 추상화하니까.
+| 항목 | PostgreSQL |
+|---|---|
+| 형태 | 별도 서버 (학교 노트북에 설치) |
+| 동시 접속 | 무제한 (피크 200~500명 가능) |
+| 백업 | `pg_dump general_school > backup.sql` |
+| 설치 | `./scripts/setup_postgres.sh` 한 줄 (apt + DB·user 생성) |
+| dev 시작 | WSL이면 `sudo service postgresql start` (자동 시작 가능) |
 
-**왜 SQLite로 시작?**
-- 학교 노트북에 PostgreSQL 설치 부담
-- 80명 동접까지 충분
-- 백업이 `.db` 파일 1개 복사로 끝남 — 외장 SSD 보관 쉬움
+**모델 코드 변경 0줄**. SQLAlchemy가 추상화 — DB만 PostgreSQL로 바꾸면 끝.
+
+자세한 설치는 [SETUP.md](SETUP.md) Section 3.
 
 ---
 
@@ -234,10 +229,9 @@ DATABASE_URL=postgresql+asyncpg://user:pw@localhost/general_school
 |---|---|
 | **개발 (Windows)** | WSL2 Ubuntu 위 Python venv + Node.js |
 | **dev 서버** | uvicorn `--reload` (코드 변경 자동 재시작) |
-| **production 권장** | gunicorn + uvicorn workers 4개 + Caddy reverse proxy + HTTPS |
-| **외부 시연** | cloudflared (Quick Tunnel) — 가입 없이 임시 URL |
-| **원격 접근** | Tailscale (옵션) — 본인 휴대폰에서만 학교 서버 접근 |
-| **자동 재시작** | NSSM (Windows 서비스) 또는 systemd (Linux) |
+| **production** | gunicorn 9 worker + uvicorn + nginx reverse proxy + systemd 3개 (gs-backend/gs-frontend/gs-hocuspocus). `scripts/setup-production.sh` 한 줄로 셋업 |
+| **외부 시연** | cloudflared (Quick Tunnel) — 가입 없이 임시 URL ([DEMO.md](DEMO.md)) |
+| **원격 접근** | Tailscale (옵션) — 본인 PC에서만 학교 서버 SSH |
 
 ---
 
@@ -261,7 +255,7 @@ DATABASE_URL=postgresql+asyncpg://user:pw@localhost/general_school
 |---|---|---|
 | Frontend | **Next.js 14 + TypeScript + Tailwind** | 한 사람이 유지 가능한 풀스택 |
 | Backend | **FastAPI + SQLAlchemy + Pydantic** | Python 비동기 + 자동 검증 |
-| DB | **SQLite → PostgreSQL** | 단일 파일에서 학교 확장 시 한 줄 변경 |
+| DB | **PostgreSQL** | dev/운영 표준 (2026-05-14 전환) |
 | 인증 | **JWT + bcrypt + TOTP + Fernet** | 4중 안전망 |
 | AI | **OpenAI + Anthropic + Google 멀티** | 학교가 키 가져와 등록 |
 | 파일 | **openpyxl + reportlab + csv** | Excel·PDF·CSV 자동 처리 |
@@ -370,9 +364,17 @@ super_admin > designated_admin > teacher > staff > student
 - 학생: 휴대폰으로 학교 와이파이 접속 → 공지·대회·포트폴리오 작성·AI 챗봇
 
 ### 시나리오 C: 학기 끝 / 백업
-1. `/system/backup` → "전체 백업 다운로드" — ZIP 파일 1개 (DB + 업로드 파일)
+1. `/system/backup` → "전체 백업 다운로드" — ZIP 파일 1개 (DB + 업로드 파일, super_admin 전용)
 2. 외장 SSD에 보관
 3. 노트북 망가지면 새 노트북에서 ZIP 업로드 → 자동 복원
+4. 별도로 매일 새벽 2시 자동 백업 cron (`production/scripts/backup.sh`)이 외장 SSD에 누적
+
+### 시나리오 C-2: 교사 학교 이동 — 본인 드라이브 챙기기
+1. A 학교에서 `/drive` → "백업 ZIP" → 본인 docs/sheets/decks/surveys/hwps 모두 ZIP
+   - ZIP 안에 HTML/XLSX/CSV/HWPX 사람-읽기 형식 포함 (시스템 import 없이도 열기 가능)
+2. (선택) "Google 백업" → 본인 Google에 docs/sheets export
+3. B 학교 같은 시스템: 새 계정 받고 "복원" → 자료 + 폴더 구조 자동 복원
+   (자동 폴더는 B 학교 부서·강좌와 자동 매핑)
 
 ### 시나리오 D: 신규 기능 추가
 - 신병철이 원격에서 코드 추가 → GitHub push
@@ -443,11 +445,12 @@ super_admin > designated_admin > teacher > staff > student
 - 부팅 자동 안전망 (권한 키 일관성 / 시드 / 마이그레이션) 박혀있어서 코드 깨지면 부팅 실패로 즉시 발견
 - 80% 이상은 AI가 짠 거 + 매 commit마다 사람이 코드 리뷰
 
-**Q2. SQLite로 80명 동접 괜찮나?**
-- 페이지 열고 idle: 300+명 OK
-- 동시 클릭/저장: 약 30명 한계
-- 80명 동접 챗봇 메시지: gunicorn 4 worker로 띄우면 무리 없음
-- PostgreSQL로 가려면 `DATABASE_URL=postgresql://...` 한 줄만 바꾸면 됨
+**Q2. 1300명 동접 진짜 가능?**
+- 페이지 idle (시간표/공지 띄움): 300~500명
+- 일반 클릭/조회/저장: 150~200명
+- 80명 동시 챗봇: 무리 없음 (gunicorn 9 worker + nginx + PostgreSQL)
+- 같은 협업 문서 동접: 20명 이하 권장 — 모둠별 8명씩 분산
+- 1300명이 동시에 클릭은 절대 안 함 — 평소 동접 30~100명
 
 **Q3. 신병철이 그만두면 어떻게 운영?**
 - 코드는 GitHub에 공개. 학교가 fork해서 자체 운영 가능
@@ -470,9 +473,11 @@ super_admin > designated_admin > teacher > staff > student
 - 학교 내부 정보는 AI 서버에 안 보냄 (학생 채팅은 비식별)
 
 **Q7. 백업 ZIP은 얼마나 큰가?**
-- DB 약 1MB (학생 100명 기준)
-- 업로드 파일 사이즈에 비례 (포트폴리오·과제 PDF 등)
-- 학기 1개 통상 100MB 정도. 1년치 약 500MB. 외장 SSD 1개로 10년 보관 가능
+- DB: 약 10MB (학생 1300명 + 1년 운영 기준, pg_dump 압축)
+- 업로드 파일 사이즈에 비례 (포트폴리오·과제 PDF·협업 문서 등)
+- 1400명 1년 운영 시 storage 300~600GB (quota 할당의 10~30%)
+- 권장: 본체 SSD 512GB+ / 외장 SSD 1TB+
+- 자동 cron 백업이 30일 보관 → 외장 SSD에서 매월 1일 두 번째 외장 SSD로 rsync 권장
 
 **Q8. 신병철이 코드 못 짜는데 어떻게 AI한테 시켰나?**
 - 자연어로 "공지사항 게시판 추가해줘. 교직원/학생 노출 선택 가능하게" → AI가 모델·라우터·페이지·메뉴 한 번에 작성
@@ -484,9 +489,10 @@ super_admin > designated_admin > teacher > staff > student
 - 매일 자동 백업하면 손실 1일 이내
 
 **Q10. 다른 학교에 그대로 쓸 수 있나?**
-- 학교명·로고만 환경변수로 바꾸면 그대로 동작
-- SETUP.md 따라 30분 설치
+- 학교명·로고만 admin UI에서 바꾸면 그대로 동작
+- `scripts/setup-production.sh` 한 줄로 학교 노트북 셋업
 - 학교마다 독립 인스턴스 — 데이터 안 섞임
+- 상세는 [DEPLOY_TO_SCHOOL.md](./DEPLOY_TO_SCHOOL.md) 참조
 
 ---
 
