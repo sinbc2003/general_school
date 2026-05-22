@@ -10,6 +10,7 @@
   - 마지막 super_admin은 lifecycle 변경 차단.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request
@@ -26,6 +27,8 @@ from app.models import (
 )
 from app.modules.users._helpers import _ensure_not_last_super_admin, _user_response
 from app.modules.users.router import router
+
+log = logging.getLogger(__name__)
 
 
 VALID_LIFECYCLE = {"active", "departed", "graduated", "transferred"}
@@ -138,10 +141,45 @@ async def transfer_ownership(
 
     await db.flush()
 
-    # quota 조정
+    # quota 조정 — atomic: release 성공 후 consume 실패 시 source 환원, 양쪽 실패 시 admin 알림.
+    # 이전엔 release_quota 후 consume_quota 사이에 예외가 발생하면 source는 환원됐는데
+    # successor에는 누적 안 된 quota leak이 발생할 수 있었음.
     if transferred_bytes > 0:
-        await release_quota(db, source, transferred_bytes)
-        await consume_quota(db, successor, transferred_bytes, check=False, notify_threshold=False)
+        released = False
+        try:
+            await release_quota(db, source, transferred_bytes)
+            released = True
+            await consume_quota(
+                db, successor, transferred_bytes,
+                check=False, notify_threshold=False,
+            )
+        except Exception as e:
+            # consume 실패 → source 복원 시도 (best-effort)
+            if released:
+                try:
+                    await consume_quota(
+                        db, source, transferred_bytes,
+                        check=False, notify_threshold=False,
+                    )
+                except Exception:
+                    log.exception(
+                        "quota rollback failed: source=%s bytes=%d",
+                        source.id, transferred_bytes,
+                    )
+            log.exception(
+                "transfer_ownership quota leak risk: source=%s successor=%s bytes=%d err=%s",
+                source.id, successor.id, transferred_bytes, e,
+            )
+            # admin 알림 (best-effort)
+            try:
+                from app.core.notification_scheduler import _notify_scheduler_failure
+                await _notify_scheduler_failure(
+                    "quota_transfer",
+                    f"user {source.id}->{successor.id} bytes={transferred_bytes}: {e}",
+                )
+            except Exception:
+                log.exception("_notify_scheduler_failure call failed")
+            raise HTTPException(500, "자료 이관 중 quota 처리 실패 — 관리자에게 문의하세요")
 
     # 자료 ownership 일괄 이관 — 후임자가 원 소유자의 모든 협업 자료에 접근 권한 획득.
     await log_action(

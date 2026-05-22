@@ -347,13 +347,27 @@ async def purge_expired_trash(db: AsyncSession) -> dict[str, int]:
     await db.flush()
 
     # owner별 quota 환원
+    orphan_bytes = 0
     if freed_by_owner:
         for uid, freed in freed_by_owner.items():
             owner = await db.get(User, uid)
             if owner:
                 await release_quota(db, owner, freed)
+            else:
+                # owner 미존재 — 계정 삭제됐는데 자료 남은 케이스. 고아 bytes 카운트만.
+                orphan_bytes += freed
+                import logging
+                logging.getLogger(__name__).warning(
+                    "purge_expired_trash: owner user_id=%s not found, "
+                    "%d orphan bytes (skipping quota release)",
+                    uid, freed,
+                )
 
-    return {"deleted_total": total_deleted, "freed_bytes_total": total_freed}
+    return {
+        "deleted_total": total_deleted,
+        "freed_bytes_total": total_freed,
+        "orphan_bytes": orphan_bytes,
+    }
 
 
 # Sub-modules — endpoint 등록 강제 (마지막에 import해 순환 회피)

@@ -42,6 +42,59 @@ WINDOW_LOW_HOURS = 23
 WINDOW_HIGH_HOURS = 25
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 시스템 에러 알림 — scheduler/cron 실패 시 super_admin에게 1회 알림 (24h 쿨다운)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# rate-limit: error_type별 마지막 알림 시각 캐시 (in-memory)
+_failure_notify_last: dict[str, datetime] = {}
+FAILURE_NOTIFY_COOLDOWN_HOURS = 24
+
+
+async def _notify_scheduler_failure(error_type: str, error_msg: str) -> None:
+    """scheduler 실패 시 super_admin 알림 (24h 쿨다운, best-effort).
+
+    같은 error_type이 24시간 안에 재발생 시 skip → 알림 폭주 방지.
+    notify_users 실패해도 상위로 전파하지 않음.
+    """
+    now = datetime.now(timezone.utc)
+    last = _failure_notify_last.get(error_type)
+    if last and (now - last) < timedelta(hours=FAILURE_NOTIFY_COOLDOWN_HOURS):
+        return
+    _failure_notify_last[error_type] = now
+
+    try:
+        from app.services.notification import notify_users
+
+        async with async_session_factory() as db:
+            admin_ids = (
+                await db.execute(
+                    select(User.id).where(
+                        User.role == "super_admin",
+                        User.status != "disabled",
+                    )
+                )
+            ).scalars().all()
+            if not admin_ids:
+                return
+            try:
+                await notify_users(
+                    db,
+                    user_ids=list(admin_ids),
+                    type="system_error",
+                    title=f"시스템 알림: {error_type} 실패",
+                    body=(error_msg or "")[:200],
+                    link_url="/system/audit",
+                )
+                await db.commit()
+            except Exception:
+                log.exception("notify_users failed for error_type=%s", error_type)
+                await db.rollback()
+    except Exception:
+        # 알림 자체가 실패해도 상위로 전파 안 함 (best-effort)
+        log.exception("_notify_scheduler_failure top-level failure error_type=%s", error_type)
+
+
 async def _send_due_reminders(db: AsyncSession) -> int:
     """한 번 실행 — 발송된 알림 수 반환."""
     from app.services.notification import notify_users
@@ -130,20 +183,37 @@ _last_purge_at: datetime | None = None
 
 
 async def _maybe_purge_trash(db: AsyncSession) -> int:
-    """24시간에 한 번 휴지통 30일 경과 자료 hard delete + quota 환원."""
+    """24시간에 한 번 휴지통 30일 경과 자료 hard delete + quota 환원.
+
+    안전망:
+      - `_last_purge_at` 시도 즉시 업데이트 → 예외 발생해도 다음 24h tick까지 재시도 X
+        (이전엔 try 안에서 마커 업데이트 → 실패 시 무한 retry → DB 부하).
+      - 실패 시 super_admin에게 알림 (24h 쿨다운).
+    """
     global _last_purge_at
     now = datetime.now(timezone.utc)
     if _last_purge_at and (now - _last_purge_at) < timedelta(hours=TRASH_PURGE_INTERVAL_HOURS):
         return 0
-    from app.modules.drive.router import purge_expired_trash
-    result = await purge_expired_trash(db)
+    # 시도 즉시 마커 업데이트 — 실패해도 다음 24h tick까지 재시도 안 함 (DB 부하 차단)
     _last_purge_at = now
-    if result["deleted_total"] > 0:
-        log.info(
-            "[NOTIF SCHED] 휴지통 자동 purge — %d개 삭제, %d MB 환원",
-            result["deleted_total"], result["freed_bytes_total"] // 1024 // 1024,
-        )
-    return result["deleted_total"]
+
+    try:
+        from app.modules.drive.router import purge_expired_trash
+        result = await purge_expired_trash(db)
+        if result["deleted_total"] > 0:
+            log.info(
+                "[NOTIF SCHED] 휴지통 자동 purge — %d개 삭제, %d MB 환원",
+                result["deleted_total"], result["freed_bytes_total"] // 1024 // 1024,
+            )
+        return result["deleted_total"]
+    except Exception as e:
+        log.exception("purge_expired_trash failed")
+        # super_admin 알림 (24h 쿨다운, best-effort)
+        try:
+            await _notify_scheduler_failure("trash_purge", str(e))
+        except Exception:
+            log.exception("_notify_scheduler_failure call failed")
+        return 0
 
 
 async def _disable_expired_users(db: AsyncSession) -> int:
@@ -236,11 +306,20 @@ async def _scheduler_loop() -> None:
                 except Exception as e:
                     await db.rollback()
                     log.warning("[NOTIF SCHED] tick failed: %s", e)
+                    # super_admin 알림 (24h 쿨다운, best-effort)
+                    try:
+                        await _notify_scheduler_failure("notification_scheduler_tick", str(e))
+                    except Exception:
+                        log.exception("_notify_scheduler_failure call failed")
         except asyncio.CancelledError:
             log.info("[NOTIF SCHED] 정상 종료")
             raise
         except Exception as e:
             log.warning("[NOTIF SCHED] 루프 예외 (계속 실행): %s", e)
+            try:
+                await _notify_scheduler_failure("notification_scheduler_loop", str(e))
+            except Exception:
+                log.exception("_notify_scheduler_failure (loop) call failed")
         await asyncio.sleep(TICK_SECONDS)
 
 

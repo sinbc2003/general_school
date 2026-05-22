@@ -10,12 +10,13 @@ except Exception:
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.database import init_db, async_session_factory
 from app.core.config import settings
+from app.core.csrf import verify_csrf
 
 
 @asynccontextmanager
@@ -93,6 +94,14 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,
+    # production 환경에서는 traceback/내부 정보 노출 방지.
+    debug=(settings.ENV != "production"),
+    # ── CSRF 방어 (SameSite=Lax 보강) ──
+    # mutating 요청(POST/PUT/PATCH/DELETE)에 Origin/Referer 헤더가
+    # CORS_ALLOW_ORIGINS 화이트리스트와 일치해야 통과.
+    # safe method, X-Internal-Token(Hocuspocus), ENV=dev/test는 자동 우회.
+    # production 강제 또는 dev에서 강제하려면 CSRF_ENFORCE=1.
+    dependencies=[Depends(verify_csrf)],
 )
 
 # ── CORS ──

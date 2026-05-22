@@ -276,6 +276,12 @@ async def _scheduler_loop() -> None:
                                     await db2.commit()
                             except Exception:
                                 pass
+                            # super_admin 알림 (24h 쿨다운, best-effort — 실패해도 무시)
+                            try:
+                                from app.core.notification_scheduler import _notify_scheduler_failure
+                                await _notify_scheduler_failure("auto_backup", str(e))
+                            except Exception:
+                                pass
         except asyncio.CancelledError:
             print("[BACKUP SCHED] 정상 종료")
             raise

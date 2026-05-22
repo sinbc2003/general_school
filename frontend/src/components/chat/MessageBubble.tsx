@@ -10,7 +10,30 @@
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import "katex/dist/katex.min.css";
+
+// rehype-sanitize default schema에 KaTeX 출력(MathML/span class) 허용 추가.
+// LLM 응답이 직접 HTML/script를 끼워넣지 못하게 차단하면서 수식 렌더는 유지.
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    span: [...(defaultSchema.attributes?.span || []), ["className"]],
+    div: [...(defaultSchema.attributes?.div || []), ["className"]],
+    code: [...(defaultSchema.attributes?.code || []), ["className"]],
+    "*": [...(defaultSchema.attributes?.["*"] || []), "style"],
+  },
+  tagNames: [
+    ...(defaultSchema.tagNames || []),
+    // KaTeX MathML 태그
+    "math", "mrow", "mi", "mo", "mn", "msup", "msub", "msubsup", "mfrac",
+    "msqrt", "mroot", "mtext", "mspace", "mover", "munder", "munderover",
+    "mtable", "mtr", "mtd", "annotation", "semantics", "mstyle",
+    "menclose", "mphantom", "mpadded", "mfenced", "mlongdiv", "mscarries",
+    "mscarry", "msgroup", "msline", "msrow", "mstack",
+  ],
+};
 import { Sparkles } from "lucide-react";
 import type { Message } from "./_chat-styles";
 import { C as DefaultPalette, type ChatPalette } from "./_chat-styles";
@@ -51,7 +74,7 @@ export function MessageBubble({ message, streaming = false, C = DefaultPalette }
           <div className={`prose prose-sm max-w-none ${C.text} prose-headings:font-semibold prose-p:leading-relaxed prose-pre:bg-[#2c1810]/5 prose-code:text-[#a04e30]`}>
             <ReactMarkdown
               remarkPlugins={[remarkMath]}
-              rehypePlugins={[rehypeKatex]}
+              rehypePlugins={[rehypeKatex, [rehypeSanitize, sanitizeSchema]]}
               components={{
                 code: ({ inline, children, ...props }: any) =>
                   inline ? (
