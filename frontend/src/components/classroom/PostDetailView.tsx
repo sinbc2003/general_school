@@ -160,11 +160,15 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
           </div>
           <div className="space-y-2">
             {post.attachments.map((a, i) => (
-              <AttachmentRow key={i} a={a} />
+              <AttachmentRow key={i} a={a} postId={post.id} attIdx={i} />
             ))}
           </div>
         </div>
       )}
+
+      {/* 학생별 사본 채점 섹션 (교사 전용) */}
+      <CopiesSection post={post} />
+
 
       {isNotice && (
         <div className="text-caption text-text-tertiary text-center mt-6 mb-4">
@@ -335,6 +339,125 @@ function formatRel(iso: string): string {
   return d.toLocaleDateString("ko-KR");
 }
 
+
+// ─── 학생별 사본 채점 섹션 (교사 전용) ───────────────────────────
+interface CopyItem {
+  id: number;
+  attachment_idx: number;
+  student_id: number;
+  student_name: string | null;
+  student_grade: number | null;
+  student_class: number | null;
+  student_number: number | null;
+  copy_type: string;
+  copy_id: number;
+  copy_url: string;
+  created_at: string | null;
+}
+
+function CopiesSection({ post }: { post: PostDetail }) {
+  const { user } = useAuth();
+  const isTeacher = user?.role !== "student";
+  const hasCopyAttach = (post.attachments || []).some((a) => a.share_mode === "copy");
+  const [items, setItems] = useState<CopyItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ items: CopyItem[] }>(`/api/classroom/posts/${post.id}/copies`);
+      setItems(r.items);
+    } catch {
+      // 권한 없으면 조용히
+    } finally {
+      setLoaded(true);
+    }
+  }, [post.id]);
+
+  useEffect(() => {
+    if (isTeacher && hasCopyAttach) load();
+  }, [isTeacher, hasCopyAttach, load]);
+
+  if (!isTeacher || !hasCopyAttach) return null;
+  if (!loaded) return null;
+
+  // 첨부 idx별 그룹화
+  const groups: Record<number, CopyItem[]> = {};
+  items.forEach((it) => {
+    if (!groups[it.attachment_idx]) groups[it.attachment_idx] = [];
+    groups[it.attachment_idx].push(it);
+  });
+
+  const total = items.length;
+
+  return (
+    <div className="bg-bg-primary border border-violet-200 rounded-xl p-5 mt-4">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[16px]">📋</span>
+          <span className="text-body font-semibold text-violet-700">학생별 사본 채점</span>
+          <span className="text-[11px] px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded">
+            {total}명 제출
+          </span>
+        </div>
+        <span className="text-[11px] text-text-tertiary">
+          {expanded ? "접기" : "펼치기"}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {Object.entries(groups).map(([idx, list]) => {
+            const att = post.attachments[Number(idx)];
+            return (
+              <div key={idx}>
+                <div className="text-[12px] text-text-tertiary mb-2 truncate">
+                  ↪ <span className="font-medium">{att?.title || `첨부 #${idx}`}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {list.map((c) => (
+                    <a
+                      key={c.id}
+                      href={c.copy_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary"
+                    >
+                      <div className="w-7 h-7 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[11px] font-medium flex-shrink-0">
+                        {c.student_name?.slice(0, 1) || "?"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-caption text-text-primary truncate">
+                          {c.student_name || `학생 #${c.student_id}`}
+                        </div>
+                        <div className="text-[10.5px] text-text-tertiary">
+                          {c.student_grade != null && c.student_class != null
+                            ? `${c.student_grade}-${c.student_class}` : ""}
+                          {c.student_number != null ? ` · ${String(c.student_number).padStart(2, "0")}번` : ""}
+                          {c.created_at && ` · ${formatRel(c.created_at)} 시작`}
+                        </div>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {total === 0 && (
+            <div className="text-caption text-text-tertiary text-center py-4">
+              아직 사본을 만든 학생이 없습니다. 학생이 첨부를 클릭하면 자동 생성됩니다.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ShareModeBadge({ mode }: { mode: ShareMode }) {
   const meta: Record<ShareMode, { label: string; bg: string; fg: string }> = {
     view: { label: "보기", bg: "bg-gray-100", fg: "text-gray-600" },
@@ -350,7 +473,63 @@ function ShareModeBadge({ mode }: { mode: ShareMode }) {
 }
 
 
-function AttachmentRow({ a }: { a: Attachment }) {
+function AttachmentRow({ a, postId, attIdx }: { a: Attachment; postId: number; attIdx: number }) {
+  const { user } = useAuth();
+  const isStudent = user?.role === "student";
+  const [busy, setBusy] = useState(false);
+
+  // 학생 + share_mode=copy + drive 자료면 별도 흐름 (사본 생성/열기)
+  const isCopyForStudent =
+    isStudent &&
+    a.share_mode === "copy" &&
+    ["doc", "sheet", "deck", "hwp"].includes(a.type);
+
+  if (isCopyForStudent) {
+    const open = async () => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const res = await api.post<{
+          is_new: boolean;
+          copy_type: string;
+          copy_id: number;
+          copy_url: string;
+        }>(`/api/classroom/posts/${postId}/attachments/${attIdx}/my-copy`, {});
+        // 학생용 URL로 이동 (예: /s/docs/{id})
+        window.location.href = res.copy_url;
+      } catch (e: any) {
+        alert(e?.detail || e?.message || "사본을 만들 수 없습니다");
+      } finally {
+        setBusy(false);
+      }
+    };
+    const emoji =
+      a.type === "doc" ? "📄" : a.type === "sheet" ? "📊" : a.type === "deck" ? "🖼️" : "📝";
+    return (
+      <button
+        type="button"
+        onClick={open}
+        disabled={busy}
+        className="w-full flex items-center gap-3 px-3 py-2.5 border border-violet-200 bg-violet-50 rounded hover:bg-violet-100 group text-left disabled:opacity-60"
+      >
+        <span className="text-[16px]">{emoji}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-body text-violet-700 truncate font-medium">
+            {busy ? "사본 여는 중..." : `내 사본 열기: ${a.title}`}
+          </div>
+          <div className="text-[11px] text-violet-600">
+            클릭하면 본인 사본을 생성하거나 기존 사본을 엽니다.
+          </div>
+        </div>
+        <ShareModeBadge mode="copy" />
+      </button>
+    );
+  }
+  return AttachmentRowImpl({ a });
+}
+
+
+function AttachmentRowImpl({ a }: { a: Attachment }) {
   if (a.type === "file" && a.file_url) {
     return (
       <button
