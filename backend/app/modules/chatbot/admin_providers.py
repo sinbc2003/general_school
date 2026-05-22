@@ -77,6 +77,12 @@ async def upsert_provider(
         p.last_tested_at = None
         p.last_test_ok = False
         p.last_test_error = None
+        # UX: 키 입력 시 `is_active`를 명시 안 했으면 자동 활성화.
+        # (가장 흔한 mistake — 키 등록 후 활성화 토글 깜빡하고 "비활성" 에러)
+        # 사용자가 명시적으로 `is_active=False`를 함께 보낸 경우엔 그 의도 존중
+        # → 아래 분기에서 덮어씀.
+        if "is_active" not in patch:
+            p.is_active = True
     if "is_active" in patch:
         p.is_active = bool(patch["is_active"])
     if "notes" in patch:
