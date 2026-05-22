@@ -46,6 +46,7 @@ import {
   type DriveItem, type DriveInfo,
 } from "./_drive-shared";
 import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
+import { useDriveRubberBand } from "./useDriveRubberBand";
 import { FolderRow } from "./FolderRow";
 import { ItemRow } from "./ItemRow";
 import { FolderCard } from "./FolderCard";
@@ -141,11 +142,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   const [ctx, setCtx] = useState<{ x: number; y: number; target: DriveItem | null } | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveItem | null>(null);
 
-  // Rubber band drag 선택 — 빈영역에서 마우스 드래그로 박스 그어 다중 선택
-  const [dragBox, setDragBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  const dragStartRef = useRef<{
-    x: number; y: number; base: Set<string>; additive: boolean; started: boolean;
-  } | null>(null);
+  // Rubber band drag — useDriveRubberBand hook으로 분리 (line ↓)
 
   // 이름 바꾸기 (F2 / 우클릭 메뉴) — 현재 편집 중인 키 + draft
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
@@ -157,71 +154,9 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
 
   const itemKey = (it: DriveItem) => `${it.type}:${it.id}`;
 
-  // 박스 + 카드 rect intersect 검사
-  const intersects = (a: DOMRect, box: { x1: number; y1: number; x2: number; y2: number }) => {
-    const bx1 = Math.min(box.x1, box.x2);
-    const by1 = Math.min(box.y1, box.y2);
-    const bx2 = Math.max(box.x1, box.x2);
-    const by2 = Math.max(box.y1, box.y2);
-    return !(a.right < bx1 || a.left > bx2 || a.bottom < by1 || a.top > by2);
-  };
+  // 빈영역 드래그 박스 다중 선택 — useDriveRubberBand
+  const { dragBox, startRubberBand } = useDriveRubberBand({ selected, setSelected });
 
-  // 드래그 시작 (빈 영역 onMouseDown). 단순 클릭이어도 — Ctrl/Shift 없으면
-  // 그 시점에 즉시 선택 해제 (사용자가 여백 클릭하면 블록 풀려야).
-  const startRubberBand = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // 좌클릭만
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-drive-card]") || target.closest("[data-drive-row]")) return;
-    if (target.closest("button, a, input, select, textarea")) return;
-    const additive = e.ctrlKey || e.metaKey || e.shiftKey;
-    if (!additive) setSelected(new Set()); // 빈영역 클릭만으로도 해제
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      base: additive ? new Set(selected) : new Set(),
-      additive,
-      started: false,
-    };
-  };
-
-  // 마우스 move/up 글로벌 리스너 — mount 시 한 번만 등록 (stale closure 회피).
-  // dragBox state는 visual only — 로직은 dragStartRef.started 플래그로 추적.
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const s = dragStartRef.current;
-      if (!s) return;
-      const dx = e.clientX - s.x;
-      const dy = e.clientY - s.y;
-      // 첫 3px 이하면 박스 시작 안 함 (단순 클릭과 구분). 한 번 시작되면 계속 update.
-      if (!s.started) {
-        if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
-        s.started = true;
-      }
-      const box = { x1: s.x, y1: s.y, x2: e.clientX, y2: e.clientY };
-      setDragBox(box);
-      const nodes = document.querySelectorAll<HTMLElement>("[data-drive-key]");
-      const hit = new Set(s.base);
-      nodes.forEach((n) => {
-        const key = n.dataset.driveKey;
-        if (!key) return;
-        if (intersects(n.getBoundingClientRect(), box)) hit.add(key);
-        else if (!s.additive) hit.delete(key);
-      });
-      setSelected(hit);
-    };
-    const onUp = () => {
-      if (dragStartRef.current) {
-        dragStartRef.current = null;
-        setDragBox(null);
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
   // 보기 모드 — 사용자 preference localStorage 보존, 기본은 list (자세히)
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
     if (typeof window === "undefined") return "list";

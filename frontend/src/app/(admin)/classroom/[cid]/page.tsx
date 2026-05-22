@@ -10,17 +10,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  MessageSquare, BarChart3,
-} from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { type CreateActionKind } from "@/components/classroom/CreateMenu";
-import { PostComposer, type PostType } from "@/components/classroom/PostComposer";
-import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
-import { PostStreamCard } from "@/components/classroom/PostStreamCard";
+import { type PostType } from "@/components/classroom/PostComposer";
 import { AssignmentModal, type AssignmentModalInitial, type CreateKind } from "@/components/classroom/AssignmentModal";
 import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
@@ -28,6 +24,7 @@ import { CourseworkTab } from "./_components/Coursework";
 import { BulkAddModal } from "./_components/BulkAddModal";
 import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
 import { PeopleTab } from "@/components/classroom/PeopleTab";
+import { StreamTab } from "./_components/StreamTab";
 import type { Post, CourseDetail } from "./_components/types";
 
 export default function CourseDetailAdminPage() {
@@ -168,64 +165,28 @@ export default function CourseDetailAdminPage() {
 
       {/* ── 게시판 (Stream) — Google Classroom 식 grid (좌측 위젯 + 우측 메인) ── */}
       {activeTab === "stream" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <aside className="lg:col-span-1 order-2 lg:order-1">
-            <CourseInfoWidget
-              cid={cid}
-              subject={course.subject}
-              className={course.class_name}
-              teacherName={course.teacher_name}
-              studentCount={course.students.length}
-              baseHref="/classroom"
-              showTeacher={true}
-            />
-          </aside>
-
-          <main className="lg:col-span-2 space-y-3 order-1 lg:order-2">
-            {canEdit && (
-              <PostComposer
-                key={`composer-${composerKey}`}
-                userName={user?.name}
-                userId={user?.id}
-                initType={postFormInitType}
-                initOpen={composerKey > 0}
-                onSubmit={async (body) => {
-                  await api.post(`/api/classroom/courses/${cid}/posts`, body);
-                  setPostFormInitType("notice");
-                  await load();
-                  toast.show("게시됨", "success");
-                }}
-              />
-            )}
-
-            {posts.length === 0 ? (
-              <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-12 text-center text-caption text-text-tertiary">
-                <MessageSquare size={28} className="mx-auto mb-2 opacity-30" />
-                아직 작성된 글이 없습니다
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {posts.map((p) => (
-                  <PostStreamCard
-                    key={p.id}
-                    post={p}
-                    baseHref="/classroom"
-                    canEdit={canEdit}
-                    onDelete={(pid) => deletePost(pid)}
-                    onEdit={(pid) => {
-                      const post = posts.find((x) => x.id === pid);
-                      if (post) handleEdit(post);
-                    }}
-                    onDuplicate={(pid) => {
-                      const post = posts.find((x) => x.id === pid);
-                      if (post) handleDuplicate(post);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </main>
-        </div>
+        <StreamTab
+          cid={cid}
+          posts={posts}
+          canEdit={canEdit}
+          subject={course.subject}
+          className={course.class_name}
+          teacherName={course.teacher_name}
+          studentCount={course.students.length}
+          userName={user?.name}
+          userId={user?.id}
+          composerKey={composerKey}
+          postFormInitType={postFormInitType}
+          onComposerSubmit={async (body) => {
+            await api.post(`/api/classroom/courses/${cid}/posts`, body);
+            setPostFormInitType("notice");
+            await load();
+            toast.show("게시됨", "success");
+          }}
+          onDeletePost={deletePost}
+          onEditPost={handleEdit}
+          onDuplicatePost={handleDuplicate}
+        />
       )}
 
       {/* ── 수업 과제 ── */}

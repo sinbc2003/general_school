@@ -295,22 +295,174 @@ def _survey_to_csv(
     return out.getvalue()
 
 
-def _doc_to_html(d: ClassroomDocument) -> str:
-    """문서 → 단순 HTML (plain_text 기반).
+def _deck_to_html(p: ClassroomPresentation, slides: list[ClassroomSlide]) -> str:
+    """프리젠테이션 → HTML 슬라이드 시리즈.
 
-    Yjs/TipTap의 ProseMirror state를 완전 변환은 어려움 (스키마 복잡).
-    plain_text를 줄바꿈 보존 + 제목 + 메타 정보 포함해 HTML 생성.
-    서식(굵게/색/표)은 손실 — 본 시스템 재import 시 yjs_state base64 사용.
+    각 슬라이드를 한 section으로. 인쇄 시 page break.
+    캔버스 SVG 변환은 손실 큼 → plain_text + 제목만.
     """
-    title = (d.title or "제목 없는 문서").strip()
-    body_text = (d.plain_text or "").strip()
-    # XML escape
     import html as _html
+    title = _html.escape((p.title or "제목 없는 프리젠테이션").strip())
+    sections = []
+    for i, sl in enumerate(slides, start=1):
+        sl_title = _html.escape((sl.title or "").strip())
+        sl_text = (sl.plain_text or "").strip()
+        body_paragraphs = "\n".join(
+            f"<p>{_html.escape(line) if line.strip() else '&nbsp;'}</p>"
+            for line in sl_text.split("\n")
+        ) if sl_text else "<p><em>본문 비어 있음</em></p>"
+        sections.append(f"""
+  <section class="slide">
+    <div class="slide-number">{i} / {len(slides)}</div>
+    {f'<h2>{sl_title}</h2>' if sl_title else ''}
+    {body_paragraphs}
+  </section>""")
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+  <style>
+    body {{ font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.6; }}
+    h1 {{ border-bottom: 3px solid #673ab7; padding-bottom: 0.4em; }}
+    .slide {{ border: 1px solid #ddd; border-radius: 6px; padding: 1.5em; margin: 1.2em 0; background: #fafafa; page-break-after: always; }}
+    .slide-number {{ color: #888; font-size: 0.85em; margin-bottom: 0.5em; }}
+    .slide h2 {{ color: #673ab7; margin-top: 0; }}
+    .note {{ background: #fff8e1; border-left: 3px solid #f59e0b; padding: 0.8em; font-size: 0.9em; margin-top: 2em; }}
+    @media print {{ .slide {{ page-break-after: always; }} }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  <p>슬라이드 {len(slides)}장 · 백업: {datetime.now(timezone.utc).isoformat()}</p>
+  {''.join(sections)}
+  <div class="note">
+    각 슬라이드 본문 텍스트만 추출했습니다 (캔버스 도형·이미지는 손실).
+    원본은 본 시스템에서 ZIP 복원 시 완전히 살아납니다.
+  </div>
+</body>
+</html>
+"""
+
+
+def _prosemirror_xml_to_html(node) -> str:
+    """pycrdt XmlElement/XmlText → HTML 재귀 변환.
+
+    TipTap의 ProseMirror schema(paragraph/heading/list/table 등) 핵심 매핑.
+    미지원 node는 children content만 보존.
+    """
+    import html as _h
+    try:
+        from pycrdt import XmlElement, XmlText
+    except Exception:
+        return ""
+
+    if isinstance(node, XmlText):
+        text = _h.escape(str(node))
+        attrs = getattr(node, "attributes", None) or {}
+        result = text
+        if attrs.get("strong") or attrs.get("bold"):
+            result = f"<strong>{result}</strong>"
+        if attrs.get("em") or attrs.get("italic"):
+            result = f"<em>{result}</em>"
+        if attrs.get("code"):
+            result = f"<code>{result}</code>"
+        if attrs.get("strike"):
+            result = f"<s>{result}</s>"
+        link = attrs.get("link")
+        if link:
+            href = link.get("href", "#") if isinstance(link, dict) else str(link)
+            result = f'<a href="{_h.escape(href)}">{result}</a>'
+        return result
+
+    if isinstance(node, XmlElement):
+        tag = (getattr(node, "tag", "") or "").strip()
+        attrs = getattr(node, "attributes", None) or {}
+        children_html = "".join(_prosemirror_xml_to_html(c) for c in node.children)
+        if tag == "paragraph":
+            return f"<p>{children_html or '&nbsp;'}</p>"
+        if tag == "heading":
+            try:
+                level = max(1, min(6, int(attrs.get("level", 1))))
+            except (TypeError, ValueError):
+                level = 1
+            return f"<h{level}>{children_html}</h{level}>"
+        if tag == "bulletList":
+            return f"<ul>{children_html}</ul>"
+        if tag == "orderedList":
+            return f"<ol>{children_html}</ol>"
+        if tag == "listItem":
+            return f"<li>{children_html}</li>"
+        if tag == "blockquote":
+            return f"<blockquote>{children_html}</blockquote>"
+        if tag == "codeBlock":
+            return f"<pre><code>{children_html}</code></pre>"
+        if tag == "horizontalRule":
+            return "<hr>"
+        if tag == "hardBreak":
+            return "<br>"
+        if tag == "table":
+            return f"<table>{children_html}</table>"
+        if tag == "tableRow":
+            return f"<tr>{children_html}</tr>"
+        if tag == "tableHeader":
+            return f"<th>{children_html}</th>"
+        if tag == "tableCell":
+            return f"<td>{children_html}</td>"
+        if tag == "image":
+            src = _h.escape(str(attrs.get("src", "")))
+            alt = _h.escape(str(attrs.get("alt", "")))
+            return f'<img src="{src}" alt="{alt}">'
+        # unknown — children만 보존
+        return children_html
+
+    return ""
+
+
+def _try_decode_doc_html(yjs_state: bytes | None) -> str | None:
+    """yjs_state → ProseMirror HTML (성공 시 본문 HTML만 반환)."""
+    if not yjs_state:
+        return None
+    try:
+        from pycrdt import Doc, XmlFragment
+        doc = Doc()
+        doc.apply_update(yjs_state)
+        # TipTap Collaboration 기본 fragment 이름 = "default"
+        frag = doc.get("default", type=XmlFragment)
+        body = "".join(_prosemirror_xml_to_html(c) for c in frag.children)
+        return body.strip() or None
+    except Exception:
+        return None
+
+
+def _doc_to_html(d: ClassroomDocument) -> str:
+    """문서 → HTML.
+
+    Yjs CRDT(TipTap) → ProseMirror HTML 정밀 변환 시도. 실패 시 plain_text fallback.
+    서식(굵게/기울임/목록/제목/표) 보존. 미지원 node는 텍스트만.
+    """
+    import html as _html
+    title = (d.title or "제목 없는 문서").strip()
     title_esc = _html.escape(title)
-    body_paragraphs = "\n".join(
-        f"<p>{_html.escape(line) if line.strip() else '&nbsp;'}</p>"
-        for line in body_text.split("\n")
-    ) if body_text else "<p><em>본문 없음 (서식 있는 본문은 원본 시스템에서 확인하세요)</em></p>"
+
+    body_html = _try_decode_doc_html(d.yjs_state)
+    fallback_used = body_html is None
+    if fallback_used:
+        body_text = (d.plain_text or "").strip()
+        if body_text:
+            body_html = "\n".join(
+                f"<p>{_html.escape(line) if line.strip() else '&nbsp;'}</p>"
+                for line in body_text.split("\n")
+            )
+        else:
+            body_html = "<p><em>본문 없음</em></p>"
+
+    note = (
+        "본문이 평문화돼 있습니다 (Yjs 디코드 실패). 원본은 ZIP 복원 시 살아납니다."
+        if fallback_used
+        else "ProseMirror 구조 그대로 HTML 변환 — 굵게·목록·표 등 서식 보존."
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -320,19 +472,23 @@ def _doc_to_html(d: ClassroomDocument) -> str:
   <style>
     body {{ font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.7; }}
     h1 {{ border-bottom: 2px solid #673ab7; padding-bottom: 0.3em; }}
+    h2 {{ color: #555; border-bottom: 1px solid #eee; padding-bottom: 0.2em; }}
     .meta {{ color: #888; font-size: 0.85em; margin-bottom: 1em; }}
+    blockquote {{ border-left: 4px solid #ddd; margin: 1em 0; padding: 0.3em 1em; color: #555; }}
+    pre {{ background: #f4f4f4; padding: 0.8em; border-radius: 4px; overflow-x: auto; }}
+    code {{ background: #f4f4f4; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }}
+    table {{ border-collapse: collapse; margin: 1em 0; width: 100%; }}
+    th, td {{ border: 1px solid #ccc; padding: 0.4em 0.6em; text-align: left; }}
+    th {{ background: #f0f0f0; }}
+    img {{ max-width: 100%; height: auto; }}
     .note {{ background: #fff8e1; border-left: 3px solid #f59e0b; padding: 0.8em; font-size: 0.9em; margin-top: 2em; }}
   </style>
 </head>
 <body>
   <h1>{title_esc}</h1>
   <div class="meta">백업 시각: {datetime.now(timezone.utc).isoformat()}</div>
-  {body_paragraphs}
-  <div class="note">
-    이 HTML은 일반학교(general_school) 백업에서 평문 추출본입니다.
-    굵게·색·표 등 서식은 원본 시스템에서만 완전히 복원됩니다.
-    같은 시스템에서 ZIP을 "복원"하면 원본 그대로 돌아옵니다.
-  </div>
+  {body_html}
+  <div class="note">{note}</div>
 </body>
 </html>
 """
@@ -417,6 +573,13 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"decks/{p.id}_{_safe_name(p.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            try:
+                z.writestr(
+                    f"decks/{p.id}_{_safe_name(p.title)}.html",
+                    _deck_to_html(p, list(slides)),
+                )
+            except Exception:
+                pass
 
         # surveys + questions + responses (CSV로도 export)
         surveys = (await db.execute(
