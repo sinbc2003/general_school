@@ -17,6 +17,7 @@ import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { PostStreamCard } from "@/components/classroom/PostStreamCard";
 import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
 import { PeopleTab } from "@/components/classroom/PeopleTab";
+import { CourseChatbots } from "@/components/classroom/CourseChatbots";
 import { getCourseTone } from "@/components/classroom/_color";
 import { StudentCourseworkList } from "./_components/StudentCourseworkList";
 
@@ -171,6 +172,11 @@ export default function StudentCourseDetailPage() {
           canEdit={false}
           variant="student"
         />
+      )}
+
+      {/* ── 챗봇 (학생은 사용만, 편집 X) ── */}
+      {activeTab === "chatbots" && (
+        <CourseChatbots cid={cid} canEdit={false} />
       )}
 
       {/* ── 성적 ── */}

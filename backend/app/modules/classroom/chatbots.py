@@ -24,6 +24,7 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models import (
+    ChatSession,
     Course,
     CourseChatbot,
     CourseStudent,
@@ -212,6 +213,83 @@ async def update_course_chatbot(
         target_id=bid,
     )
     return _to_dict(b)
+
+
+@router.post("/chatbots/{bid}/start-session")
+async def start_chatbot_session(
+    bid: int,
+    request: Request,
+    user: User = Depends(require_permission("chatbot.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """챗봇으로 새 ChatSession 시작 — 강좌 멤버만.
+
+    - chatbot.system_prompt를 ChatSession.system_prompt_text에 inline 저장
+    - chatbot.provider/model_id가 있으면 사용, 없으면 chatbot_config 기본값
+    - audience는 자동 (학생 → student, 교사 → teacher) — 학생용 가드레일 호환
+    - 응답: { session_id } — frontend는 /chat 또는 /s/chat 페이지로 이동
+    """
+    b = await db.get(CourseChatbot, bid)
+    if not b or not b.is_active:
+        raise HTTPException(404, "챗봇 없음 또는 비활성")
+    course = await db.get(Course, b.course_id)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_member(db, user, course):
+        raise HTTPException(403, "강좌 멤버만 챗봇을 사용할 수 있습니다")
+
+    # provider/model_id 결정 — chatbot 지정값 우선, 없으면 audience별 기본
+    from sqlalchemy import select as sa_select
+    from app.models import ChatbotConfig
+
+    audience = "student" if user.role == "student" else (
+        "admin" if user.role in ("super_admin", "designated_admin") else "teacher"
+    )
+
+    async def _get_config(key: str, default: str = "") -> str:
+        cfg = (await db.execute(
+            sa_select(ChatbotConfig).where(ChatbotConfig.key == key)
+        )).scalar_one_or_none()
+        return (cfg.value or default) if cfg else default
+
+    provider = b.provider or await _get_config(
+        f"default_provider_{'student' if audience == 'student' else 'teacher'}", ""
+    )
+    model_id = b.model_id or await _get_config(
+        f"default_model_{'student' if audience == 'student' else 'teacher'}", ""
+    )
+    if not provider or not model_id:
+        raise HTTPException(
+            400, "provider/model이 설정되지 않았습니다. 관리자가 챗봇 모델을 지정해야 합니다.",
+        )
+
+    s = ChatSession(
+        user_id=user.id,
+        title=f"💬 {b.name}",
+        audience=audience,
+        provider=provider,
+        model_id=model_id,
+        system_prompt_id=None,
+        system_prompt_text=b.system_prompt,
+    )
+    db.add(s)
+    await db.flush()
+
+    await log_action(
+        db, user, request,
+        action="classroom.chatbot.session_start",
+        target_type="course_chatbot",
+        target_id=bid,
+    )
+
+    return {
+        "session_id": s.id,
+        "title": s.title,
+        "provider": s.provider,
+        "model_id": s.model_id,
+        "chatbot_id": b.id,
+        "chatbot_name": b.name,
+    }
 
 
 @router.delete("/chatbots/{bid}")

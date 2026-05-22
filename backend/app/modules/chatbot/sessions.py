@@ -289,9 +289,12 @@ async def _stream_response(sid: int, content: str, user_id: int) -> AsyncIterato
         await db.flush()
         yield f"data: {json.dumps({'type': 'user_msg_id', 'id': user_msg.id})}\n\n"
 
-        # 시스템 프롬프트 + 이전 메시지 로드
+        # 시스템 프롬프트 + 이전 메시지 로드.
+        # 강좌 챗봇 세션은 system_prompt_text 사용 (id 대신 inline text 저장).
         system_text = None
-        if s.system_prompt_id:
+        if s.system_prompt_text:
+            system_text = s.system_prompt_text
+        elif s.system_prompt_id:
             sp = (await db.execute(
                 select(SystemPrompt).where(SystemPrompt.id == s.system_prompt_id)
             )).scalar_one_or_none()
