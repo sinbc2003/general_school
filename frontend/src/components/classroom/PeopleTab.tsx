@@ -1,8 +1,14 @@
 "use client";
 
 /**
- * 강좌 수강 학생 명단 탭 — admin 페이지 전용 (canEdit=true면 학생 등록/제외 가능).
- * student 페이지에서는 view-only 변형 사용.
+ * 강좌 수강 학생 명단 탭 — admin / student 양쪽 공유.
+ *
+ * - canEdit=true: 학생 등록(onAdd) + 제외(onRemove) 버튼 표시
+ * - canEdit=false: 명단 view-only (학생 페이지에서 같이 듣는 친구들 확인용)
+ *
+ * 헤더 라벨:
+ *   - admin: "수강 학생 (N)"
+ *   - student: "함께하는 학생 (N)"
  */
 
 import { Users, UserPlus, Trash2 } from "lucide-react";
@@ -20,20 +26,24 @@ interface Props {
   students: StudentRow[];
   teacherName?: string | null;
   canEdit: boolean;
-  onAdd: () => void;
-  onRemove: (studentId: number, name: string) => void;
+  onAdd?: () => void;
+  onRemove?: (studentId: number, name: string) => void;
+  /** 헤더 라벨 분기 — admin/student */
+  variant?: "admin" | "student";
 }
 
 export function PeopleTab({
   students, teacherName, canEdit, onAdd, onRemove,
+  variant = "admin",
 }: Props) {
+  const headerLabel = variant === "student" ? "함께하는 학생" : "수강 학생";
   return (
     <div className="bg-bg-primary border border-border-default rounded-lg p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-body font-semibold flex items-center gap-1">
-          <Users size={15} /> 수강 학생 ({students.length})
+          <Users size={15} /> {headerLabel} ({students.length})
         </h2>
-        {canEdit && (
+        {canEdit && onAdd && (
           <button
             onClick={onAdd}
             className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
@@ -49,7 +59,7 @@ export function PeopleTab({
       )}
       {students.length === 0 ? (
         <div className="text-caption text-text-tertiary py-8 text-center">
-          등록된 학생 없음
+          {variant === "student" ? "등록된 학생 정보 없음" : "등록된 학생 없음"}
         </div>
       ) : (
         <div className="divide-y divide-border-default">
@@ -66,7 +76,7 @@ export function PeopleTab({
                     : ""}
                 </span>
               </div>
-              {canEdit && (
+              {canEdit && onRemove && (
                 <button
                   onClick={() => onRemove(s.student_id, s.name)}
                   className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"

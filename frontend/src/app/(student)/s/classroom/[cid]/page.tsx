@@ -9,12 +9,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Users, MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
+import { MessageSquare, ClipboardList, BarChart3 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
 import { CourseInfoWidget } from "@/components/classroom/CourseInfoWidget";
 import { PostStreamCard } from "@/components/classroom/PostStreamCard";
+import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
+import { PeopleTab } from "@/components/classroom/PeopleTab";
 import { getCourseTone } from "@/components/classroom/_color";
 
 interface Attachment {
@@ -115,14 +117,7 @@ export default function StudentCourseDetailPage() {
       />
 
       {course.is_past_semester && (
-        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-caption text-amber-900">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-200 rounded text-[11px] font-medium">
-            보관
-          </span>
-          <span>
-            <b>이전 학기</b>{course.semester ? ` (${course.semester.year}학년도 ${course.semester.term}학기)` : ""} 강좌입니다 — 읽기 전용으로 열람 중.
-          </span>
-        </div>
+        <ReadOnlyBanner semester={course.semester} variant="student" />
       )}
 
       <CourseTabs active={activeTab} onChange={setActiveTab} tone={tone} />
@@ -169,34 +164,12 @@ export default function StudentCourseDetailPage() {
 
       {/* ── 사용자 ── */}
       {activeTab === "people" && (
-        <div className="bg-bg-primary border border-border-default rounded-lg p-5">
-          {course.teacher_name && (
-            <div className="text-caption text-text-tertiary mb-3 px-2 py-1.5 bg-bg-secondary rounded">
-              담당 교사: <span className="text-text-primary font-medium">{course.teacher_name}</span>
-            </div>
-          )}
-          <h2 className="text-body font-semibold flex items-center gap-1 mb-3">
-            <Users size={15} /> 함께하는 학생 ({course.students?.length ?? 0})
-          </h2>
-          {!course.students || course.students.length === 0 ? (
-            <div className="text-caption text-text-tertiary py-6 text-center">
-              등록된 학생 정보 없음
-            </div>
-          ) : (
-            <div className="divide-y divide-border-default">
-              {course.students.map((s) => (
-                <div key={s.id} className="px-2 py-2 text-caption">
-                  <span className="font-medium text-text-primary">{s.name}</span>
-                  <span className="text-text-tertiary ml-2">
-                    {s.grade && s.class_number && s.student_number
-                      ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
-                      : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <PeopleTab
+          students={(course.students ?? []) as any}
+          teacherName={course.teacher_name}
+          canEdit={false}
+          variant="student"
+        />
       )}
 
       {/* ── 성적 ── */}

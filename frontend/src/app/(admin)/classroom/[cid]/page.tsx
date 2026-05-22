@@ -26,8 +26,8 @@ import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
 import { CourseworkTab } from "./_components/Coursework";
 import { BulkAddModal } from "./_components/BulkAddModal";
-import { ReadOnlyBanner } from "./_components/ReadOnlyBanner";
-import { PeopleTab } from "./_components/PeopleTab";
+import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
+import { PeopleTab } from "@/components/classroom/PeopleTab";
 import type { Post, CourseDetail } from "./_components/types";
 
 export default function CourseDetailAdminPage() {
