@@ -208,6 +208,47 @@ class CoursePostComment(Base):
     )
 
 
+class CourseChatbot(Base):
+    """강좌별 챗봇 — 강좌마다 시스템 프롬프트 + (옵션) 모델 지정.
+
+    학생이 글 첨부 또는 강좌 페이지에서 챗봇 클릭 시 그 system_prompt가
+    적용된 ChatSession이 생성됨. 학생용 가드레일은 system_prompt 앞에 자동
+    prepend (chatbot 모듈 sessions.py).
+
+    provider/model_id가 null이면 chatbot_config의 default 사용.
+    교사가 학생용 챗봇을 깔끔히 셋업할 수 있도록 강좌 단위로 격리.
+    """
+    __tablename__ = "course_chatbots"
+    __table_args__ = (
+        Index("ix_course_chatbots_course_id", "course_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_courses.id", ondelete="CASCADE"), nullable=False,
+    )
+    # 학생/교사가 보는 챗봇 이름 (예: "수학 보조 챗봇")
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 시스템 프롬프트 — 챗봇 페르소나·지시사항. 학생 가드레일은 별도로 prepend.
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    # provider/model_id null이면 chatbot_config 기본값 사용 (학생/교사 분기 그대로 적용)
+    provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # 미래 확장 — 강좌 자료(doc/sheet/deck)를 챗봇 컨텍스트로 자동 주입할 때 사용
+    context_attachments: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False,
+    )
+
+
 class PostAttachmentCopy(Base):
     """글 첨부 자료의 학생별 사본 매핑.
 

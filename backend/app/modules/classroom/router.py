@@ -725,3 +725,4 @@ from app.modules.classroom import favorites  # noqa: E402, F401
 from app.modules.classroom import customize  # noqa: E402, F401
 from app.modules.classroom import student_enrollment  # noqa: E402, F401
 from app.modules.classroom import student_copy  # noqa: E402, F401
+from app.modules.classroom import chatbots  # noqa: E402, F401

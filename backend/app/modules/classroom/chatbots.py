@@ -1,0 +1,241 @@
+"""강좌별 챗봇 CRUD — Phase 3.
+
+Google Classroom의 Gem 동등 — 강좌마다 시스템 프롬프트 + (옵션) 모델 지정.
+학생/교사가 강좌 페이지의 챗봇 카드 클릭 시 그 system_prompt가 적용된
+ChatSession이 자동 생성됨.
+
+설계:
+- 강좌 editor(owner/co_teacher) + admin: CRUD 가능
+- 강좌 멤버(수강생 포함): list/get만 가능
+- provider/model_id null이면 chatbot_config 기본값 fallback
+- 학생용 가드레일 system prompt는 sessions.py에서 별도 prepend (변경 X)
+
+router 객체는 router.py에서 공유. router.py 끝의 'from . import chatbots'로 등록.
+"""
+
+from __future__ import annotations
+
+from fastapi import Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.audit import log_action
+from app.core.database import get_db
+from app.core.permissions import require_permission
+from app.models import (
+    Course,
+    CourseChatbot,
+    CourseStudent,
+    User,
+)
+from app.modules.classroom.router import router
+from app.modules.classroom.teachers import is_course_editor
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 스키마
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ChatbotCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str | None = None
+    system_prompt: str = Field(..., min_length=1, max_length=20000)
+    provider: str | None = Field(None, max_length=30)
+    model_id: str | None = Field(None, max_length=150)
+    is_active: bool = True
+
+
+class ChatbotUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = None
+    system_prompt: str | None = Field(None, min_length=1, max_length=20000)
+    provider: str | None = Field(None, max_length=30)
+    model_id: str | None = Field(None, max_length=150)
+    is_active: bool | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 헬퍼
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _to_dict(b: CourseChatbot) -> dict:
+    return {
+        "id": b.id,
+        "course_id": b.course_id,
+        "name": b.name,
+        "description": b.description,
+        "system_prompt": b.system_prompt,
+        "provider": b.provider,
+        "model_id": b.model_id,
+        "is_active": b.is_active,
+        "created_by": b.created_by,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+        "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+    }
+
+
+async def _is_course_member(db: AsyncSession, user: User, course: Course) -> bool:
+    """강좌 멤버(교사/학생/admin) 검증."""
+    if user.role in ("super_admin", "designated_admin"):
+        return True
+    if course.teacher_id == user.id:
+        return True
+    if await is_course_editor(db, user, course):
+        return True
+    # 학생 active 수강생
+    cs = (await db.execute(
+        select(CourseStudent).where(
+            CourseStudent.course_id == course.id,
+            CourseStudent.student_id == user.id,
+            CourseStudent.status == "active",
+        )
+    )).scalar_one_or_none()
+    return cs is not None
+
+
+async def _is_course_admin(db: AsyncSession, user: User, course: Course) -> bool:
+    """챗봇 CRUD 권한 — editor + admin만."""
+    if user.role in ("super_admin", "designated_admin"):
+        return True
+    return await is_course_editor(db, user, course)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/courses/{cid}/chatbots")
+async def list_course_chatbots(
+    cid: int,
+    user: User = Depends(require_permission("classroom.course.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """강좌 챗봇 list (강좌 멤버 모두 접근)."""
+    course = await db.get(Course, cid)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_member(db, user, course):
+        raise HTTPException(403, "강좌 멤버만 볼 수 있습니다")
+
+    rows = (await db.execute(
+        select(CourseChatbot)
+        .where(CourseChatbot.course_id == cid)
+        .order_by(CourseChatbot.id)
+    )).scalars().all()
+    return {"items": [_to_dict(b) for b in rows]}
+
+
+@router.post("/courses/{cid}/chatbots")
+async def create_course_chatbot(
+    cid: int,
+    body: ChatbotCreate,
+    request: Request,
+    user: User = Depends(require_permission("classroom.course.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """챗봇 생성 — 강좌 editor + admin만."""
+    course = await db.get(Course, cid)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_admin(db, user, course):
+        raise HTTPException(403, "강좌 교사만 챗봇을 만들 수 있습니다")
+
+    b = CourseChatbot(
+        course_id=cid,
+        name=body.name,
+        description=body.description,
+        system_prompt=body.system_prompt,
+        provider=body.provider,
+        model_id=body.model_id,
+        is_active=body.is_active,
+        created_by=user.id,
+    )
+    db.add(b)
+    await db.flush()
+    await log_action(
+        db, user, request,
+        action="classroom.chatbot.create",
+        target_type="course_chatbot",
+        target_id=b.id,
+    )
+    return _to_dict(b)
+
+
+@router.get("/chatbots/{bid}")
+async def get_course_chatbot(
+    bid: int,
+    user: User = Depends(require_permission("classroom.course.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """챗봇 단일 조회 — 강좌 멤버만."""
+    b = await db.get(CourseChatbot, bid)
+    if not b:
+        raise HTTPException(404, "챗봇 없음")
+    course = await db.get(Course, b.course_id)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_member(db, user, course):
+        raise HTTPException(403, "강좌 멤버만 볼 수 있습니다")
+    return _to_dict(b)
+
+
+@router.put("/chatbots/{bid}")
+async def update_course_chatbot(
+    bid: int,
+    body: ChatbotUpdate,
+    request: Request,
+    user: User = Depends(require_permission("classroom.course.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """챗봇 수정 — 강좌 editor + admin만."""
+    b = await db.get(CourseChatbot, bid)
+    if not b:
+        raise HTTPException(404, "챗봇 없음")
+    course = await db.get(Course, b.course_id)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_admin(db, user, course):
+        raise HTTPException(403, "강좌 교사만 챗봇을 수정할 수 있습니다")
+
+    patch = body.model_dump(exclude_unset=True)
+    for k, v in patch.items():
+        setattr(b, k, v)
+    await db.flush()
+    await log_action(
+        db, user, request,
+        action="classroom.chatbot.update",
+        target_type="course_chatbot",
+        target_id=bid,
+    )
+    return _to_dict(b)
+
+
+@router.delete("/chatbots/{bid}")
+async def delete_course_chatbot(
+    bid: int,
+    request: Request,
+    user: User = Depends(require_permission("classroom.course.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """챗봇 삭제 — 강좌 editor + admin만."""
+    b = await db.get(CourseChatbot, bid)
+    if not b:
+        raise HTTPException(404, "챗봇 없음")
+    course = await db.get(Course, b.course_id)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await _is_course_admin(db, user, course):
+        raise HTTPException(403, "강좌 교사만 챗봇을 삭제할 수 있습니다")
+
+    await db.delete(b)
+    await log_action(
+        db, user, request,
+        action="classroom.chatbot.delete",
+        target_type="course_chatbot",
+        target_id=bid,
+    )
+    return {"ok": True}
