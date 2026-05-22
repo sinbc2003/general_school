@@ -1509,3 +1509,113 @@ decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 
 7. **HWP file 복사** — copy endpoint hwps 지원 (file 실 복제)
 
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
+
+---
+
+## 2026-05-22 후반 — 보안 + 테스트 + 1500명 인덱스 + Drive AI + 모듈화
+
+### Drive AI 사이드바 (신규 큰 기능)
+사용자 발화 → AI가 본인 자료 메타 분석 → `drive_propose_organization` 도구로
+정리안(rename + move + create_folder) 한 번에 제안 → 미리보기 모달 → "동의"
+클릭 → batch endpoint atomic 적용. 삭제 절대 X.
+
+**Backend** ([tool_ai/tools.py](backend/app/modules/tool_ai/tools.py),
+[drive/folders.py](backend/app/modules/drive/folders.py)):
+- `DRIVE_TOOLS` + `SYSTEM_PROMPT_BY_KIND["drive"]` 추가
+- `tool_kind` regex에 "drive" 포함, current_content cap 8000자
+- `POST /api/drive/items/_batch-organize` — 본인 자료만, max 500 actions, atomic
+  - temp_id로 새 폴더 referencing → resolve to real ID
+  - 실패 시 새 폴더 + 자료 모두 rollback
+- AI 자동 작성 통합 현황 (전체 도구):
+  - **docs**: ✅ doc_append_markdown / doc_replace_all (표 ✅)
+  - **sheets**: ✅ sheet_write_cells (한 번에 100 셀, 표 ✅)
+  - **decks**: ✅ slide_add (classroom + 단독 페이지 둘 다 통합)
+  - **surveys**: ✅ survey_add_question (classroom 안)
+  - **hwps**: ⚠️ rhwp 한계 — 마크다운 클립보드 (사용자 Ctrl+V)
+  - **drive**: ✅ drive_propose_organization (신규)
+
+**Frontend**:
+- `types.ts` ToolKind에 "drive" + AIAssistantPanel KIND_LABEL/SUGGESTIONS
+- `DriveProposalModal.tsx` 신규 — action 미리보기 (rename 화살표, 이동 대상, 새 폴더 카드)
+- DrivePage 우상단 "AI 정리" 버튼 → AIAssistantPanel(toolKind="drive")
+  - 메타만 컨텍스트 (제목 + 타입 + folder_id) — 본문 X (토큰 절약)
+  - AI 켤 때 전체 드라이브 snapshot 1회 fetch
+  - aiApply: propose 도구 결과 → setProposal → 모달
+
+정책 (사용자 결정):
+- 새 폴더 생성 OK / 메타만 / 전체 드라이브 / 삭제 X / 자동 폴더 보존
+
+### 단독 deck 페이지 AI 통합
+- `(admin)/docs/decks/[did]` 단독 페이지에 AIAssistantPanel 추가 (classroom decks 패턴 동일)
+- slide_add → backend POST → reload
+
+### HWP file 실 복제
+- `drive/folders.py` copy endpoint hwps 지원
+- src 파일 → `storage/hwps/{new_id}/{token}.{fmt}` 별도 작성 (symlink 대신 실 복사)
+- 실패 시 file도 cleanup
+
+### 1500명 인덱스 14개 (`alembic 8b2c3d4e5f6a`)
+- `course_students(student_id, status)` — 학생 active 강좌 JOIN
+- 5개 자료 `(owner_id, deleted_at)` + `(owner_id, folder_id)` — 드라이브 활성/폴더 필터
+- `semester_enrollments(semester_id, role, status)` — 학기 명단
+- `classroom_courses(semester_id, is_active)` — 활성 강좌
+- `classroom_doc_revisions(document_id, created_at)` — revision cleanup
+- PostgreSQL `CREATE INDEX IF NOT EXISTS` (멱등), SQLite도 지원
+
+### Revision 자동 정리 cron
+[notification_scheduler.py](backend/app/core/notification_scheduler.py):
+- 24시간 1회. 90일 이상 일괄 삭제 + 문서당 최근 100 revision만 유지
+- 1년 운영 시 storage 폭주 차단 (한 문서당 ~500k revision 가능)
+
+### 보안 fix (Explore agent 검토)
+- **MODERATE**: `student_enrollment.py` CSV row 무제한 → DoS 가능
+  → **5000 rows 한도** 추가 (1500명 × 3과목 ≈ 4500 → 충분)
+- **MODERATE**: `drive/folders.py` copy quota race
+  → flush/consume 실패 시 자료 자동 rollback (try/except로 묶음)
+- OK: IDOR, 잠금 폴더 보호, cycle 방지, CSV 검증, 학생 가드, SQL/path traversal/CSRF
+
+### 테스트 26개 추가 (pytest 84/84 pass)
+- `test_folders_api.py` (11): 폴더 CRUD, 잠금, IDOR, cycle, move/copy
+- `test_enrollment_wizard.py` (7): 학생 마법사 + CSV admin-only + 5000 rows 한도
+- `test_folder_seed.py` (8): 자동 폴더 생성 + 멱등성 + 학기 누적 sort_order + hooks
+
+### HWP iframe AI 사이드바 fix
+- 상단 액션바 `flex-wrap` 추가 (폭 부족 시 줄바꿈)
+- `ResizeObserver`로 container 크기 변경 감지 → `iframe.style.width="800px"` 픽셀 명시 강제
+  (rhwp 안 한컴 ribbon이 viewport 단위로 측정하는 경우 회피)
+
+### 코드 모듈화 (이번 세션 통합)
+**DrivePage 1700 → 1494줄 (-12%)**:
+- `_drive-shared.ts` 신규 (106줄): types/constants/helpers
+- `useDriveKeyboardShortcuts.ts` 신규 (132줄): ESC/Del/Ctrl+X/C/V/A hook
+- DrivePage 자체는 컨테이너 + state + view JSX 유지
+
+**classroom 양쪽 페이지 통합**:
+- `components/classroom/ReadOnlyBanner.tsx` (variant: admin/student)
+- `components/classroom/PeopleTab.tsx` (variant + canEdit)
+- admin 페이지 352 → 297줄 (-15.6%)
+- 학생 페이지 372 → 192줄 (-48%, StudentCourseworkList 별도 추출)
+
+**학생 classroom 페이지**:
+- `_components/StudentCourseworkList.tsx` 신규 (184줄)
+
+**students/_tabs**: 이미 9개 파일로 분할 완료 (각 88~117줄). outdated 보고.
+
+### 통계 (2026-05-22 후반)
+- Commit 약 10개 (drive AI / HWP iframe / 인덱스 + revision cron / 보안 fix /
+  모듈화 4건 / 테스트 추가)
+- Backend: 456 → 457 routes (drive batch-organize +1)
+- 새 모델: 0 (인덱스만 추가)
+- 새 모듈: drive AI tool / DriveProposalModal / StudentCourseworkList /
+  useDriveKeyboardShortcuts / _drive-shared / classroom 양쪽 공유
+- alembic migration: 8b2c3d4e5f6a (1500명 인덱스 14개)
+- 테스트: 58 → 84 (+26) pass
+- TS 0 error
+
+### 다음 세션 보류
+1. **DrivePage list/grid view 추출** — DriveListView/GridView 컴포넌트
+   (props 20개+ drilling 부담, 신중)
+2. **classroom StreamTab 추출** — composer key remount 신중
+3. **모듈화 추가 분리 가능 후보**: DrivePage fetchAll/drag&drop 핸들러 hook
+
+다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
