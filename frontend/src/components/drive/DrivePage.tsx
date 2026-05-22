@@ -22,10 +22,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Trash2, RotateCcw, MoreVertical, AlertTriangle, Search, X,
+  Trash2, AlertTriangle, Search, X,
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon,
-  Folder as FolderIcon, Lock, ChevronRight, ArrowUp, ArrowDown,
+  Folder as FolderIcon, ChevronRight, ArrowUp, ArrowDown,
   Sparkles,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
@@ -46,6 +46,10 @@ import {
   type DriveItem, type DriveInfo,
 } from "./_drive-shared";
 import { useDriveKeyboardShortcuts } from "./useDriveKeyboardShortcuts";
+import { FolderRow } from "./FolderRow";
+import { ItemRow } from "./ItemRow";
+import { FolderCard } from "./FolderCard";
+import { ItemCard } from "./ItemCard";
 
 export function DrivePage({ mode }: { mode: "admin" | "student" }) {
   // 휴지통 모드 (탭 대신 단순 boolean)
@@ -891,187 +895,71 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               </tr>
             </thead>
             <tbody>
-              {/* 폴더 행 — 휴지통이 아닐 때만 */}
-              {!trashMode && filteredFolders.map((f) => {
-                const key = `folder:${f.id}`;
-                const isSelected = selected.has(key);
-                const isDragOver = dragOverFolderId === f.id;
-                return (
-                  <tr
-                    key={key}
-                    data-drive-row
-                    data-drive-key={key}
-                    className={`border-b border-border-default/50 cursor-pointer ${
-                      isDragOver
-                        ? "bg-accent/20 ring-2 ring-accent ring-inset"
-                        : isSelected
-                        ? "bg-[#e8def8] hover:bg-[#d7c4f3]"
-                        : "hover:bg-bg-secondary/50"
-                    }`}
-                    onClick={(e) => {
-                      // 단일 선택 (자료와 통일된 패턴)
-                      if (e.ctrlKey || e.metaKey) {
-                        setSelected((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(key)) next.delete(key);
-                          else next.add(key);
-                          return next;
-                        });
-                      } else {
-                        setSelected(new Set([key]));
+              {/* 폴더 행 — 휴지통 아닐 때만 */}
+              {!trashMode && filteredFolders.map((f) => (
+                <FolderRow
+                  key={`folder:${f.id}`}
+                  folder={f}
+                  isSelected={selected.has(`folder:${f.id}`)}
+                  isDragOver={dragOverFolderId === f.id}
+                  onClickSelect={(key, additive) => {
+                    if (additive) {
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      });
+                    } else {
+                      setSelected(new Set([key]));
+                    }
+                  }}
+                  onEnter={(fid) => { setCurrentFolderId(fid); setSelected(new Set()); }}
+                  onDragOverFolder={(fid) => setDragOverFolderId(fid)}
+                  onDragLeaveFolder={(fid) => { if (dragOverFolderId === fid) setDragOverFolderId(null); }}
+                  onDrop={async (fid, list) => {
+                    setDragOverFolderId(null);
+                    try {
+                      for (const t of list) {
+                        await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: fid });
                       }
-                    }}
-                    onDoubleClick={() => { setCurrentFolderId(f.id); setSelected(new Set()); }}
-                    onDragOver={(e) => {
-                      // 자료 드래그 중일 때만 highlight (Ctrl+V 분리)
-                      if (e.dataTransfer.types.includes("application/x-drive-items")) {
-                        e.preventDefault();
-                        setDragOverFolderId(f.id);
-                      }
-                    }}
-                    onDragLeave={() => {
-                      if (dragOverFolderId === f.id) setDragOverFolderId(null);
-                    }}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      setDragOverFolderId(null);
-                      const payload = e.dataTransfer.getData("application/x-drive-items");
-                      if (!payload) return;
-                      try {
-                        const list: { type: ItemType; id: number }[] = JSON.parse(payload);
-                        for (const t of list) {
-                          await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: f.id });
-                        }
-                        setSelected(new Set());
-                        fetchAll();
-                      } catch (err: any) {
-                        alert(err?.detail || err?.message || "이동 실패");
-                      }
-                    }}
-                  >
-                    <td className="px-4 py-2">
-                      <FolderIcon size={18} className="text-amber-500" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <span className="text-text-primary flex items-center gap-1.5">
-                        {f.is_system_locked
-                          ? `${String(f.sort_order).padStart(2, "0")}. ${f.name}`
-                          : f.name}
-                        {f.is_system_locked && <Lock size={10} className="text-text-tertiary" />}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 text-text-secondary">폴더</td>
-                    <td className="px-2 py-2 text-text-tertiary">
-                      {(f as any).updated_at?.slice(0, 16).replace("T", " ") || ""}
-                    </td>
-                    <td className="px-2 py-2 text-right text-text-tertiary">—</td>
-                    <td className="px-2 py-2"></td>
-                  </tr>
-                );
-              })}
+                      setSelected(new Set());
+                      fetchAll();
+                    } catch (err: any) {
+                      alert(err?.detail || err?.message || "이동 실패");
+                    }
+                  }}
+                />
+              ))}
               {filtered.map((it) => {
-                const m = TYPE_META[it.type];
-                const Icon = m.icon;
                 const menuKey = `${it.type}:${it.id}`;
-                const isMenuOpen = menuOpen === menuKey;
-                const isSelected = selected.has(menuKey);
-                const isCut = cutKeys.has(menuKey);
-                const dateStr = trashMode
-                  ? it.deleted_at?.slice(0, 16).replace("T", " ") || ""
-                  : it.updated_at?.slice(0, 16).replace("T", " ") || "";
                 return (
-                  <tr
+                  <ItemRow
                     key={menuKey}
-                    data-drive-row
-                    data-drive-key={menuKey}
-                    draggable={!trashMode}
-                    className={`border-b border-border-default/50 cursor-pointer ${
-                      isCut ? "opacity-50" : ""
-                    } ${
-                      isSelected ? "bg-[#e8def8] hover:bg-[#d7c4f3]" : "hover:bg-bg-secondary/50"
-                    }`}
+                    item={it}
+                    trashMode={trashMode}
+                    isSelected={selected.has(menuKey)}
+                    isCut={cutKeys.has(menuKey)}
+                    isMenuOpen={menuOpen === menuKey}
+                    renaming={renamingKey === menuKey}
+                    renameDraft={renameDraft}
+                    setRenameDraft={setRenameDraft}
+                    commitRename={commitRename}
+                    cancelRename={() => setRenamingKey(null)}
                     onClick={(e) => handleItemClick(it, e)}
                     onDoubleClick={(e) => handleItemDoubleClick(it, e)}
                     onContextMenu={(e) => handleItemContextMenu(it, e)}
-                    onDragStart={(e) => {
-                      // 선택 안 된 행을 끌면 그것만 끌기 (단일). 선택된 행이면 모든 selected.
-                      const list = selected.has(menuKey)
+                    onMenuToggle={() => setMenuOpen(menuOpen === menuKey ? null : menuKey)}
+                    onMenuClose={() => setMenuOpen(null)}
+                    onSoftDelete={doSoftDelete}
+                    onRestore={doRestore}
+                    onPermanent={doPermanent}
+                    getDragPayload={() =>
+                      selected.has(menuKey)
                         ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
-                        : [{ type: it.type, id: it.id }];
-                      e.dataTransfer.setData("application/x-drive-items", JSON.stringify(list));
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                  >
-                    <td className="px-4 py-2">
-                      <Icon size={18} style={{ color: m.color }} />
-                    </td>
-                    <td className="px-2 py-2">
-                      {renamingKey === menuKey ? (
-                        <input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onBlur={() => commitRename(it)}
-                          onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commitRename(it); }
-                            else if (e.key === "Escape") { e.preventDefault(); setRenamingKey(null); }
-                          }}
-                          className="px-2 py-0.5 border border-accent rounded outline-none bg-white text-text-primary w-full max-w-md"
-                        />
-                      ) : (
-                        <span className="text-text-primary">{it.title}</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2 text-text-secondary">{m.label}</td>
-                    <td className="px-2 py-2 text-text-tertiary">{dateStr}</td>
-                    <td className="px-2 py-2 text-right text-text-tertiary">{formatMB(it.storage_bytes)}</td>
-                    <td className="px-2 py-2 text-right">
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setMenuOpen(isMenuOpen ? null : menuKey); }}
-                          className="p-1 rounded hover:bg-bg-secondary text-text-tertiary"
-                        >
-                          <MoreVertical size={14} />
-                        </button>
-                        {isMenuOpen && (
-                          <div
-                            className="absolute right-0 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[140px] py-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {trashMode ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => { setMenuOpen(null); doRestore(it); }}
-                                  className="w-full text-left px-3 py-2 text-[12px] hover:bg-bg-secondary flex items-center gap-2"
-                                >
-                                  <RotateCcw size={12} /> 복구
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => { setMenuOpen(null); doPermanent(it); }}
-                                  className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
-                                >
-                                  <Trash2 size={12} /> 영구 삭제
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => { setMenuOpen(null); doSoftDelete(it); }}
-                                className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
-                              >
-                                <Trash2 size={12} /> 휴지통으로 이동
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                        : [{ type: it.type, id: it.id }]
+                    }
+                  />
                 );
               })}
             </tbody>
@@ -1080,196 +968,70 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {/* 폴더 카드 — 휴지통이 아닐 때만 */}
-          {!trashMode && filteredFolders.map((f) => {
-            const key = `folder:${f.id}`;
-            const isSelected = selected.has(key);
-            const isDragOver = dragOverFolderId === f.id;
-            return (
-              <div
-                key={key}
-                data-drive-card
-                data-drive-key={key}
-                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all cursor-pointer ${
-                  isDragOver
-                    ? "border-accent bg-accent/15 ring-2 ring-accent"
-                    : isSelected
-                    ? "border-[#673ab7] bg-[#e8def8] shadow-md"
-                    : "border-border-default bg-bg-primary"
-                }`}
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(key)) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    });
-                  } else {
-                    setSelected(new Set([key]));
+          {!trashMode && filteredFolders.map((f) => (
+            <FolderCard
+              key={`folder:${f.id}`}
+              folder={f}
+              isSelected={selected.has(`folder:${f.id}`)}
+              isDragOver={dragOverFolderId === f.id}
+              onClickSelect={(key, additive) => {
+                if (additive) {
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    return next;
+                  });
+                } else {
+                  setSelected(new Set([key]));
+                }
+              }}
+              onEnter={(fid) => { setCurrentFolderId(fid); setSelected(new Set()); }}
+              onDragOverFolder={(fid) => setDragOverFolderId(fid)}
+              onDragLeaveFolder={(fid) => { if (dragOverFolderId === fid) setDragOverFolderId(null); }}
+              onDrop={async (fid, list) => {
+                setDragOverFolderId(null);
+                try {
+                  for (const t of list) {
+                    await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: fid });
                   }
-                }}
-                onDoubleClick={() => { setCurrentFolderId(f.id); setSelected(new Set()); }}
-                onDragOver={(e) => {
-                  if (e.dataTransfer.types.includes("application/x-drive-items")) {
-                    e.preventDefault();
-                    setDragOverFolderId(f.id);
-                  }
-                }}
-                onDragLeave={() => {
-                  if (dragOverFolderId === f.id) setDragOverFolderId(null);
-                }}
-                onDrop={async (e) => {
-                  e.preventDefault();
-                  setDragOverFolderId(null);
-                  const payload = e.dataTransfer.getData("application/x-drive-items");
-                  if (!payload) return;
-                  try {
-                    const list: { type: ItemType; id: number }[] = JSON.parse(payload);
-                    for (const t of list) {
-                      await api.post(`/api/drive/items/${t.type}/${t.id}/move`, { folder_id: f.id });
-                    }
-                    setSelected(new Set());
-                    fetchAll();
-                  } catch (err: any) {
-                    alert(err?.detail || err?.message || "이동 실패");
-                  }
-                }}
-              >
-                <div
-                  className="px-4 py-6 flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)", minHeight: "100px" }}
-                >
-                  <FolderIcon size={36} className="text-amber-600" />
-                </div>
-                <div className="px-4 py-3">
-                  <div className="text-body font-medium text-text-primary truncate flex items-center gap-1">
-                    {f.is_system_locked
-                      ? `${String(f.sort_order).padStart(2, "0")}. ${f.name}`
-                      : f.name}
-                    {f.is_system_locked && <Lock size={10} className="text-text-tertiary" />}
-                  </div>
-                  <div className="text-[11px] text-text-tertiary mt-1">폴더</div>
-                </div>
-              </div>
-            );
-          })}
+                  setSelected(new Set());
+                  fetchAll();
+                } catch (err: any) {
+                  alert(err?.detail || err?.message || "이동 실패");
+                }
+              }}
+            />
+          ))}
           {filtered.map((it) => {
-            const m = TYPE_META[it.type];
-            const Icon = m.icon;
             const menuKey = `${it.type}:${it.id}`;
-            const isMenuOpen = menuOpen === menuKey;
-            const isSelected = selected.has(menuKey);
-            const isCut = cutKeys.has(menuKey);
             return (
-              <div
+              <ItemCard
                 key={menuKey}
-                data-drive-card
-                data-drive-key={menuKey}
-                draggable={!trashMode}
-                className={`group relative border-2 rounded-xl overflow-hidden hover:shadow-md transition-all cursor-pointer ${
-                  isCut ? "opacity-50" : ""
-                } ${
-                  isSelected
-                    ? "border-[#673ab7] bg-[#e8def8] shadow-md"
-                    : "border-border-default bg-bg-primary"
-                }`}
+                item={it}
+                trashMode={trashMode}
+                isSelected={selected.has(menuKey)}
+                isCut={cutKeys.has(menuKey)}
+                isMenuOpen={menuOpen === menuKey}
+                renaming={renamingKey === menuKey}
+                renameDraft={renameDraft}
+                setRenameDraft={setRenameDraft}
+                commitRename={commitRename}
+                cancelRename={() => setRenamingKey(null)}
                 onClick={(e) => handleItemClick(it, e)}
                 onDoubleClick={(e) => handleItemDoubleClick(it, e)}
-                onContextMenu={(e) => { e.stopPropagation(); handleItemContextMenu(it, e); }}
-                onDragStart={(e) => {
-                  const list = selected.has(menuKey)
+                onContextMenu={(e) => handleItemContextMenu(it, e)}
+                onMenuToggle={() => setMenuOpen(menuOpen === menuKey ? null : menuKey)}
+                onMenuClose={() => setMenuOpen(null)}
+                onSoftDelete={doSoftDelete}
+                onRestore={doRestore}
+                onPermanent={doPermanent}
+                getDragPayload={() =>
+                  selected.has(menuKey)
                     ? items.filter((x) => selected.has(itemKey(x))).map((x) => ({ type: x.type, id: x.id }))
-                    : [{ type: it.type, id: it.id }];
-                  e.dataTransfer.setData("application/x-drive-items", JSON.stringify(list));
-                  e.dataTransfer.effectAllowed = "move";
-                }}
-              >
-                <div
-                  className={`px-4 py-6 flex items-center justify-center ${trashMode ? "opacity-60" : ""}`}
-                  style={{ background: m.bg, minHeight: "100px" }}
-                >
-                  <Icon size={36} style={{ color: m.color }} />
-                </div>
-                <div className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      {renamingKey === menuKey ? (
-                        <input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onBlur={() => commitRename(it)}
-                          onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commitRename(it); }
-                            else if (e.key === "Escape") { e.preventDefault(); setRenamingKey(null); }
-                          }}
-                          className="px-2 py-0.5 border border-accent rounded outline-none bg-white text-text-primary w-full"
-                        />
-                      ) : (
-                        <div className="text-body font-medium text-text-primary truncate">{it.title}</div>
-                      )}
-                      <div className="text-[11px] text-text-tertiary mt-1">
-                        {trashMode && it.deleted_at
-                          ? `삭제 ${it.deleted_at.slice(0, 16).replace("T", " ")}`
-                          : it.updated_at
-                          ? `수정 ${it.updated_at.slice(0, 16).replace("T", " ")}`
-                          : ""}
-                      </div>
-                      <div className="text-[11px] text-text-tertiary mt-0.5">
-                        {m.label} · {formatMB(it.storage_bytes)}
-                      </div>
-                    </div>
-                    {/* ⋮ 메뉴 */}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMenuOpen(isMenuOpen ? null : menuKey);
-                        }}
-                        className="p-1 rounded hover:bg-bg-secondary text-text-tertiary"
-                      >
-                        <MoreVertical size={14} />
-                      </button>
-                      {isMenuOpen && (
-                        <div
-                          className="absolute right-0 top-full mt-1 z-10 bg-bg-primary border border-border-default rounded-md shadow-lg min-w-[140px] py-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {trashMode ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => { setMenuOpen(null); doRestore(it); }}
-                                className="w-full text-left px-3 py-2 text-[12px] hover:bg-bg-secondary flex items-center gap-2"
-                              >
-                                <RotateCcw size={12} /> 복구
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setMenuOpen(null); doPermanent(it); }}
-                                className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
-                              >
-                                <Trash2 size={12} /> 영구 삭제
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => { setMenuOpen(null); doSoftDelete(it); }}
-                              className="w-full text-left px-3 py-2 text-[12px] hover:bg-red-50 text-red-600 flex items-center gap-2"
-                            >
-                              <Trash2 size={12} /> 휴지통으로 이동
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                    : [{ type: it.type, id: it.id }]
+                }
+              />
             );
           })}
         </div>
