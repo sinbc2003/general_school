@@ -9,15 +9,28 @@ from pydantic import BaseModel, Field
 PostType = Literal["notice", "material", "assignment_ref"]
 AttachmentType = Literal["link", "file", "doc", "survey", "sheet", "deck", "hwp"]
 
+# 첨부 공유 모드 — Google Classroom 식
+#   view : 학생이 읽기만 (default). 자료 본체 access_mode가 보호.
+#   edit : 학생이 함께 편집 (협업). docs/sheets/decks/hwp 적용 가능.
+#   copy : 학생별 본인 사본 자동 생성 → 본인만 편집 → 교사가 모든 사본 채점.
+#          docs/sheets/decks/hwp 만 적용. link/file/survey는 N/A → view 강제.
+ShareMode = Literal["view", "edit", "copy"]
+
 
 class Attachment(BaseModel):
     """글 첨부 항목. 다형 — type 별로 선택 필드.
 
     예: {type: "link", url: "https://...", title: "참고 자료"}
-        {type: "doc", doc_id: 42, title: "프로젝트 노트"}
-        {type: "sheet", sheet_id: 7, title: "성적"}
-        {type: "deck", deck_id: 12, title: "1차 보고"}
+        {type: "doc", doc_id: 42, title: "프로젝트 노트", share_mode: "edit"}
+        {type: "sheet", sheet_id: 7, title: "성적", share_mode: "view"}
+        {type: "deck", deck_id: 12, title: "1차 보고", share_mode: "copy"}
         {type: "hwp", hwp_id: 5, title: "수업 자료"}
+
+    share_mode (Google Classroom 식):
+      - view : 보기만 (default)
+      - edit : 학생이 함께 편집 (협업)
+      - copy : 학생별 본인 사본 자동 생성 (과제 채점 워크플로우)
+        ↳ 실제 사본 생성 로직은 별도 endpoint (Phase 2). 본 필드는 의도 저장.
     """
     type: AttachmentType
     title: str = Field(..., min_length=1, max_length=255)
@@ -29,6 +42,7 @@ class Attachment(BaseModel):
     sheet_id: int | None = None
     deck_id: int | None = None
     hwp_id: int | None = None
+    share_mode: ShareMode = "view"
 
 
 class CourseCreate(BaseModel):

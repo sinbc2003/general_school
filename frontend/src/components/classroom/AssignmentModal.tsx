@@ -32,6 +32,8 @@ import { DrivePicker } from "./DrivePicker";
 
 export type CreateKind = "assignment" | "material";
 
+type ShareMode = "view" | "edit" | "copy";
+
 interface AttachmentItem {
   type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
   title: string;
@@ -43,6 +45,15 @@ interface AttachmentItem {
   sheet_id?: number;
   deck_id?: number;
   hwp_id?: number;
+  /** 학생용 공유 모드. drive 자료(doc/sheet/deck/hwp)만 의미 있음.
+   *  link/file/survey는 항상 view 강제. copy는 Phase 2 활성화. */
+  share_mode?: ShareMode;
+}
+
+// 어떤 type에 share_mode 의미 있는가
+const DRIVE_TYPES = ["doc", "sheet", "deck", "hwp"] as const;
+function isShareable(t: AttachmentItem["type"]): boolean {
+  return (DRIVE_TYPES as readonly string[]).includes(t);
 }
 
 /** 편집/복제 모드 시 prefill할 기존 post 데이터 */
@@ -128,11 +139,19 @@ export function AssignmentModal({
   const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
     const next: AttachmentItem[] = picked.map((p) => {
       // backend attachments format: doc → {type:"doc", doc_id, title}, survey → {type:"survey", survey_id, title}
-      // sheet/deck도 같은 패턴.
+      // sheet/deck/hwp도 같은 패턴.
       const idKey = `${p.type}_id`;
-      return { type: p.type as any, title: p.title, [idKey]: p.source_id } as any;
+      const item: any = { type: p.type as any, title: p.title, [idKey]: p.source_id };
+      if (isShareable(p.type as AttachmentItem["type"])) {
+        item.share_mode = "view"; // default. 첨부 행 옆에서 토글로 변경.
+      }
+      return item;
     });
     setAttachments([...attachments, ...next]);
+  };
+
+  const setShareMode = (idx: number, mode: ShareMode) => {
+    setAttachments(attachments.map((a, i) => (i === idx ? { ...a, share_mode: mode } : a)));
   };
 
   const triggerFilePicker = () => {
@@ -306,6 +325,7 @@ export function AssignmentModal({
                 <div className="mt-4 space-y-1.5">
                   {attachments.map((a, i) => {
                     const Icon = a.type === "file" ? Paperclip : LinkIcon;
+                    const shareable = isShareable(a.type);
                     return (
                       <div
                         key={i}
@@ -322,6 +342,18 @@ export function AssignmentModal({
                           </span>
                         ) : (
                           <span className="text-caption flex-1 truncate">{a.title}</span>
+                        )}
+                        {shareable && (
+                          <select
+                            value={a.share_mode || "view"}
+                            onChange={(e) => setShareMode(i, e.target.value as ShareMode)}
+                            className="text-[11px] border border-border-default rounded px-1.5 py-0.5 bg-bg-primary"
+                            title="학생용 공유 모드"
+                          >
+                            <option value="view">보기만</option>
+                            <option value="edit">공동 편집</option>
+                            <option value="copy" disabled>학생별 사본 (곧 지원)</option>
+                          </select>
                         )}
                         <button
                           onClick={() => removeAttachment(i)}

@@ -22,6 +22,8 @@ import { downloadSecure } from "@/lib/api/download";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 
+export type ShareMode = "view" | "edit" | "copy";
+
 export interface Attachment {
   type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
   title: string;
@@ -33,6 +35,12 @@ export interface Attachment {
   sheet_id?: number;
   deck_id?: number;
   hwp_id?: number;
+  /** Google Classroom 식 공유 모드.
+   *  - view (default): 보기만
+   *  - edit: 학생이 함께 편집 (협업)
+   *  - copy: 학생별 본인 사본 (Phase 2 — backend 자동 사본 endpoint 적용 후 활성)
+   */
+  share_mode?: ShareMode;
 }
 
 export interface PostDetail {
@@ -327,6 +335,21 @@ function formatRel(iso: string): string {
   return d.toLocaleDateString("ko-KR");
 }
 
+function ShareModeBadge({ mode }: { mode: ShareMode }) {
+  const meta: Record<ShareMode, { label: string; bg: string; fg: string }> = {
+    view: { label: "보기", bg: "bg-gray-100", fg: "text-gray-600" },
+    edit: { label: "공동 편집", bg: "bg-emerald-100", fg: "text-emerald-700" },
+    copy: { label: "학생별 사본", bg: "bg-violet-100", fg: "text-violet-700" },
+  };
+  const m = meta[mode];
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded ${m.bg} ${m.fg} flex-shrink-0`}>
+      {m.label}
+    </span>
+  );
+}
+
+
 function AttachmentRow({ a }: { a: Attachment }) {
   if (a.type === "file" && a.file_url) {
     return (
@@ -368,8 +391,11 @@ function AttachmentRow({ a }: { a: Attachment }) {
           <span className="text-[16px]">{meta.emoji}</span>
           <div className="flex-1 min-w-0">
             <div className="text-body text-accent truncate">{a.title}</div>
-            <div className="text-[11px] text-text-tertiary">{meta.label} · 내 드라이브</div>
+            <div className="text-[11px] text-text-tertiary">
+              {meta.label} · 내 드라이브
+            </div>
           </div>
+          {a.share_mode && a.share_mode !== "view" && <ShareModeBadge mode={a.share_mode} />}
         </a>
       );
     }
