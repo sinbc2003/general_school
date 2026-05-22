@@ -192,3 +192,106 @@ async def export_sheet_to_drive(
         "drive_file_name": j.get("name"),
         "view_url": f"https://docs.google.com/spreadsheets/d/{j.get('id')}/edit",
     }
+
+
+@router.post("/export/my-drive-bulk")
+async def export_my_drive_to_google_bulk(
+    request: Request,
+    user: User = Depends(require_permission("google.integration.use")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인 드라이브의 docs + sheets 모두 Google Drive로 일괄 export.
+
+    학교 이동 시 사용. decks/surveys/hwps는 Google 변환 미지원 — ZIP 백업 권장.
+    Google 토큰 미연결이면 400. 자료 많으면 응답 지연.
+    """
+    results: list[dict] = []
+    docs = (await db.execute(
+        select(ClassroomDocument).where(
+            ClassroomDocument.owner_id == user.id,
+            ClassroomDocument.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    sheets = (await db.execute(
+        select(ClassroomSheet).where(
+            ClassroomSheet.owner_id == user.id,
+            ClassroomSheet.deleted_at.is_(None),
+        )
+    )).scalars().all()
+
+    access = await get_access_token_for_user(db, user)
+
+    # docs export
+    for doc in docs:
+        try:
+            title = doc.title or "제목 없는 문서"
+            body_html = (doc.plain_text or "").replace("\n", "<br>")
+            html = f"<html><body><h1>{title}</h1><div>{body_html}</div></body></html>"
+            meta = {"name": title, "mimeType": "application/vnd.google-apps.document"}
+            boundary, body = _build_multipart(meta, "text/html; charset=UTF-8", html.encode("utf-8"))
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    DRIVE_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access}",
+                        "Content-Type": f"multipart/related; boundary={boundary}",
+                    },
+                    content=body,
+                )
+            if r.status_code not in (200, 201):
+                results.append({"type": "docs", "id": doc.id, "ok": False, "error": f"HTTP {r.status_code}"})
+                continue
+            j = r.json()
+            results.append({
+                "type": "docs", "id": doc.id, "title": title, "ok": True,
+                "drive_file_id": j.get("id"),
+                "view_url": f"https://docs.google.com/document/d/{j.get('id')}/edit",
+            })
+        except Exception as e:
+            results.append({"type": "docs", "id": doc.id, "ok": False, "error": str(e)[:200]})
+
+    # sheets export
+    for sheet in sheets:
+        try:
+            xlsx_bytes = await asyncio.to_thread(_build_xlsx_from_sheet_sync, sheet)
+            title = sheet.title or "제목 없는 스프레드시트"
+            meta = {"name": title, "mimeType": "application/vnd.google-apps.spreadsheet"}
+            boundary, body = _build_multipart(
+                meta, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                xlsx_bytes,
+            )
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(
+                    DRIVE_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access}",
+                        "Content-Type": f"multipart/related; boundary={boundary}",
+                    },
+                    content=body,
+                )
+            if r.status_code not in (200, 201):
+                results.append({"type": "sheets", "id": sheet.id, "ok": False, "error": f"HTTP {r.status_code}"})
+                continue
+            j = r.json()
+            results.append({
+                "type": "sheets", "id": sheet.id, "title": title, "ok": True,
+                "drive_file_id": j.get("id"),
+                "view_url": f"https://docs.google.com/spreadsheets/d/{j.get('id')}/edit",
+            })
+        except Exception as e:
+            results.append({"type": "sheets", "id": sheet.id, "ok": False, "error": str(e)[:200]})
+
+    ok_count = sum(1 for r in results if r["ok"])
+    fail_count = len(results) - ok_count
+    await log_action(
+        db, user, "google_export_bulk",
+        detail=f"ok={ok_count} fail={fail_count} docs={len(docs)} sheets={len(sheets)}",
+        request=request,
+    )
+    return {
+        "total": len(results),
+        "ok": ok_count,
+        "failed": fail_count,
+        "results": results,
+        "note": "decks/surveys/hwps는 Google Drive 변환 미지원 — ZIP 백업으로 받으세요",
+    }

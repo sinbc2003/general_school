@@ -26,7 +26,7 @@ import {
   Globe, PanelRightOpen, PanelRightClose, Plus, ChevronDown,
   LayoutGrid, List as ListIcon,
   Folder as FolderIcon, ChevronRight, ArrowUp, ArrowDown,
-  Sparkles,
+  Sparkles, Download,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
@@ -648,6 +648,75 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* 백업 다운로드 — 학교 이동 시 */}
+          {!trashMode && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+                  const tokenKey = localStorage.getItem("access_token");
+                  toast.show("백업 만드는 중... (자료 많으면 수십 초)", "info");
+                  const res = await fetch(`${API_URL}/api/drive/backup/download`, {
+                    method: "POST",
+                    headers: tokenKey ? { Authorization: `Bearer ${tokenKey}` } : {},
+                  });
+                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+                  a.download = `drive-backup-${today}.zip`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                  toast.show("백업 다운로드 완료", "success");
+                } catch (e: any) {
+                  alert(e?.message || "백업 실패");
+                }
+              }}
+              className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
+              title="내 드라이브 전체 ZIP 다운로드 (학교 이동 시)"
+            >
+              <Download size={13} /> 백업 ZIP
+            </button>
+          )}
+          {/* Google Drive 일괄 export */}
+          {!trashMode && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm("본인 문서·스프레드시트를 Google Drive로 일괄 업로드합니다.\n(프리젠테이션·설문지·한컴은 미지원 — ZIP 백업 권장)\n진행하시겠습니까?")) return;
+                try {
+                  toast.show("Google Drive로 업로드 중... (자료 많으면 시간 걸림)", "info");
+                  const r = await api.post<{ ok: number; failed: number; total: number }>(
+                    "/api/google/export/my-drive-bulk", {},
+                  );
+                  toast.show(
+                    `Google Drive 백업 완료 — ${r.ok}/${r.total} 성공${r.failed ? `, ${r.failed} 실패` : ""}`,
+                    r.failed > 0 ? "error" : "success",
+                  );
+                } catch (e: any) {
+                  const msg = e?.detail || e?.message || "";
+                  if (msg.includes("토큰") || msg.includes("Google") || e?.status === 400) {
+                    alert(
+                      "Google 계정이 연결되지 않았습니다.\n" +
+                      "/system/integrations/google 페이지에서 먼저 Google 계정을 연결하세요.\n\n" +
+                      `(${msg || "연결 필요"})`
+                    );
+                  } else {
+                    alert(msg || "Google Drive 백업 실패");
+                  }
+                }
+              }}
+              className="px-3 py-2 text-[12px] rounded-md flex items-center gap-1.5 text-text-secondary border border-border-default hover:bg-bg-secondary"
+              title="문서·시트를 본인 Google Drive로 일괄 업로드"
+            >
+              <Globe size={13} /> Google 백업
+            </button>
+          )}
           {/* AI 정리 토글 */}
           {!trashMode && (
             <button

@@ -339,3 +339,4 @@ async def purge_expired_trash(db: AsyncSession) -> dict[str, int]:
 
 # Sub-modules — endpoint 등록 강제 (마지막에 import해 순환 회피)
 from app.modules.drive import folders  # noqa: E402, F401
+from app.modules.drive import backup  # noqa: E402, F401
