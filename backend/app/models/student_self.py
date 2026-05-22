@@ -28,6 +28,11 @@ class StudentArtifact(Base):
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Phase 2-Q Step 2 marker. NULL=DEFAULT_STORAGE_ROOT(backend/storage/),
+    # 그렇지 않으면 StorageVolume.id — 추후 files/router.py가 root 분기.
+    storage_volume_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_volumes.id", ondelete="SET NULL"), nullable=True,
+    )
     external_link: Mapped[str | None] = mapped_column(String(500), nullable=True)  # YouTube/GitHub 등
     tags: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 다른 학생에게 공개

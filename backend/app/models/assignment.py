@@ -100,6 +100,11 @@ class AssignmentSubmission(Base):
     filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     stored_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Phase 2-Q Step 2 marker. NULL=DEFAULT_STORAGE_ROOT(backend/storage/),
+    # 그렇지 않으면 StorageVolume.id — 추후 files/router.py가 root 분기.
+    storage_volume_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_volumes.id", ondelete="SET NULL"), nullable=True,
+    )
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

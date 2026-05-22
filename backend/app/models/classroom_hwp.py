@@ -41,6 +41,11 @@ class ClassroomHwp(Base):
     # "hwp" | "hwpx" — file_path가 있으면 이게 채워짐
     file_format: Mapped[str | None] = mapped_column(String(8), nullable=True)
     storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Phase 2-Q Step 2 marker. NULL=DEFAULT_STORAGE_ROOT(backend/storage/),
+    # 그렇지 않으면 StorageVolume.id — 추후 files/router.py가 root 분기.
+    storage_volume_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_volumes.id", ondelete="SET NULL"), nullable=True,
+    )
     folder_id: Mapped[int | None] = mapped_column(
         ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
     )

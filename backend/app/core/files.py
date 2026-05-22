@@ -64,6 +64,38 @@ async def unlink_async(path: Path | str, missing_ok: bool = True) -> None:
 DEFAULT_STORAGE_ROOT = Path("storage")
 
 
+async def get_storage_root_with_volume(
+    db: "AsyncSession", required_bytes: int = 0,
+) -> tuple[Path, int | None]:
+    """가용한 storage volume 찾아 ``(root_path, volume_id)`` tuple 반환.
+
+    - active StorageVolume이 있고 여유 공간이 있으면 ``(Path(volume.path), volume.id)``
+    - 없거나 실패하면 ``(DEFAULT_STORAGE_ROOT, None)`` — fallback
+
+    호출자가 자료 모델의 ``storage_volume_id`` 컬럼을 함께 채우면 추후
+    ``files/router.py``가 root 분기 가능 (Phase 2-Q Step 2 marker).
+
+    Args:
+        db: 활성 AsyncSession.
+        required_bytes: 업로드할 파일 크기 (volume 여유 공간 비교용).
+
+    Returns:
+        tuple[Path, int | None] — (root, volume_id). volume_id가 None이면
+        DEFAULT_STORAGE_ROOT 사용 의미.
+    """
+    try:
+        from app.modules.storage_volumes.router import pick_volume_for_upload
+        volume = await pick_volume_for_upload(db, required_bytes)
+        if volume is not None:
+            return Path(volume.path), volume.id
+    except Exception as exc:
+        logger.warning(
+            "get_storage_root_with_volume: pick_volume_for_upload failed, fallback: %s",
+            exc,
+        )
+    return DEFAULT_STORAGE_ROOT, None
+
+
 async def get_storage_root(
     db: "AsyncSession", required_bytes: int = 0,
 ) -> Path:

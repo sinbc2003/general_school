@@ -27,6 +27,7 @@ ENV / 설정:
 from __future__ import annotations
 
 import os
+import secrets
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
@@ -103,9 +104,16 @@ async def verify_csrf(request: Request) -> None:
     if path in _EXEMPT_PATHS:
         return
 
-    # Hocuspocus 같은 sidecar 내부 호출 — endpoint가 토큰 자체를 검증함
-    if request.headers.get("X-Internal-Token") or request.headers.get("x-internal-token"):
-        return
+    # Hocuspocus 같은 sidecar 내부 호출 — **token 값이 HOCUSPOCUS_INTERNAL_TOKEN과
+    # 일치할 때만** bypass. 헤더 존재만으로 우회 가능했던 회귀(2026-05-22 F2-4 감사 발견)
+    # 를 차단. timing attack 방지 위해 secrets.compare_digest 사용.
+    provided = request.headers.get("X-Internal-Token") or request.headers.get("x-internal-token")
+    if provided:
+        expected = (settings.HOCUSPOCUS_INTERNAL_TOKEN or "").strip()
+        if expected and secrets.compare_digest(provided, expected):
+            return
+        # 값 불일치 → 일반 origin 검증 흐름으로 fallthrough (잘못된 토큰을
+        # 무조건 차단하지는 않음 — 합법 브라우저 요청이 우연히 헤더 가질 수 있어).
 
     # 테스트 / dev 환경 bypass (CSRF_ENFORCE=1 면 강제)
     if _is_test_env():

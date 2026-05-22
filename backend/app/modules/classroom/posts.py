@@ -212,7 +212,18 @@ async def delete_course_post(
         raise HTTPException(404)
     if not _is_admin(user) and p.author_id != user.id:
         raise HTTPException(403, "본인 글만 삭제 가능")
+    # 과거 학기 글은 read-only — PUT과 동일 정책
+    course = await db.get(Course, p.course_id)
+    active_sid = await get_active_semester_id_or_404(db)
+    if course and course.semester_id != active_sid:
+        raise HTTPException(409, "이전 학기 강좌의 글은 삭제할 수 없습니다 (read-only).")
     await db.delete(p)
+    await log_action(
+        db, user, request,
+        action="classroom.post.delete",
+        target_type="course_post",
+        target_id=pid,
+    )
     return {"ok": True}
 
 
