@@ -384,32 +384,56 @@ async def _update_storage_volumes() -> int:
 
 
 async def _scheduler_loop() -> None:
-    """무한 루프 — 1시간마다 tick."""
+    """무한 루프 — 1시간마다 tick.
+
+    각 cron task는 **독립 session + 독립 try/except**로 격리. 하나 실패해도
+    다른 task까지 트랜잭션 abort(`InFailedSQLTransactionError`)로 줄줄이 죽는
+    회귀를 차단 (2026-05-22 발견: 모델/DB schema mismatch가 _maybe_purge_trash
+    한 곳에서 발생 → 같은 session 안의 후속 _disable_expired_users 등 모두 실패).
+    """
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
              TICK_SECONDS, WINDOW_LOW_HOURS, WINDOW_HIGH_HOURS)
     # 첫 tick은 30초 후 (startup race 회피)
     await asyncio.sleep(30)
+
+    # task_name → (callable, log_on_success_or_None)
+    # callable은 (db) 받아서 결과(int) 반환 — 성공 시 main loop에서 commit.
+    tasks = [
+        ("due_reminders", _send_due_reminders,
+         lambda n: f"마감 임박 reminder {n}건 발송" if n > 0 else ""),
+        ("trash_purge", _maybe_purge_trash, None),  # 내부에서 log
+        ("expired_users", _disable_expired_users, None),  # 내부에서 log
+        ("revision_purge", _maybe_purge_old_revisions, None),  # 내부에서 log
+    ]
+
     while True:
         try:
-            async with async_session_factory() as db:
+            for task_name, task_fn, log_fn in tasks:
+                # **task별 독립 session** — 하나 실패해도 다른 task 영향 X
                 try:
-                    cnt = await _send_due_reminders(db)
-                    await _maybe_purge_trash(db)
-                    await _disable_expired_users(db)
-                    await _maybe_purge_old_revisions(db)
-                    await db.commit()
-                    if cnt > 0:
-                        log.info("[NOTIF SCHED] 마감 임박 reminder %d건 발송", cnt)
+                    async with async_session_factory() as db:
+                        try:
+                            result = await task_fn(db)
+                            await db.commit()
+                            if log_fn:
+                                msg = log_fn(result if isinstance(result, int) else 0)
+                                if msg:
+                                    log.info("[NOTIF SCHED] %s", msg)
+                        except Exception:
+                            await db.rollback()
+                            raise
                 except Exception as e:
-                    await db.rollback()
-                    log.warning("[NOTIF SCHED] tick failed: %s", e)
-                    # super_admin 알림 (24h 쿨다운, best-effort)
+                    log.warning("[NOTIF SCHED] %s failed: %s", task_name, e)
+                    # task별 error_type → 24h 쿨다운 별개 (한 task가 죽으면
+                    # 그것만 24h 알림, 다른 task는 정상)
                     try:
-                        await _notify_scheduler_failure("notification_scheduler_tick", str(e))
+                        await _notify_scheduler_failure(
+                            f"notification_scheduler_{task_name}", str(e),
+                        )
                     except Exception:
                         log.exception("_notify_scheduler_failure call failed")
 
-            # 스토리지 볼륨 사용량/헬스체크 — 자체 session + 6h 쿨다운 (메인 tick과 분리)
+            # 스토리지 볼륨 사용량/헬스체크 — 자체 session + 6h 쿨다운
             try:
                 await _update_storage_volumes()
             except Exception:
