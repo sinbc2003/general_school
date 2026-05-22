@@ -19,6 +19,7 @@ meilisearch>=0.31.0
 python-multipart>=0.0.17
 aiofiles>=24.1.0
 openpyxl>=3.1.0
+pycrdt>=0.10.0  # Yjs Python binding — 백업 ZIP에서 sheets snapshot 추출
 
 # LLM 어댑터 (챗봇 모듈)
 anthropic>=0.40.0

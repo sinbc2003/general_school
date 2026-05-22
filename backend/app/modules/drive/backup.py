@@ -144,9 +144,9 @@ def _serialize_survey(sv: Survey, questions: list[SurveyQuestion]) -> dict[str, 
         "access_mode": sv.access_mode,
         "questions": [
             {
-                "id": q.id, "order": q.order, "type": q.type,
+                "id": q.id, "order": q.order, "question_type": q.question_type,
                 "question_text": q.question_text, "is_required": q.is_required,
-                "options": q.options, "settings": q.settings,
+                "options": q.options,
             }
             for q in questions
         ],
@@ -176,6 +176,168 @@ def _safe_name(s: str | None) -> str:
     return base[:80] or "untitled"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 사람-읽기 변환 (XLSX / CSV / HTML)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _extract_sheet_snapshot(yjs_state: bytes | None) -> list[dict] | None:
+    """sheets의 yjs_state에서 fortune-sheet snapshot 추출.
+
+    Y.Map("sheet") 안 "snapshot" key에 fortune-sheet workbook JSON 저장됨.
+    pycrdt로 디코드.
+    """
+    if not yjs_state:
+        return None
+    try:
+        from pycrdt import Doc, Map
+        doc = Doc()
+        doc.apply_update(yjs_state)
+        # Y.Map("sheet") — SheetEditor에서 사용 (HocuspocusProvider name="sheet-{id}")
+        sheet_map = doc.get("sheet", type=Map)
+        snap = sheet_map.get("snapshot")
+        if isinstance(snap, list):
+            return snap
+        return None
+    except Exception:
+        return None
+
+
+def _sheet_snapshot_to_xlsx(snapshot: list[dict] | None, fallback_title: str) -> bytes:
+    """fortune-sheet snapshot → openpyxl XLSX bytes."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    if not snapshot:
+        ws = wb.create_sheet(title=(fallback_title or "Sheet1")[:31])
+        ws["A1"] = fallback_title or "데이터 없음"
+        ws["A2"] = "원본은 본 시스템 yjs_state에 있고 외부 변환이 불완전합니다."
+    else:
+        for sheet_data in snapshot:
+            ws_name = (sheet_data.get("name") or "Sheet")[:31]
+            # 동일 시트명 충돌 회피
+            counter = 0
+            unique = ws_name
+            while unique in wb.sheetnames:
+                counter += 1
+                unique = f"{ws_name[:28]}_{counter}"
+            ws = wb.create_sheet(title=unique)
+            cells = sheet_data.get("celldata", [])
+            for c in cells:
+                r = c.get("r", 0)
+                col = c.get("c", 0)
+                v = c.get("v", {})
+                val = v.get("v") if isinstance(v, dict) else v
+                if val is None:
+                    continue
+                cell = ws.cell(row=r + 1, column=col + 1, value=val)
+                # 기본 서식 (굵게, 폰트 색상은 fortune-sheet의 ct/bl/fc 참조)
+                if isinstance(v, dict):
+                    try:
+                        from openpyxl.styles import Font
+                        bold = bool(v.get("bl"))
+                        color = v.get("fc")
+                        if bold or color:
+                            cell.font = Font(
+                                bold=bold,
+                                color=(color.lstrip("#") if isinstance(color, str) else None),
+                            )
+                    except Exception:
+                        pass
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+def _survey_to_csv(
+    sv: Survey,
+    questions: list[SurveyQuestion],
+    responses: list[tuple[SurveyResponse, list[SurveyAnswer]]],
+) -> str:
+    """설문 → CSV 문자열.
+
+    헤더: respondent_id (또는 anonymous), submitted_at, [질문1], [질문2], ...
+    응답 1행 = 1 row. multi_choice는 |로 join.
+    """
+    import csv as _csv
+    out = io.StringIO()
+    # UTF-8 BOM (Excel 호환)
+    out.write("﻿")
+
+    headers = ["respondent_id", "submitted_at"]
+    for q in questions:
+        headers.append(f"{q.order + 1}. {q.question_text[:60]}")
+
+    writer = _csv.writer(out)
+    writer.writerow(headers)
+
+    for resp, answers in responses:
+        row = [
+            "익명" if sv.is_anonymous else (resp.respondent_id or ""),
+            resp.submitted_at.isoformat() if resp.submitted_at else "",
+        ]
+        ans_by_qid: dict[int, str] = {}
+        for a in answers:
+            if a.text_value:
+                value = a.text_value
+            elif a.choice_values:
+                value = " | ".join(str(v) for v in a.choice_values)
+            elif a.rating_value is not None:
+                value = str(a.rating_value)
+            else:
+                value = ""
+            ans_by_qid[a.question_id] = value
+        for q in questions:
+            row.append(ans_by_qid.get(q.id, ""))
+        writer.writerow(row)
+    return out.getvalue()
+
+
+def _doc_to_html(d: ClassroomDocument) -> str:
+    """문서 → 단순 HTML (plain_text 기반).
+
+    Yjs/TipTap의 ProseMirror state를 완전 변환은 어려움 (스키마 복잡).
+    plain_text를 줄바꿈 보존 + 제목 + 메타 정보 포함해 HTML 생성.
+    서식(굵게/색/표)은 손실 — 본 시스템 재import 시 yjs_state base64 사용.
+    """
+    title = (d.title or "제목 없는 문서").strip()
+    body_text = (d.plain_text or "").strip()
+    # XML escape
+    import html as _html
+    title_esc = _html.escape(title)
+    body_paragraphs = "\n".join(
+        f"<p>{_html.escape(line) if line.strip() else '&nbsp;'}</p>"
+        for line in body_text.split("\n")
+    ) if body_text else "<p><em>본문 없음 (서식 있는 본문은 원본 시스템에서 확인하세요)</em></p>"
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>{title_esc}</title>
+  <style>
+    body {{ font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.7; }}
+    h1 {{ border-bottom: 2px solid #673ab7; padding-bottom: 0.3em; }}
+    .meta {{ color: #888; font-size: 0.85em; margin-bottom: 1em; }}
+    .note {{ background: #fff8e1; border-left: 3px solid #f59e0b; padding: 0.8em; font-size: 0.9em; margin-top: 2em; }}
+  </style>
+</head>
+<body>
+  <h1>{title_esc}</h1>
+  <div class="meta">백업 시각: {datetime.now(timezone.utc).isoformat()}</div>
+  {body_paragraphs}
+  <div class="note">
+    이 HTML은 일반학교(general_school) 백업에서 평문 추출본입니다.
+    굵게·색·표 등 서식은 원본 시스템에서만 완전히 복원됩니다.
+    같은 시스템에서 ZIP을 "복원"하면 원본 그대로 돌아옵니다.
+  </div>
+</body>
+</html>
+"""
+
+
 async def _build_zip(db: AsyncSession, user: User) -> bytes:
     """본인 자료 모두 수집 → ZIP bytes 반환."""
     buf = io.BytesIO()
@@ -192,7 +354,7 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
             json.dumps([_serialize_folder(f) for f in folders], ensure_ascii=False, indent=2),
         )
 
-        # docs
+        # docs — JSON (원본 + base64) + HTML (사람-읽기, 평문 기반)
         docs = (await db.execute(
             select(ClassroomDocument).where(
                 ClassroomDocument.owner_id == user.id,
@@ -205,8 +367,15 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"docs/{d.id}_{_safe_name(d.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            try:
+                z.writestr(
+                    f"docs/{d.id}_{_safe_name(d.title)}.html",
+                    _doc_to_html(d),
+                )
+            except Exception:
+                pass
 
-        # sheets
+        # sheets — JSON + XLSX (fortune-sheet snapshot 디코드)
         sheets = (await db.execute(
             select(ClassroomSheet).where(
                 ClassroomSheet.owner_id == user.id,
@@ -219,6 +388,15 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"sheets/{s.id}_{_safe_name(s.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            try:
+                snap = _extract_sheet_snapshot(s.yjs_state)
+                xlsx_bytes = _sheet_snapshot_to_xlsx(snap, s.title or "Sheet")
+                z.writestr(
+                    f"sheets/{s.id}_{_safe_name(s.title)}.xlsx",
+                    xlsx_bytes,
+                )
+            except Exception:
+                pass
 
         # decks + slides
         decks = (await db.execute(
@@ -240,7 +418,7 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
 
-        # surveys + questions (응답은 본인 자료라 익명/타인 응답 제외 — author만)
+        # surveys + questions + responses (CSV로도 export)
         surveys = (await db.execute(
             select(Survey).where(
                 Survey.author_id == user.id,
@@ -258,6 +436,29 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
                 f"surveys/{sv.id}_{_safe_name(sv.title)}.json",
                 json.dumps(data, ensure_ascii=False, indent=2),
             )
+            # 응답 CSV (있을 때만)
+            try:
+                resps = (await db.execute(
+                    select(SurveyResponse).where(
+                        SurveyResponse.survey_id == sv.id,
+                    ).order_by(SurveyResponse.submitted_at)
+                )).scalars().all()
+                resp_data: list[tuple] = []
+                for resp in resps:
+                    answers = (await db.execute(
+                        select(SurveyAnswer).where(
+                            SurveyAnswer.response_id == resp.id,
+                        )
+                    )).scalars().all()
+                    resp_data.append((resp, list(answers)))
+                if resp_data:
+                    csv_text = _survey_to_csv(sv, questions, resp_data)
+                    z.writestr(
+                        f"surveys/{sv.id}_{_safe_name(sv.title)}_responses.csv",
+                        csv_text.encode("utf-8"),
+                    )
+            except Exception:
+                pass
 
         # hwps — file 그대로 + 메타
         hwps = (await db.execute(
@@ -298,9 +499,11 @@ async def _build_zip(db: AsyncSession, user: User) -> bytes:
             },
             "note": (
                 "본 ZIP은 일반학교 플랫폼(general_school) 백업입니다. "
-                "자료 본문은 JSON + Yjs binary(base64). "
-                "사람-읽기 형식이 필요하면 plain_text 필드를 참고하세요. "
-                "같은 시스템 다른 학교 서버에 import 가능 (관리자 백업 복원 별도)."
+                "각 자료 폴더에 두 가지 형식 포함:\n"
+                " - JSON: 본 시스템 재import 용 (yjs_state binary base64 보존)\n"
+                " - 사람-읽기: docs/*.html (평문), sheets/*.xlsx (Excel), "
+                "surveys/*_responses.csv (응답), hwps/*.hwpx (원본)\n"
+                "사람-읽기 형식은 어느 PC에서나 즉시 열림. JSON은 같은 시스템 복원용."
             ),
         }
         z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -575,11 +778,10 @@ async def import_drive_backup(
             db.add(SurveyQuestion(
                 survey_id=new_obj.id,
                 order=int(q.get("order") or 0),
-                type=q.get("type") or "short_text",
+                question_type=q.get("question_type") or q.get("type") or "short_text",
                 question_text=q.get("question_text") or "질문",
                 is_required=bool(q.get("is_required")),
                 options=q.get("options"),
-                settings=q.get("settings"),
             ))
         imported_counts["surveys"] += 1
 
