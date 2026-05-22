@@ -1,13 +1,20 @@
-"""스토리지 볼륨 CRUD + 헬스체크 + 자동 분산 선택.
+"""스토리지 볼륨 CRUD + 헬스체크 + 자동 분산 선택 + 자동 감지.
 
 엔드포인트:
   GET    /api/storage/volumes               — 목록 + 실시간 사용량
+  GET    /api/storage/volumes/_detect       — 외부 마운트 후보 자동 감지 (admin)
   POST   /api/storage/volumes               — 볼륨 등록
   PUT    /api/storage/volumes/{id}          — 수정
   DELETE /api/storage/volumes/{id}          — 삭제
   POST   /api/storage/volumes/{id}/check    — 헬스체크 (mount 가능 여부)
 
 자동 분산: pick_volume_for_upload() 헬퍼는 active + lowest priority + 여유 용량 우선.
+
+자동 감지 안전망:
+- 화이트리스트 prefix(/mnt /media /run/media)만 후보화 → root/홈/시스템 등록 차단
+- tmpfs / proc / sysfs / cgroup / devtmpfs / squashfs 등 시스템 fstype 자동 제외
+- 이미 등록된 path는 already_registered=True 표시 (UI에서 회색)
+- /proc/mounts 없는 환경(macOS dev 등)은 빈 list 반환
 """
 
 import asyncio
@@ -192,6 +199,112 @@ async def delete_volume(
     await db.flush()
     await log_action(db, user, "storage_volume_delete", target=name, request=request)
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 자동 감지 — /proc/mounts 파싱 후 안전 prefix만 후보 반환
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 화이트리스트 — root/홈/시스템 디렉토리 자동 차단
+_SAFE_MOUNT_PREFIXES = ("/mnt/", "/media/", "/run/media/")
+
+# 제외 fstype — tmpfs, proc, sys 등 시스템 마운트는 후보 X
+_EXCLUDED_FSTYPES = frozenset({
+    "tmpfs", "proc", "sysfs", "cgroup", "cgroup2", "devpts", "devtmpfs",
+    "squashfs", "overlay", "overlayfs", "autofs", "rpc_pipefs", "binfmt_misc",
+    "securityfs", "debugfs", "tracefs", "pstore", "mqueue", "hugetlbfs",
+    "fusectl", "configfs", "bpf", "ramfs", "nsfs", "selinuxfs", "efivarfs",
+})
+
+
+def _detect_mounts_sync() -> list[dict]:
+    """/proc/mounts 파싱 → 안전 prefix + 정상 fstype만 후보 list 반환."""
+    candidates: list[dict] = []
+    seen_paths: set[str] = set()
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                # device  mount_point  fstype  options ...
+                mount_point = parts[1]
+                fstype = parts[2]
+                # /proc/mounts 이스케이프 디코드 (공백·탭·\)
+                mount_point = (
+                    mount_point.replace("\\040", " ")
+                    .replace("\\011", "\t")
+                    .replace("\\134", "\\")
+                )
+                if fstype in _EXCLUDED_FSTYPES:
+                    continue
+                if fstype.startswith("fuse.gvfs"):
+                    continue
+                # 화이트리스트 prefix만 통과
+                if not any(mount_point.startswith(p) for p in _SAFE_MOUNT_PREFIXES):
+                    continue
+                # prefix 본체 자체 (/mnt /media /run/media)는 후보 X
+                if mount_point.rstrip("/") in {"/mnt", "/media", "/run/media"}:
+                    continue
+                if mount_point in seen_paths:
+                    continue
+                seen_paths.add(mount_point)
+                if not os.path.isdir(mount_point):
+                    continue
+                writable = os.access(mount_point, os.W_OK)
+                try:
+                    usage = shutil.disk_usage(mount_point)
+                except Exception:
+                    continue
+                candidates.append({
+                    "path": mount_point,
+                    "fstype": fstype,
+                    "total_bytes": usage.total,
+                    "used_bytes": usage.used,
+                    "free_bytes": usage.free,
+                    "writable": writable,
+                })
+    except FileNotFoundError:
+        # /proc/mounts 없는 환경 (macOS dev 등) — 빈 list
+        return []
+    except Exception:
+        return []
+    candidates.sort(key=lambda x: x["total_bytes"], reverse=True)
+    return candidates
+
+
+async def _detect_mounts() -> list[dict]:
+    return await asyncio.to_thread(_detect_mounts_sync)
+
+
+@router.get("/volumes/_detect")
+async def detect_volumes(
+    user: User = Depends(require_permission("storage.volume.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """안전 prefix 외 마운트를 자동 감지 → 등록 후보 list 반환.
+
+    응답 각 후보:
+      - path, fstype, total/used/free_bytes, writable
+      - already_registered: 이미 등록된 path인지 (UI에서 회색 처리)
+      - recommended: 1 GB+ 용량 + writable + 미등록 → True
+    """
+    found = await _detect_mounts()
+    existing_paths = set(
+        (await db.execute(select(StorageVolume.path))).scalars().all()
+    )
+    items = []
+    for c in found:
+        items.append({
+            **c,
+            "already_registered": c["path"] in existing_paths,
+            "recommended": (
+                c["writable"]
+                and c["total_bytes"] >= 1_073_741_824  # 1 GB
+                and c["path"] not in existing_paths
+            ),
+        })
+    return {"items": items}
 
 
 @router.post("/volumes/{vid}/check")

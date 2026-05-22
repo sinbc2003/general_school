@@ -6,8 +6,9 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { HardDrive, Plus, RefreshCw, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { HardDrive, Plus, RefreshCw, Trash2, AlertTriangle, CheckCircle2, Search } from "lucide-react";
 import { api } from "@/lib/api/client";
+import DetectMountsModal from "./_components/DetectMountsModal";
 
 interface Volume {
   id: number;
@@ -64,6 +65,7 @@ export default function StorageVolumesPage() {
   const [items, setItems] = useState<Volume[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showDetect, setShowDetect] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,13 +119,23 @@ export default function StorageVolumesPage() {
             외장 SSD/HDD 등록. 새 업로드는 active 볼륨 중 우선순위 + 여유 용량 기준으로 자동 분산됩니다.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="px-3 py-2 text-[12px] bg-accent text-white rounded hover:opacity-90 flex items-center gap-1"
-        >
-          <Plus size={13} /> 볼륨 추가
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDetect(true)}
+            className="px-3 py-2 text-[12px] bg-bg-secondary border border-border-default text-text-primary rounded hover:bg-cream-100 flex items-center gap-1"
+            title="외장 SSD/HDD를 자동으로 감지하여 후보를 표시합니다"
+          >
+            <Search size={13} /> 자동 감지
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="px-3 py-2 text-[12px] bg-accent text-white rounded hover:opacity-90 flex items-center gap-1"
+          >
+            <Plus size={13} /> 볼륨 추가
+          </button>
+        </div>
       </div>
 
       {/* 안내 */}
@@ -146,6 +158,7 @@ export default function StorageVolumesPage() {
       </div>
 
       {showCreate && <CreateVolumeModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(); }} />}
+      {showDetect && <DetectMountsModal onClose={() => setShowDetect(false)} onRegistered={() => { load(); }} />}
 
       {loading ? (
         <div className="text-text-tertiary">불러오는 중...</div>
