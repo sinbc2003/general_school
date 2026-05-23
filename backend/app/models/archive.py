@@ -113,6 +113,15 @@ class Problem(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     solution: Mapped[str | None] = mapped_column(Text, nullable=True)
     answer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 자동 채점용 구조화 답안 (courseware 출제에서 사용).
+    # grader_type: exact | regex | choices | numeric | essay | manual | llm
+    # 형식 예: {"grader_type": "choices", "correct": ["A", "C"]}
+    #         {"grader_type": "numeric", "value": 3.14, "tolerance": 0.01}
+    #         {"grader_type": "exact", "correct": "정답", "case_sensitive": false}
+    #         {"grader_type": "regex", "pattern": "^[0-9]+$"}
+    #         {"grader_type": "essay", "rubric": "..."}              # manual_score
+    #         {"grader_type": "llm", "rubric": "...", "max_score": 10}  # Phase 2 LLM 옵션
+    answer_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     source_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )

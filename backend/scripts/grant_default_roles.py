@@ -118,6 +118,8 @@ STUDENT_KEYS = {
     "classroom.hwp.create", "classroom.hwp.share",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
+    # 학생: 문제 세트 조회 + 답안 제출 (자동채점). create/edit/grade는 교사 전용.
+    "classroom.courseware.view", "classroom.courseware.submit",
     # 드라이브 (본인 자료 + 휴지통)
     "drive.use",
     # Google 연동 (본인)

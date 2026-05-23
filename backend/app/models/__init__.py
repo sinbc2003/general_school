@@ -125,6 +125,9 @@ from app.models.folder import Folder
 # ── 자료 즐겨찾기 (사용자별 별표) ──
 from app.models.user_favorite_item import UserFavoriteItem
 
+# ── Courseware (문제은행 — 강좌 안에서 자동채점 문제 출제) ──
+from app.models.courseware import CourseProblemSet, StudentProblemAttempt
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -198,4 +201,6 @@ __all__ = [
     "Folder",
     # Drive Favorite
     "UserFavoriteItem",
+    # Courseware
+    "CourseProblemSet", "StudentProblemAttempt",
 ]
