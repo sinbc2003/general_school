@@ -15,6 +15,8 @@ router 객체는 router.py에서 공유. router.py 끝의 'from . import chatbot
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -39,6 +41,17 @@ from app.modules.classroom.teachers import is_course_editor, is_course_editor_or
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class ContextAttachment(BaseModel):
+    """챗봇 참고 자료 항목 — start-session 시 system_prompt에 본문 자동 주입.
+
+    {"type": "doc"|"sheet"|"deck"|"hwp", "id": 42, "title": "..."}
+    각 type별로 본문 추출 방식이 다름 (services/chatbot_context.py 참조).
+    """
+    type: Literal["doc", "sheet", "deck", "hwp"]
+    id: int = Field(..., gt=0)
+    title: str = Field(..., min_length=1, max_length=255)
+
+
 class ChatbotCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = None
@@ -46,6 +59,8 @@ class ChatbotCreate(BaseModel):
     provider: str | None = Field(None, max_length=30)
     model_id: str | None = Field(None, max_length=150)
     is_active: bool = True
+    # 자동 주입할 강좌 자료 — 자료당 max 5000자, 전체 30KB 한도 (start-session에서 잘림)
+    context_attachments: list[ContextAttachment] | None = Field(default=None, max_length=10)
 
 
 class ChatbotUpdate(BaseModel):
@@ -55,6 +70,7 @@ class ChatbotUpdate(BaseModel):
     provider: str | None = Field(None, max_length=30)
     model_id: str | None = Field(None, max_length=150)
     is_active: bool | None = None
+    context_attachments: list[ContextAttachment] | None = Field(default=None, max_length=10)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,6 +88,7 @@ def _to_dict(b: CourseChatbot) -> dict:
         "provider": b.provider,
         "model_id": b.model_id,
         "is_active": b.is_active,
+        "context_attachments": b.context_attachments or [],
         "created_by": b.created_by,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         "updated_at": b.updated_at.isoformat() if b.updated_at else None,
@@ -148,6 +165,10 @@ async def create_course_chatbot(
         provider=body.provider,
         model_id=body.model_id,
         is_active=body.is_active,
+        context_attachments=(
+            [a.model_dump() for a in body.context_attachments]
+            if body.context_attachments else None
+        ),
         created_by=user.id,
     )
     db.add(b)
@@ -200,6 +221,7 @@ async def update_course_chatbot(
     patch = body.model_dump(exclude_unset=True)
     for k, v in patch.items():
         setattr(b, k, v)
+    # JSON column이 list[ContextAttachment] 그대로 받아도 model_dump로 이미 dict 변환됨.
     await db.flush()
     await log_action(
         db, user, request,
@@ -258,6 +280,15 @@ async def start_chatbot_session(
             400, "provider/model이 설정되지 않았습니다. 관리자가 챗봇 모델을 지정해야 합니다.",
         )
 
+    # context_attachments가 있으면 강좌 자료 본문을 추출해 system_prompt 앞에 prepend.
+    # (자료당 5000자, 전체 30KB 한도; 헬퍼 services/chatbot_context.py 참조)
+    from app.services.chatbot_context import build_context_text
+    context_text = await build_context_text(db, b.context_attachments)
+    final_prompt = (
+        f"{context_text}\n\n--- 시스템 지시 ---\n{b.system_prompt}"
+        if context_text else b.system_prompt
+    )
+
     s = ChatSession(
         user_id=user.id,
         title=f"💬 {b.name}",
@@ -265,7 +296,7 @@ async def start_chatbot_session(
         provider=provider,
         model_id=model_id,
         system_prompt_id=None,
-        system_prompt_text=b.system_prompt,
+        system_prompt_text=final_prompt,
     )
     db.add(s)
     await db.flush()

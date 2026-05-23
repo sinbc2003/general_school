@@ -15,9 +15,18 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Plus, Edit2, Trash2, MessageSquare, X } from "lucide-react";
+import { Bot, Plus, Edit2, Trash2, MessageSquare, X, HardDrive, FileText } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+import { DrivePicker } from "./DrivePicker";
+
+type ContextAttachmentType = "doc" | "sheet" | "deck" | "hwp";
+
+interface ContextAttachment {
+  type: ContextAttachmentType;
+  id: number;
+  title: string;
+}
 
 interface Chatbot {
   id: number;
@@ -28,10 +37,18 @@ interface Chatbot {
   provider: string | null;
   model_id: string | null;
   is_active: boolean;
+  context_attachments?: ContextAttachment[];
   created_by: number | null;
   created_at: string | null;
   updated_at: string | null;
 }
+
+const CTX_LABELS: Record<ContextAttachmentType, { label: string; emoji: string }> = {
+  doc:   { label: "문서",        emoji: "📄" },
+  sheet: { label: "시트",        emoji: "📊" },
+  deck:  { label: "슬라이드",     emoji: "🖼️" },
+  hwp:   { label: "한컴 문서",    emoji: "📝" },
+};
 
 export function CourseChatbots({ cid, canEdit }: { cid: number; canEdit: boolean }) {
   const { user } = useAuth();
@@ -60,7 +77,7 @@ export function CourseChatbots({ cid, canEdit }: { cid: number; canEdit: boolean
       const r = await api.post<{ session_id: number }>(
         `/api/classroom/chatbots/${bid}/start-session`, {},
       );
-      window.location.href = isStudent ? `/s/chat?session=${r.session_id}` : `/chat?session=${r.session_id}`;
+      window.location.href = isStudent ? `/s/chat?sid=${r.session_id}` : `/chat?sid=${r.session_id}`;
     } catch (e: any) {
       alert(e?.detail || e?.message || "챗봇을 시작할 수 없습니다");
     }
@@ -217,7 +234,40 @@ function ChatbotEditModal({
     "이 챗봇은 학생들의 학습을 돕는 보조 도우미입니다. 명확하고 친절하게 설명해주세요.",
   );
   const [isActive, setIsActive] = useState(initial?.is_active ?? true);
+  const [contextAttachments, setContextAttachments] = useState<ContextAttachment[]>(
+    initial?.context_attachments || [],
+  );
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
+    // survey 는 context 미지원 — 거름
+    const valid: ContextAttachment[] = picked
+      .filter((p): p is { type: ContextAttachmentType; source_id: number; title: string } =>
+        ["doc", "sheet", "deck", "hwp"].includes(p.type),
+      )
+      .map((p) => ({ type: p.type, id: p.source_id, title: p.title }));
+    if (valid.length === 0) {
+      alert("문서·시트·슬라이드·한컴 문서만 챗봇 컨텍스트로 추가할 수 있습니다.");
+      return;
+    }
+    // 중복 제거 (type + id 기준) + max 10개 한도
+    const merged = [...contextAttachments];
+    for (const v of valid) {
+      if (merged.length >= 10) {
+        alert("참고 자료는 최대 10개까지 추가할 수 있습니다.");
+        break;
+      }
+      if (!merged.some((a) => a.type === v.type && a.id === v.id)) {
+        merged.push(v);
+      }
+    }
+    setContextAttachments(merged);
+  };
+
+  const removeContext = (idx: number) => {
+    setContextAttachments(contextAttachments.filter((_, i) => i !== idx));
+  };
 
   const save = async () => {
     if (!name.trim() || !systemPrompt.trim()) {
@@ -226,11 +276,12 @@ function ChatbotEditModal({
     }
     setSaving(true);
     try {
-      const body = {
+      const body: any = {
         name: name.trim(),
         description: description.trim() || null,
         system_prompt: systemPrompt.trim(),
         is_active: isActive,
+        context_attachments: contextAttachments.length > 0 ? contextAttachments : null,
       };
       if (initial) {
         await api.put(`/api/classroom/chatbots/${initial.id}`, body);
@@ -306,6 +357,55 @@ function ChatbotEditModal({
             </p>
           </div>
 
+          {/* 참고 자료 — 강좌 자료를 system_prompt에 자동 주입 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-caption font-medium text-text-secondary">
+                참고 자료 <span className="text-text-tertiary font-normal">({contextAttachments.length}/10)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowDrivePicker(true)}
+                disabled={contextAttachments.length >= 10}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] bg-violet-50 text-violet-700 rounded hover:bg-violet-100 disabled:opacity-40"
+              >
+                <HardDrive size={11} /> 자료 추가
+              </button>
+            </div>
+            {contextAttachments.length === 0 ? (
+              <div className="border border-dashed border-border-default rounded px-3 py-3 text-[11px] text-text-tertiary text-center">
+                강좌 자료를 추가하면 챗봇이 본문을 자동으로 참고합니다 (문서·슬라이드는 본문, 시트·한컴은 제목만).
+              </div>
+            ) : (
+              <ul className="space-y-1.5">
+                {contextAttachments.map((a, i) => {
+                  const meta = CTX_LABELS[a.type];
+                  return (
+                    <li
+                      key={`${a.type}-${a.id}`}
+                      className="flex items-center gap-2 px-3 py-1.5 border border-border-default rounded text-caption hover:bg-bg-secondary"
+                    >
+                      <span className="text-[14px]">{meta.emoji}</span>
+                      <span className="flex-1 truncate">{a.title}</span>
+                      <span className="text-[10px] text-text-tertiary">{meta.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeContext(i)}
+                        className="p-1 text-text-tertiary hover:text-status-error"
+                        title="제거"
+                      >
+                        <X size={11} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <p className="text-[11px] text-text-tertiary mt-1.5">
+              자료당 5,000자 / 합쳐서 30,000자 한도. 초과분은 자동 잘림.
+            </p>
+          </div>
+
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -316,6 +416,13 @@ function ChatbotEditModal({
             <span className="text-caption text-text-secondary">활성화 (학생들이 사용 가능)</span>
           </label>
         </div>
+
+        {showDrivePicker && (
+          <DrivePicker
+            onClose={() => setShowDrivePicker(false)}
+            onSelect={addFromDrive}
+          />
+        )}
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-default">
           <button
