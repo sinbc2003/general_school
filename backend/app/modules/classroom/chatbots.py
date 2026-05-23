@@ -31,7 +31,7 @@ from app.models import (
     User,
 )
 from app.modules.classroom.router import router
-from app.modules.classroom.teachers import is_course_editor
+from app.modules.classroom.teachers import is_course_editor, is_course_editor_or_admin
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,11 +80,8 @@ def _to_dict(b: CourseChatbot) -> dict:
 
 async def _is_course_member(db: AsyncSession, user: User, course: Course) -> bool:
     """강좌 멤버(교사/학생/admin) 검증."""
-    if user.role in ("super_admin", "designated_admin"):
-        return True
-    if course.teacher_id == user.id:
-        return True
-    if await is_course_editor(db, user, course):
+    # admin + owner + co_teacher (SSOT) → editor_or_admin
+    if await is_course_editor_or_admin(db, course, user):
         return True
     # 학생 active 수강생
     cs = (await db.execute(
@@ -99,9 +96,7 @@ async def _is_course_member(db: AsyncSession, user: User, course: Course) -> boo
 
 async def _is_course_admin(db: AsyncSession, user: User, course: Course) -> bool:
     """챗봇 CRUD 권한 — editor + admin만."""
-    if user.role in ("super_admin", "designated_admin"):
-        return True
-    return await is_course_editor(db, user, course)
+    return await is_course_editor_or_admin(db, course, user)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

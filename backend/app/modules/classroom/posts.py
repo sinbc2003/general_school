@@ -39,6 +39,7 @@ from app.modules.classroom.router import (
     _assert_course_access, _is_admin, _post_to_dict, router,
 )
 from app.modules.classroom.schemas import CoursePostCreate, CoursePostUpdate
+from app.modules.classroom.teachers import is_course_editor, is_course_editor_or_admin
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -91,8 +92,8 @@ async def create_course_post(
     c = await db.get(Course, cid)
     if not c:
         raise HTTPException(404)
-    if not _is_admin(user) and c.teacher_id != user.id:
-        raise HTTPException(403, "본인 강좌만 글 작성 가능")
+    if not await is_course_editor_or_admin(db, c, user):
+        raise HTTPException(403, "본인 강좌만 글 작성 가능 (소유자·공동교사·관리자)")
     # 과거 학기 강좌는 read-only — admin 포함 차단
     active_sid = await get_active_semester_id_or_404(db)
     if c.semester_id != active_sid:
@@ -182,10 +183,13 @@ async def update_course_post(
     p = await db.get(CoursePost, pid)
     if not p:
         raise HTTPException(404)
-    if not _is_admin(user) and p.author_id != user.id:
-        raise HTTPException(403, "본인 글만 편집 가능")
-    # 과거 학기 글은 read-only
+    # 본인 글이거나, 강좌 editor(owner/co_teacher) 또는 admin
     course = await db.get(Course, p.course_id)
+    is_author = p.author_id == user.id
+    is_editor = course is not None and await is_course_editor_or_admin(db, course, user)
+    if not (is_author or is_editor):
+        raise HTTPException(403, "본인 글 또는 강좌 교사·관리자만 편집 가능")
+    # 과거 학기 글은 read-only
     active_sid = await get_active_semester_id_or_404(db)
     if course and course.semester_id != active_sid:
         raise HTTPException(409, "이전 학기 강좌의 글은 수정할 수 없습니다 (read-only).")
@@ -210,10 +214,13 @@ async def delete_course_post(
     p = await db.get(CoursePost, pid)
     if not p:
         raise HTTPException(404)
-    if not _is_admin(user) and p.author_id != user.id:
-        raise HTTPException(403, "본인 글만 삭제 가능")
-    # 과거 학기 글은 read-only — PUT과 동일 정책
+    # 본인 글이거나, 강좌 editor(owner/co_teacher) 또는 admin
     course = await db.get(Course, p.course_id)
+    is_author = p.author_id == user.id
+    is_editor = course is not None and await is_course_editor_or_admin(db, course, user)
+    if not (is_author or is_editor):
+        raise HTTPException(403, "본인 글 또는 강좌 교사·관리자만 삭제 가능")
+    # 과거 학기 글은 read-only — PUT과 동일 정책
     active_sid = await get_active_semester_id_or_404(db)
     if course and course.semester_id != active_sid:
         raise HTTPException(409, "이전 학기 강좌의 글은 삭제할 수 없습니다 (read-only).")
@@ -353,8 +360,8 @@ async def delete_post_comment(
     p = await db.get(CoursePost, c.post_id)
     course = await db.get(Course, p.course_id) if p else None
     is_owner = c.author_id == user.id
-    is_teacher = course and course.teacher_id == user.id
-    if not (is_owner or is_teacher or _is_admin(user)):
+    is_teacher = bool(course) and await is_course_editor_or_admin(db, course, user)
+    if not (is_owner or is_teacher):
         raise HTTPException(403, "본인 댓글 또는 강좌 교사·관리자만 삭제 가능")
     await db.delete(c)
     return {"ok": True}
@@ -392,8 +399,8 @@ async def upload_attachment(
     course = await db.get(Course, cid)
     if not course:
         raise HTTPException(404, "강좌 없음")
-    if not _is_admin(user) and course.teacher_id != user.id:
-        raise HTTPException(403, "본인 강좌만 업로드 가능")
+    if not await is_course_editor_or_admin(db, course, user):
+        raise HTTPException(403, "본인 강좌만 업로드 가능 (소유자·공동교사·관리자)")
 
     # 검증 (크기·확장자)
     data = await validate_upload(file, POLICY_CLASSROOM)

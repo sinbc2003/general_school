@@ -105,13 +105,15 @@ async def _assert_course_access(
     """강좌 접근 권한 검증. role 반환 ('teacher' / 'student' / 'admin').
 
     - admin: 모든 강좌
-    - 교사: 본인 teacher_id
+    - 교사: owner 또는 co_teacher (SSOT — is_course_editor)
     - 학생: CourseStudent에 active로 등록된 경우
     그 외: 403.
     """
     if _is_admin(user):
         return "admin"
-    if course.teacher_id == user.id:
+    # owner + co_teacher (CourseTeacher M2M) — SSOT
+    from app.modules.classroom.teachers import is_course_editor
+    if await is_course_editor(db, course, user):
         return "teacher"
     cs = (await db.execute(
         select(CourseStudent).where(
