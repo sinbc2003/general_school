@@ -32,6 +32,7 @@ import {
   HardDrive,
   Building2,
   Globe,
+  Github,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -281,6 +282,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
       { key: "sys-google", label: "Google 연동", icon: Globe, path: "/system/integrations/google", permission: "google.integration.configure" },
       { key: "sys-storage", label: "스토리지", icon: HardDrive, path: "/system/storage", permission: "storage.volume.view" },
+      { key: "sys-updates", label: "코드 업데이트", icon: Github, path: "/system/updates", permission: "system.updates.view" },
     ],
   },
 ];

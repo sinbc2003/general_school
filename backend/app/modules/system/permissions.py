@@ -11,4 +11,5 @@ PERMISSIONS = [
     {"key": "system.feature_flags.manage", "display_name": "기능 플래그 관리", "category": "시스템", "unused_ok": True},
     {"key": "system.audit.view", "display_name": "감사 로그 조회", "category": "시스템", "unused_ok": True,
      "requires_2fa": True, "is_sensitive": True},
+    {"key": "system.updates.view", "display_name": "GitHub 업데이트 확인", "category": "시스템", "unused_ok": True},
 ]

@@ -289,6 +289,43 @@ async def _maybe_purge_old_revisions(db: AsyncSession) -> int:
     return deleted
 
 
+# GitHub 업데이트 알림 tick — 24시간 1회.
+GITHUB_UPDATE_INTERVAL_HOURS = 24
+_last_github_check_at: datetime | None = None
+
+
+async def _maybe_check_github_updates(db: AsyncSession) -> int:
+    """24시간 1회 GitHub repo HEAD 비교 → 새 commit 있으면 super_admin 알림.
+
+    GITHUB_UPDATE_REPO env 미설정이면 즉시 0 반환 (dev/non-prod 환경 안전).
+    중복 알림 방지: SchoolConfig.last_notified_remote_sha 비교 (services/github_updates).
+
+    returns: 발송 알림 수 (super_admin 인원). 발송 안 했으면 0.
+    """
+    global _last_github_check_at
+    now = datetime.now(timezone.utc)
+    if _last_github_check_at and (now - _last_github_check_at) < timedelta(
+        hours=GITHUB_UPDATE_INTERVAL_HOURS,
+    ):
+        return 0
+    _last_github_check_at = now
+
+    from app.services.github_updates import check_and_notify, is_polling_enabled
+
+    if not is_polling_enabled():
+        return 0
+
+    result = await check_and_notify(db)
+    if result.get("notified"):
+        log.info(
+            "[NOTIF SCHED] GitHub 업데이트 알림 — %d commit behind, remote=%s",
+            result.get("behind_count", 0),
+            (result.get("remote") or {}).get("sha", "?")[:7],
+        )
+        return result.get("behind_count", 0) or 1
+    return 0
+
+
 # Storage Volume 사용량/헬스체크 tick — 6시간 1회.
 # shutil.disk_usage 호출은 비교적 비용 있고 외장 장치 spin-up 발생 가능 → 너무 자주 X.
 STORAGE_VOLUME_INTERVAL_HOURS = 6
@@ -404,6 +441,7 @@ async def _scheduler_loop() -> None:
         ("trash_purge", _maybe_purge_trash, None),  # 내부에서 log
         ("expired_users", _disable_expired_users, None),  # 내부에서 log
         ("revision_purge", _maybe_purge_old_revisions, None),  # 내부에서 log
+        ("github_update_check", _maybe_check_github_updates, None),  # 내부에서 log
     ]
 
     while True:

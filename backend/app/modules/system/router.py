@@ -30,3 +30,4 @@ from app.modules.system import menu  # noqa: E402, F401
 from app.modules.system import branding  # noqa: E402, F401
 from app.modules.system import backup  # noqa: E402, F401
 from app.modules.system import onboarding  # noqa: E402, F401
+from app.modules.system import updates  # noqa: E402, F401
