@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus, ChevronDown, Sparkles, X,
   AlertCircle, MoreHorizontal, PanelLeftClose, PanelLeft,
@@ -61,6 +62,21 @@ export default function ChatInterface({ audience }: ChatInterfaceProps) {
   useEffect(() => { loadSessions(); loadModelsAndConfig(); }, []);
   useEffect(() => { if (activeId) loadMessages(activeId); else setMessages([]); }, [activeId]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamText]);
+
+  // ?sid= 로 들어오면 그 세션 자동 활성화 (강좌 챗봇 첨부 → start-session → redirect 흐름)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const sidStr = searchParams?.get("sid");
+    if (!sidStr) return;
+    const sid = parseInt(sidStr, 10);
+    if (Number.isNaN(sid)) return;
+    setActiveId(sid);
+    loadSessions(); // 방금 만든 세션이 사이드바에 보이도록 동기화
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // textarea auto resize
   useEffect(() => {

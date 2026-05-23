@@ -25,17 +25,18 @@
 import { useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
-  Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive,
+  Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive, Bot,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { DrivePicker } from "./DrivePicker";
+import { ChatbotPickerModal } from "./ChatbotPickerModal";
 
 export type CreateKind = "assignment" | "material";
 
 type ShareMode = "view" | "edit" | "copy";
 
 interface AttachmentItem {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot";
   title: string;
   url?: string;
   file_url?: string;
@@ -45,8 +46,9 @@ interface AttachmentItem {
   sheet_id?: number;
   deck_id?: number;
   hwp_id?: number;
+  chatbot_id?: number;
   /** 학생용 공유 모드. drive 자료(doc/sheet/deck/hwp)만 의미 있음.
-   *  link/file/survey는 항상 view 강제. copy는 Phase 2 활성화. */
+   *  link/file/survey/chatbot은 항상 view 강제. copy는 Phase 2 활성화. */
   share_mode?: ShareMode;
 }
 
@@ -135,6 +137,11 @@ export function AssignmentModal({
   };
 
   const [showDrivePicker, setShowDrivePicker] = useState(false);
+  const [showChatbotPicker, setShowChatbotPicker] = useState(false);
+
+  const addChatbot = (bot: { chatbot_id: number; title: string }) => {
+    setAttachments([...attachments, { type: "chatbot", title: bot.title, chatbot_id: bot.chatbot_id }]);
+  };
 
   const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
     const next: AttachmentItem[] = picked.map((p) => {
@@ -304,11 +311,19 @@ export function AssignmentModal({
                 />
                 <AttachBtn icon={LinkIcon} label="링크" onClick={addLink} bg="#dbeafe" color="#1d4ed8" />
                 <AttachBtn icon={HardDrive} label="내 드라이브" onClick={() => setShowDrivePicker(true)} bg="#ede9fe" color="#7c3aed" />
+                <AttachBtn icon={Bot} label="챗봇" onClick={() => setShowChatbotPicker(true)} bg="#e0f2fe" color="#0369a1" />
               </div>
               {showDrivePicker && (
                 <DrivePicker
                   onClose={() => setShowDrivePicker(false)}
                   onSelect={addFromDrive}
+                />
+              )}
+              {showChatbotPicker && (
+                <ChatbotPickerModal
+                  cid={cid}
+                  onClose={() => setShowChatbotPicker(false)}
+                  onSelect={addChatbot}
                 />
               )}
               <input
@@ -324,7 +339,9 @@ export function AssignmentModal({
               {attachments.length > 0 && (
                 <div className="mt-4 space-y-1.5">
                   {attachments.map((a, i) => {
-                    const Icon = a.type === "file" ? Paperclip : LinkIcon;
+                    const Icon = a.type === "file" ? Paperclip
+                      : a.type === "chatbot" ? Bot
+                      : LinkIcon;
                     const shareable = isShareable(a.type);
                     return (
                       <div

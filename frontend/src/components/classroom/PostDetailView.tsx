@@ -25,7 +25,7 @@ import { useAuth } from "@/lib/auth-context";
 export type ShareMode = "view" | "edit" | "copy";
 
 export interface Attachment {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot";
   title: string;
   url?: string;
   file_url?: string;
@@ -35,6 +35,7 @@ export interface Attachment {
   sheet_id?: number;
   deck_id?: number;
   hwp_id?: number;
+  chatbot_id?: number;
   /** Google Classroom 식 공유 모드.
    *  - view (default): 보기만
    *  - edit: 학생이 함께 편집 (협업)
@@ -525,7 +526,48 @@ function AttachmentRow({ a, postId, attIdx }: { a: Attachment; postId: number; a
       </button>
     );
   }
+  // 챗봇 첨부 — 클릭 시 새 ChatSession 생성 + /chat 또는 /s/chat 으로 redirect
+  if (a.type === "chatbot" && a.chatbot_id) {
+    return <ChatbotAttachmentRow a={a} isStudent={isStudent} />;
+  }
   return AttachmentRowImpl({ a });
+}
+
+
+function ChatbotAttachmentRow({ a, isStudent }: { a: Attachment; isStudent: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    if (busy || !a.chatbot_id) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ session_id: number }>(
+        `/api/classroom/chatbots/${a.chatbot_id}/start-session`, {},
+      );
+      const path = isStudent ? "/s/chat" : "/chat";
+      window.location.href = `${path}?sid=${res.session_id}`;
+    } catch (e: any) {
+      alert(e?.detail || e?.message || "챗봇을 시작할 수 없습니다");
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
+      className="w-full flex items-center gap-3 px-3 py-2.5 border border-sky-200 bg-sky-50 rounded hover:bg-sky-100 group text-left disabled:opacity-60"
+    >
+      <span className="text-[16px]">🤖</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-body text-sky-800 truncate font-medium">
+          {busy ? "챗봇 여는 중..." : a.title}
+        </div>
+        <div className="text-[11px] text-sky-700">
+          클릭하면 본인 전용 챗봇 세션이 시작됩니다.
+        </div>
+      </div>
+    </button>
+  );
 }
 
 
