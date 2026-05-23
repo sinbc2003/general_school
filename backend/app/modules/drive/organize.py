@@ -291,6 +291,11 @@ async def batch_organize(
             return f.id
         return None
 
+    # Atomicity 보장:
+    #   - get_db dependency가 endpoint 반환 후 session.commit(), 예외 시 session.rollback().
+    #   - 즉 raise만 하면 SQLAlchemy transaction이 새 폴더·rename·move 모두 자동 undo.
+    #   - 명시적 db.delete cleanup은 redundant + 위험 (cascade 잘못 타면 추가 fail).
+    #   - 모든 raise는 outer transaction rollback으로 이어지므로 partial 적용 0.
     try:
         for i, a in enumerate(body.actions):
             if a.action == "create_folder":
@@ -360,16 +365,15 @@ async def batch_organize(
 
         await db.flush()
     except HTTPException:
-        # rollback — 명시적 (best-effort)
-        for tid, fid in temp_to_real.items():
-            try:
-                f = await db.get(Folder, fid)
-                if f and f.id in created_folders:
-                    await db.delete(f)
-            except Exception:
-                pass
-        await db.flush()
+        # transaction rollback이 자동 cleanup → 그대로 re-raise.
         raise
+    except Exception as e:
+        # IntegrityError, connection drop, 코드 버그 등 — 동일하게 transaction rollback.
+        # 사용자에게는 500 + 짧은 type 정보만 노출 (raw exception은 보안 위험).
+        raise HTTPException(
+            500,
+            f"드라이브 정리 일괄 적용 실패 — 모든 변경이 rollback됨 ({type(e).__name__})",
+        )
 
     await log_action(
         db, user, "drive.batch_organize",
