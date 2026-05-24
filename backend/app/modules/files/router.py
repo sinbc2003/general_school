@@ -276,6 +276,17 @@ async def _guard_auto_backups(db: AsyncSession, user: User, path: str) -> None:
 # ── dispatcher ────────────────────────────────────────────
 
 
+async def _guard_courseware(db: AsyncSession, user: User, path: str) -> None:
+    """storage/courseware/{token}.{ext} — 문제은행 ZIP import 이미지.
+
+    문제 본문 자체가 강좌 안 공개 자료라 별도 ProblemSet ownership 검증 안 함:
+      - 인증된 모든 사용자가 접근 가능 (학생 풀이 시 이미지 필요)
+      - path는 ZIP 풀 때 nanoid 16자(base62)로 저장 → 추측 사실상 불가
+      - path traversal은 공통 가드(serve_storage)가 차단
+    """
+    return  # 인증만 통과하면 OK
+
+
 async def _guard_hwps(db: AsyncSession, user: User, path: str) -> None:
     """storage/hwps/{hid}/<file> — ClassroomHwp.file_path 매칭 후 권한 검증."""
     from app.models.classroom_hwp import ClassroomHwp
@@ -300,6 +311,7 @@ _GUARDS = {
     "classroom": _guard_classroom,
     "auto-backups": _guard_auto_backups,
     "hwps": _guard_hwps,
+    "courseware": _guard_courseware,
 }
 
 

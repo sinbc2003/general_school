@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Clock, RotateCw, Send, FileQuestion } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
+import { ProblemContent } from "./ProblemContent";
 import type { StudentViewResp, SubmitResult, ProblemForStudent } from "./types";
 
 interface Props {
@@ -217,7 +218,7 @@ function ProblemCard({
           </div>
         )}
       </div>
-      <div className="text-body mb-3 whitespace-pre-wrap">{problem.content}</div>
+      <ProblemContent content={problem.content} className="text-body mb-3 whitespace-pre-wrap" />
 
       {/* type별 input */}
       {problem.type === "multiple_choice" && (

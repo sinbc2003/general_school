@@ -50,11 +50,20 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
   // inline
   const [problems, setProblems] = useState<ProblemInline[]>([{ ...DEFAULT_PROBLEM }]);
 
-  // jsonl
+  // jsonl / zip — 같은 input에서 받고 확장자로 endpoint 분기
   const [jsonlFile, setJsonlFile] = useState<File | null>(null);
   const [jsonlPreview, setJsonlPreview] = useState<{
-    total: number; valid: number; errors: { line: number; message: string }[];
+    total: number; valid: number;
+    errors: { line: number; message: string }[];
+    imported_images?: number;
   } | null>(null);
+
+  const isZipFile = (f: File | null) =>
+    !!f && f.name.toLowerCase().endsWith(".zip");
+  const uploadEndpoint = (cid: number, f: File | null) =>
+    isZipFile(f)
+      ? `/api/courseware/courses/${cid}/problems/import-zip`
+      : `/api/courseware/courses/${cid}/problems/import-jsonl`;
 
   // bank
   const [bankQuery, setBankQuery] = useState("");
@@ -75,18 +84,20 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
 
   const runJsonlPreview = async () => {
     if (!jsonlFile) {
-      toast.show("JSONL 파일을 선택하세요", "error");
+      toast.show("파일을 선택하세요 (.jsonl 또는 .zip)", "error");
       return;
     }
     setSaving(true);
     try {
       const fd = new FormData();
       fd.append("file", jsonlFile);
+      const ep = uploadEndpoint(cid, jsonlFile);
       const res = await api.fetch<{
         total: number; valid: number;
         errors: { line: number; message: string }[];
+        imported_images?: number;
       }>(
-        `/api/courseware/courses/${cid}/problems/import-jsonl?dry_run=true&create_set=false`,
+        `${ep}?dry_run=true&create_set=false`,
         { method: "POST", body: fd },
       );
       setJsonlPreview(res);
@@ -158,27 +169,29 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
         psid = created.id;
       } else if (mode === "jsonl") {
         if (!jsonlFile) {
-          toast.show("JSONL 파일을 선택하세요", "error");
+          toast.show("파일을 선택하세요 (.jsonl 또는 .zip)", "error");
           setSaving(false);
           return;
         }
         const fd = new FormData();
         fd.append("file", jsonlFile);
-        const url = new URL(
-          `/api/courseware/courses/${cid}/problems/import-jsonl`,
-          "http://x",
-        );
+        const ep = uploadEndpoint(cid, jsonlFile);
+        const url = new URL(ep, "http://x");
         url.searchParams.set("dry_run", "false");
         url.searchParams.set("create_set", "true");
         url.searchParams.set("set_title", title);
         const res = await api.fetch<{
           problem_set_id: number | null; valid: number; errors: any[];
+          imported_images?: number;
         }>(url.pathname + url.search, { method: "POST", body: fd });
         psid = res.problem_set_id;
         if (!psid) {
           toast.show(`import 실패 — 유효 문제 ${res.valid}건, 오류 ${res.errors.length}건`, "error");
           setSaving(false);
           return;
+        }
+        if (res.imported_images) {
+          toast.show(`이미지 ${res.imported_images}장 저장됨`, "success");
         }
       } else {
         // bank
@@ -340,25 +353,38 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
             </div>
           )}
 
-          {/* JSONL */}
+          {/* JSONL or ZIP */}
           {mode === "jsonl" && (
             <div className="space-y-3">
-              <div className="bg-cream-100 border border-cream-300 rounded p-3 text-caption text-text-secondary">
-                <div className="font-semibold mb-1">JSONL 형식 (한 줄 = 한 문제)</div>
-                <pre className="bg-bg-primary border border-border-default rounded p-2 text-[11px] overflow-x-auto">
+              <div className="bg-cream-100 border border-cream-300 rounded p-3 text-caption text-text-secondary space-y-2">
+                <div>
+                  <div className="font-semibold mb-1">JSONL 형식 (한 줄 = 한 문제)</div>
+                  <pre className="bg-bg-primary border border-border-default rounded p-2 text-[11px] overflow-x-auto">
 {`{"type": "multiple_choice", "content": "1+1은?",
  "answer_data": {"grader_type": "choices", "correct": ["B"],
                  "choices": ["A. 1", "B. 2", "C. 3"]},
  "answer": "2", "difficulty": "easy", "subject": "수학", "tags": ["기초"]}
 {"type": "numeric", "content": "원주율 소수 둘째자리까지",
- "answer_data": {"grader_type": "numeric", "value": 3.14, "tolerance": 0.01}}
-{"type": "short_answer", "content": "조선왕조 4대왕은?",
- "answer_data": {"grader_type": "exact", "correct": "세종"}}`}
-                </pre>
+ "answer_data": {"grader_type": "numeric", "value": 3.14, "tolerance": 0.01}}`}
+                  </pre>
+                </div>
+                <div>
+                  <div className="font-semibold mb-1">이미지 포함 → ZIP 패키지</div>
+                  <pre className="bg-bg-primary border border-border-default rounded p-2 text-[11px] overflow-x-auto">
+{`math.zip
+ ├ problems.jsonl   (content 안에 ![](images/fig1.png))
+ └ images/
+    ├ fig1.png
+    └ fig2.jpg`}
+                  </pre>
+                  <div className="text-[11px] text-text-tertiary mt-1">
+                    ZIP 안 .jsonl 1개 + images/ 폴더. 이미지는 storage에 자동 저장 + URL 자동 치환.
+                  </div>
+                </div>
               </div>
               <input
                 type="file"
-                accept=".jsonl,.json"
+                accept=".jsonl,.json,.zip"
                 onChange={(e) => {
                   setJsonlFile(e.target.files?.[0] || null);
                   setJsonlPreview(null);
@@ -366,14 +392,19 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
                 className="text-body"
               />
               {jsonlFile && (
-                <button
-                  type="button"
-                  onClick={runJsonlPreview}
-                  disabled={saving}
-                  className="px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
-                >
-                  {saving ? "검증 중..." : "검증 실행 (dry-run)"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-caption text-text-tertiary">
+                    {jsonlFile.name} · {(jsonlFile.size / 1024).toFixed(1)} KB · {isZipFile(jsonlFile) ? "ZIP (이미지 포함)" : "JSONL"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={runJsonlPreview}
+                    disabled={saving}
+                    className="px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
+                  >
+                    {saving ? "검증 중..." : "검증 실행 (dry-run)"}
+                  </button>
+                </div>
               )}
               {jsonlPreview && (
                 <div className={`p-3 rounded text-caption ${
@@ -383,6 +414,9 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
                 }`}>
                   <div className="font-semibold mb-1">
                     총 {jsonlPreview.total}줄 · 유효 {jsonlPreview.valid}개 · 오류 {jsonlPreview.errors.length}건
+                    {typeof jsonlPreview.imported_images === "number" && (
+                      <> · 이미지 매칭 {jsonlPreview.imported_images}장</>
+                    )}
                   </div>
                   {jsonlPreview.errors.length > 0 && (
                     <ul className="space-y-0.5 max-h-32 overflow-y-auto">

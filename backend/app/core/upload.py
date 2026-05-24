@@ -121,6 +121,14 @@ POLICY_PROBLEMS_JSONL = FilePolicy(
 )
 
 
+# 문제은행 ZIP — problems.jsonl + images/ 폴더 묶음. 이미지 포함이라 큼
+POLICY_PROBLEMS_ZIP = FilePolicy(
+    name="problems_zip",
+    max_size_bytes=50 * 1024 * 1024,  # 50MB
+    allowed_extensions=frozenset({".zip"}),
+)
+
+
 # ── 검증 함수 ──────────────────────────────────────────────────
 
 def _human_size(n: int) -> str:

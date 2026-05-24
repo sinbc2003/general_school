@@ -1,10 +1,19 @@
-"""문제은행 코스웨어 — JSONL import + 결과 export (CSV/XLSX).
+"""문제은행 코스웨어 — JSONL/ZIP import + 결과 export (CSV/XLSX).
 
 JSONL 형식 (한 줄 = 한 문제):
   {"type": "multiple_choice", "content": "1+1은?",
    "answer_data": {"grader_type": "choices", "correct": ["B"],
                    "choices": ["A. 1", "B. 2", "C. 3"]},
    "answer": "2", "difficulty": "easy", "subject": "수학", "tags": ["기초"]}
+
+ZIP 형식 (이미지 포함):
+  math.zip
+   ├ problems.jsonl   # content 안에 ![](images/fig1.png)
+   └ images/
+      ├ fig1.png
+      └ fig2.png
+  → 백엔드가 풀어서 이미지를 storage/courseware/{token}.{ext}에 저장하고
+    content 안의 'images/X.ext' 경로를 '/api/files/storage/courseware/Y.ext'로 치환.
 
 router 객체는 router.py에서 공유. router.py 끝의 'from . import io'로 등록.
 """
@@ -15,7 +24,11 @@ import asyncio
 import csv
 import io as _io
 import json
+import re
+import secrets
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -24,8 +37,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.files import ensure_dir_async, write_bytes_async
 from app.core.permissions import require_permission
-from app.core.upload import POLICY_PROBLEMS_JSONL, validate_upload
+from app.core.upload import POLICY_PROBLEMS_JSONL, POLICY_PROBLEMS_ZIP, validate_upload
 from app.models import (
     Course, CourseProblemSet, CourseStudent, Problem,
     StudentProblemAttempt, User,
@@ -33,6 +47,13 @@ from app.models import (
 from app.modules.classroom.teachers import is_course_editor_or_admin
 from app.modules.courseware.router import router
 from app.modules.courseware.schemas import ProblemInline
+
+
+# Storage paths
+COURSEWARE_STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage" / "courseware"
+ALLOWED_IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
+MAX_IMAGES_PER_ZIP = 500
+MAX_ZIP_UNCOMPRESSED = 200 * 1024 * 1024  # 200MB (zip-bomb 방어)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,6 +218,245 @@ async def import_problems_jsonl(
     await log_action(
         db, user, "courseware.problems.import_jsonl",
         target=f"course:{cid} count:{len(created_ids)}",
+        detail=f"errors:{len(errors)} set:{result['problem_set_id']}",
+        request=request,
+    )
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ZIP import (이미지 포함)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _safe_zip_extract_paths(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+    """ZIP entry들을 path traversal 차단하면서 정상화. 반환 = 통과한 entry.
+
+    - 절대 경로 차단
+    - ``..`` 포함 차단
+    - 백슬래시(Windows zip) → forward slash 정규화
+    - 디렉터리(끝이 '/') skip
+    - 압축 해제 후 누적 크기 200MB 초과 시 차단 (zip-bomb)
+    """
+    out: list[zipfile.ZipInfo] = []
+    total = 0
+    for info in zf.infolist():
+        name = info.filename.replace("\\", "/")
+        if not name or name.endswith("/"):
+            continue
+        if name.startswith("/") or ".." in name.split("/"):
+            raise HTTPException(400, f"안전하지 않은 경로: {info.filename}")
+        info.filename = name
+        total += info.file_size
+        if total > MAX_ZIP_UNCOMPRESSED:
+            raise HTTPException(
+                400, f"ZIP 압축 해제 크기 초과: {total} > {MAX_ZIP_UNCOMPRESSED} bytes",
+            )
+        out.append(info)
+    return out
+
+
+def _find_jsonl_entry(entries: list[zipfile.ZipInfo]) -> zipfile.ZipInfo | None:
+    """problems.jsonl, problems.json, *.jsonl 순으로 찾음."""
+    by_name: dict[str, zipfile.ZipInfo] = {e.filename.lower(): e for e in entries}
+    for cand in ("problems.jsonl", "problems.json"):
+        if cand in by_name:
+            return by_name[cand]
+    for e in entries:
+        if e.filename.lower().endswith(".jsonl"):
+            return e
+    return None
+
+
+def _rewrite_image_paths(content: str, image_map: dict[str, str]) -> str:
+    """content 안의 마크다운 이미지 경로를 새 URL로 치환.
+
+    매칭 패턴 (대소문자 무관):
+      ![alt](images/foo.png)
+      ![alt](./images/foo.png)
+      ![alt](/images/foo.png)
+      ![alt](IMAGES/foo.png)
+    """
+    if not image_map:
+        return content
+    result = content
+    for orig_key, new_url in image_map.items():
+        # 원본 키는 'images/foo.png' 형식, 선두 ./ 또는 / 허용
+        escaped = re.escape(orig_key)
+        pattern = re.compile(
+            rf'!\[([^\]]*)\]\(\s*\.?/?{escaped}\s*\)',
+            flags=re.IGNORECASE,
+        )
+        result = pattern.sub(lambda m: f"![{m.group(1)}]({new_url})", result)
+    return result
+
+
+@router.post("/courses/{cid}/problems/import-zip")
+async def import_problems_zip(
+    cid: int,
+    request: Request,
+    file: UploadFile = File(...),
+    dry_run: bool = Query(default=False),
+    create_set: bool = Query(default=True),
+    set_title: str | None = Query(default=None),
+    user: User = Depends(require_permission("classroom.courseware.create")),
+    db: AsyncSession = Depends(get_db),
+):
+    """ZIP 패키지 import — problems.jsonl + images/ 폴더 묶음.
+
+    이미지는 storage/courseware/{nanoid}.{ext}로 저장, content 안의
+    `![](images/foo.png)` 패턴을 새 URL로 자동 치환.
+
+    응답: JSONL import와 동일 + ``imported_images`` (이미지 개수).
+    """
+    course = await db.get(Course, cid)
+    if not course:
+        raise HTTPException(404, "강좌 없음")
+    if not await is_course_editor_or_admin(db, course, user):
+        raise HTTPException(403, "강좌 교사·관리자만 가능")
+
+    data = await validate_upload(file, POLICY_PROBLEMS_ZIP)
+
+    # ZIP 열기 + 안전 검증
+    try:
+        zf = zipfile.ZipFile(_io.BytesIO(data), "r")
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "유효하지 않은 ZIP 파일")
+    entries = _safe_zip_extract_paths(zf)
+
+    # JSONL entry 찾기
+    jsonl_entry = _find_jsonl_entry(entries)
+    if jsonl_entry is None:
+        raise HTTPException(400, "ZIP 안에 .jsonl 파일이 없습니다 (problems.jsonl 권장)")
+
+    # 이미지 entry 수집 (확장자로 판별)
+    image_entries: list[zipfile.ZipInfo] = []
+    for e in entries:
+        ext = Path(e.filename).suffix.lower()
+        if ext in ALLOWED_IMAGE_EXTS and e is not jsonl_entry:
+            image_entries.append(e)
+    if len(image_entries) > MAX_IMAGES_PER_ZIP:
+        raise HTTPException(
+            400, f"이미지가 너무 많습니다: {len(image_entries)} > {MAX_IMAGES_PER_ZIP}",
+        )
+
+    # JSONL 파싱 + 1차 검증 (dry_run이면 여기까지만)
+    try:
+        raw = zf.read(jsonl_entry)
+    except KeyError:
+        raise HTTPException(400, "JSONL 추출 실패")
+    parsed = _parse_jsonl(raw)
+    if len(parsed) > MAX_JSONL_PROBLEMS:
+        raise HTTPException(
+            400, f"한 번에 최대 {MAX_JSONL_PROBLEMS}문제까지 import 가능",
+        )
+
+    errors: list[dict] = []
+    inlines: list[tuple[int, ProblemInline]] = []
+    for line_no, item in parsed:
+        if isinstance(item, str):
+            errors.append({"line": line_no, "message": item})
+            continue
+        pi, err = _validate_inline(item)
+        if err or pi is None:
+            errors.append({"line": line_no, "message": err or "unknown error"})
+            continue
+        inlines.append((line_no, pi))
+
+    # content 안에서 참조된 이미지 키 수집
+    img_ref_pattern = re.compile(r'!\[[^\]]*\]\(\s*(\.?/?[\w\-./]+\.(?:png|jpg|jpeg|webp|gif|svg))\s*\)', re.IGNORECASE)
+    referenced_keys: set[str] = set()
+    for _ln, pi in inlines:
+        for m in img_ref_pattern.finditer(pi.content or ""):
+            ref = m.group(1).lstrip("./").lstrip("/")
+            referenced_keys.add(ref)
+
+    # ZIP에 실제 있는 이미지 키 (filename 그대로)
+    available_keys = {e.filename for e in image_entries}
+    missing_images = sorted(referenced_keys - available_keys)
+    for k in missing_images:
+        errors.append({"line": 0, "message": f"이미지 누락: {k}"})
+
+    result: dict = {
+        "total": len(parsed),
+        "valid": len(inlines),
+        "errors": errors,
+        "imported_images": 0,
+        "created_problem_ids": [],
+        "problem_set_id": None,
+    }
+
+    if dry_run:
+        return result
+    if not inlines:
+        raise HTTPException(400, "유효한 문제가 한 줄도 없습니다.")
+    if missing_images:
+        raise HTTPException(
+            400,
+            f"이미지가 ZIP에 없습니다: {missing_images[:5]} (총 {len(missing_images)}건). "
+            f"dry_run으로 확인 후 보완해주세요.",
+        )
+
+    # 이미지 → storage 저장
+    await ensure_dir_async(COURSEWARE_STORAGE_DIR)
+    image_map: dict[str, str] = {}  # 원본 키 → 새 URL
+    for e in image_entries:
+        if e.filename not in referenced_keys:
+            # 참조 안 된 이미지는 skip (불필요한 disk 낭비 방지)
+            continue
+        ext = Path(e.filename).suffix.lower()
+        token = secrets.token_urlsafe(12)  # 16자 url-safe
+        stored_name = f"{token}{ext}"
+        try:
+            blob = zf.read(e)
+        except KeyError:
+            errors.append({"line": 0, "message": f"이미지 추출 실패: {e.filename}"})
+            continue
+        await write_bytes_async(COURSEWARE_STORAGE_DIR / stored_name, blob)
+        image_map[e.filename] = f"/api/files/storage/courseware/{stored_name}"
+
+    # Problem row 일괄 생성 (content URL 치환)
+    new_objs: list[Problem] = []
+    for _line_no, pi in inlines:
+        new_content = _rewrite_image_paths(pi.content, image_map)
+        obj = Problem(
+            department="math",
+            subject=pi.subject or "",
+            difficulty=pi.difficulty,
+            question_type=pi.type,
+            content=new_content,
+            solution=pi.solution,
+            answer=pi.answer,
+            answer_data=pi.answer_data,
+            tags=pi.tags,
+            is_visible=True,
+            review_status="pending",
+            created_by_id=user.id,
+        )
+        db.add(obj)
+        new_objs.append(obj)
+    await db.flush()
+    created_ids = [o.id for o in new_objs]
+    result["created_problem_ids"] = created_ids
+    result["imported_images"] = len(image_map)
+
+    if create_set:
+        title = (set_title or "").strip() or f"ZIP Import {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        ps = CourseProblemSet(
+            course_id=cid,
+            title=title,
+            description=f"ZIP import — {len(created_ids)}문제 · 이미지 {len(image_map)}장",
+            problem_ids=created_ids,
+            status="draft",
+            created_by=user.id,
+        )
+        db.add(ps)
+        await db.flush()
+        result["problem_set_id"] = ps.id
+
+    await log_action(
+        db, user, "courseware.problems.import_zip",
+        target=f"course:{cid} count:{len(created_ids)} images:{len(image_map)}",
         detail=f"errors:{len(errors)} set:{result['problem_set_id']}",
         request=request,
     )

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { X, Save } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
+import { ProblemContent } from "./ProblemContent";
 import type { ProblemFull } from "./types";
 
 interface AttemptRow {
@@ -128,7 +129,7 @@ export function ManualGradeModal({ psid, studentId, problems, onClose, onSaved }
                   <div className="text-caption text-text-tertiary mb-1">
                     시도 #{a.attempt_number} · 문제 {a.problem_id} · {p?.type}
                   </div>
-                  <div className="text-body mb-2 line-clamp-2">{p?.content}</div>
+                  {p && <ProblemContent content={p.content} className="text-body mb-2" />}
                   <div className="bg-bg-secondary rounded p-2 mb-2">
                     <div className="text-caption text-text-tertiary mb-1">학생 답안</div>
                     <pre className="text-caption whitespace-pre-wrap font-mono">
