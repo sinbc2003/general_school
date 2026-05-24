@@ -1,46 +1,79 @@
 "use client";
 
 /**
- * 문제 본문 렌더링 — 마크다운 이미지 (`![alt](url)`) 자동 분리.
+ * 문제 본문 렌더링 — LaTeX 수식 + 마크다운 이미지 자동 split.
  *
- * 외부 마크다운 라이브러리 의존 없이 정규식으로 split:
- *  - 텍스트 부분: <span> + whitespace-pre-wrap
- *  - 이미지 부분: <img> (lazy + max-w-full)
+ * 매칭 우선순위 (정규식 alternation 순서):
+ *  1. block math `$$...$$`            → katex displayMode
+ *  2. inline math `$...$`             → katex inline
+ *  3. markdown image `![alt](url)`   → AuthedImage (인증된 storage URL은 blob)
+ *  4. 나머지 → plain text (whitespace-pre-wrap)
  *
- * URL은 `/api/files/storage/courseware/...` 또는 외부 https URL 둘 다 지원.
- * 인증 필요한 storage URL은 fetch + blob 변환 — img.src에 직접 못 박음 →
- * 본 컴포넌트에서 first paint에 fetch 후 ObjectURL 캐시.
+ * KaTeX 실패 시 raw text fallback (수식 오타 등으로 전체 렌더가 깨지지 않음).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { ImageOff } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
-const IMG_PATTERN = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
-interface Part {
-  kind: "text" | "img";
-  value: string;  // text content OR raw url
-  alt?: string;
-}
+// alternation — block math 먼저, 그다음 image (inline math보다 우선해서 $...$
+// 안에 ![]() 잘못 매칭되는 케이스 회피), 마지막에 inline math.
+const TOKEN_PATTERN =
+  /(\$\$[\s\S]+?\$\$|!\[[^\]]*\]\([^)]+\)|\$[^$\n]+?\$)/g;
 
-function parseContent(content: string): Part[] {
-  const parts: Part[] = [];
+type Token =
+  | { kind: "text"; value: string }
+  | { kind: "math-block"; tex: string }
+  | { kind: "math-inline"; tex: string }
+  | { kind: "img"; src: string; alt: string };
+
+function tokenize(content: string): Token[] {
+  const out: Token[] = [];
   let lastIndex = 0;
   let m: RegExpExecArray | null;
-  IMG_PATTERN.lastIndex = 0;
-  while ((m = IMG_PATTERN.exec(content)) !== null) {
+  const regex = new RegExp(TOKEN_PATTERN.source, TOKEN_PATTERN.flags);
+  while ((m = regex.exec(content)) !== null) {
     if (m.index > lastIndex) {
-      parts.push({ kind: "text", value: content.slice(lastIndex, m.index) });
+      out.push({ kind: "text", value: content.slice(lastIndex, m.index) });
     }
-    parts.push({ kind: "img", value: m[2].trim(), alt: m[1] });
-    lastIndex = m.index + m[0].length;
+    const raw = m[0];
+    if (raw.startsWith("$$")) {
+      out.push({ kind: "math-block", tex: raw.slice(2, -2).trim() });
+    } else if (raw.startsWith("![")) {
+      const imgMatch = /!\[([^\]]*)\]\(([^)]+)\)/.exec(raw);
+      if (imgMatch) {
+        out.push({ kind: "img", src: imgMatch[2].trim(), alt: imgMatch[1] });
+      } else {
+        out.push({ kind: "text", value: raw });
+      }
+    } else if (raw.startsWith("$")) {
+      out.push({ kind: "math-inline", tex: raw.slice(1, -1).trim() });
+    } else {
+      out.push({ kind: "text", value: raw });
+    }
+    lastIndex = m.index + raw.length;
   }
   if (lastIndex < content.length) {
-    parts.push({ kind: "text", value: content.slice(lastIndex) });
+    out.push({ kind: "text", value: content.slice(lastIndex) });
   }
-  return parts;
+  return out;
 }
+
+function renderMath(tex: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(tex, {
+      throwOnError: false,
+      displayMode,
+      strict: "ignore",
+    });
+  } catch {
+    return tex;  // fallback
+  }
+}
+
 
 interface AuthedImageProps {
   src: string;
@@ -109,17 +142,66 @@ interface Props {
 }
 
 export function ProblemContent({ content, className }: Props) {
-  const parts = parseContent(content || "");
+  const tokens = useMemo(() => tokenize(content || ""), [content]);
 
   return (
     <div className={className ?? "text-body whitespace-pre-wrap"}>
-      {parts.map((p, i) =>
-        p.kind === "text" ? (
-          <span key={i}>{p.value}</span>
+      {tokens.map((t, i) => {
+        if (t.kind === "text") return <span key={i}>{t.value}</span>;
+        if (t.kind === "img") return <AuthedImage key={i} src={t.src} alt={t.alt} />;
+        if (t.kind === "math-inline") {
+          return (
+            <span
+              key={i}
+              dangerouslySetInnerHTML={{ __html: renderMath(t.tex, false) }}
+            />
+          );
+        }
+        // math-block
+        return (
+          <div
+            key={i}
+            className="my-2"
+            dangerouslySetInnerHTML={{ __html: renderMath(t.tex, true) }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 짧은 문자열 (객관식 보기, 정답 등) 안의 inline math만 렌더.
+ *
+ * 이미지는 거의 없으니 image split은 생략 — math만 처리해 가벼움.
+ */
+export function InlineMathText({ text }: { text: string }) {
+  const tokens = useMemo(() => {
+    const out: { kind: "t" | "m"; v: string }[] = [];
+    let last = 0;
+    const re = /\$([^$\n]+?)\$/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out.push({ kind: "t", v: text.slice(last, m.index) });
+      out.push({ kind: "m", v: m[1].trim() });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) out.push({ kind: "t", v: text.slice(last) });
+    return out;
+  }, [text]);
+
+  return (
+    <>
+      {tokens.map((t, i) =>
+        t.kind === "t" ? (
+          <span key={i}>{t.v}</span>
         ) : (
-          <AuthedImage key={i} src={p.value} alt={p.alt} />
+          <span
+            key={i}
+            dangerouslySetInnerHTML={{ __html: renderMath(t.v, false) }}
+          />
         ),
       )}
-    </div>
+    </>
   );
 }

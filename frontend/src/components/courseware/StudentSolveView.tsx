@@ -7,13 +7,17 @@
  *  - 제출 → /submit → 자동 채점 결과 즉시 표시
  *  - 마감/한도 초과 시 입력 비활성
  *  - show_solution_after_due + is_past_due 면 정답·해설 표시
+ *  - settings.shuffle_questions: 문제 순서 random (학생당 1회 sessionStorage 캐시)
+ *  - time_limit_seconds: sticky bar에 남은 시간, 0 도달 시 자동 제출
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, XCircle, Clock, RotateCw, Send, FileQuestion } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CheckCircle2, XCircle, Clock, RotateCw, Send, FileQuestion, Timer,
+} from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
-import { ProblemContent } from "./ProblemContent";
+import { ProblemContent, InlineMathText } from "./ProblemContent";
 import type { StudentViewResp, SubmitResult, ProblemForStudent } from "./types";
 
 interface Props {
@@ -22,6 +26,15 @@ interface Props {
 
 type AnswerMap = Record<number, Record<string, any>>;
 
+
+function fmtSeconds(s: number): string {
+  if (s <= 0) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+
 export function StudentSolveView({ psid }: Props) {
   const toast = useToast();
   const [data, setData] = useState<StudentViewResp | null>(null);
@@ -29,6 +42,8 @@ export function StudentSolveView({ psid }: Props) {
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<SubmitResult | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const autoSubmittedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,7 +52,6 @@ export function StudentSolveView({ psid }: Props) {
         `/api/courseware/problem-sets/${psid}/student-view`,
       );
       setData(res);
-      // 답안 초기화 — type별
       const init: AnswerMap = {};
       for (const p of res.problems) {
         if (p.type === "multiple_choice") init[p.id] = { selected: [] };
@@ -54,16 +68,47 @@ export function StudentSolveView({ psid }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSubmit = async () => {
+  // ── 셔플 — settings.shuffle_questions 켜져있고 학생일 때만, 시도(attempts_used)별 고정
+  const orderedProblems: ProblemForStudent[] = useMemo(() => {
+    if (!data) return [];
+    const shuffleOn = !!data.settings?.shuffle_questions;
+    if (!shuffleOn) return data.problems;
+    const key = `courseware-order-${psid}-${data.attempts_used}`;
+    const cached = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
+    let order: number[];
+    if (cached) {
+      try {
+        order = JSON.parse(cached);
+      } catch {
+        order = data.problems.map((_, i) => i);
+      }
+    } else {
+      order = data.problems.map((_, i) => i);
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(key, JSON.stringify(order));
+      }
+    }
+    return order
+      .map((i) => data.problems[i])
+      .filter((p): p is ProblemForStudent => !!p);
+  }, [data, psid]);
+
+  const handleSubmit = useCallback(async (auto = false) => {
     if (!data) return;
-    const unanswered = data.problems.filter((p) => {
-      const a = answers[p.id] || {};
-      if (p.type === "multiple_choice") return !(a.selected?.length);
-      if (p.type === "numeric") return a.value === "" || a.value === undefined || a.value === null;
-      return !(a.text || "").trim();
-    });
-    if (unanswered.length > 0) {
-      if (!confirm(`${unanswered.length}문제가 비어있습니다. 그래도 제출할까요?`)) return;
+    if (!auto) {
+      const unanswered = data.problems.filter((p) => {
+        const a = answers[p.id] || {};
+        if (p.type === "multiple_choice") return !(a.selected?.length);
+        if (p.type === "numeric") return a.value === "" || a.value === undefined || a.value === null;
+        return !(a.text || "").trim();
+      });
+      if (unanswered.length > 0) {
+        if (!confirm(`${unanswered.length}문제가 비어있습니다. 그래도 제출할까요?`)) return;
+      }
     }
     setSubmitting(true);
     try {
@@ -78,8 +123,16 @@ export function StudentSolveView({ psid }: Props) {
         body,
       );
       setLastResult(res);
+      // timer + shuffle 캐시 정리 (제출 끝났으니 다음 attempt는 새로)
+      if (typeof window !== "undefined") {
+        const startKey = `courseware-start-${psid}-${data.attempts_used}`;
+        const orderKey = `courseware-order-${psid}-${data.attempts_used}`;
+        sessionStorage.removeItem(startKey);
+        sessionStorage.removeItem(orderKey);
+      }
       toast.show(
-        `제출 완료 — 자동채점 ${res.auto_correct}/${res.auto_graded}` +
+        (auto ? "시간 초과 자동 제출 — " : "제출 완료 — ") +
+          `자동채점 ${res.auto_correct}/${res.auto_graded}` +
           (res.manual_pending ? ` · 수동 ${res.manual_pending}건 대기` : ""),
         "success",
       );
@@ -89,7 +142,41 @@ export function StudentSolveView({ psid }: Props) {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [data, answers, psid, toast, load]);
+
+  // ── Timer — time_limit_seconds 켜져있을 때
+  useEffect(() => {
+    if (!data?.time_limit_seconds) {
+      setTimeLeft(null);
+      return;
+    }
+    if (data.is_past_due || data.attempts_left <= 0) {
+      setTimeLeft(null);
+      return;
+    }
+    if (typeof window === "undefined") return;
+
+    const startKey = `courseware-start-${psid}-${data.attempts_used}`;
+    let startMs = parseInt(sessionStorage.getItem(startKey) || "0", 10);
+    if (!startMs) {
+      startMs = Date.now();
+      sessionStorage.setItem(startKey, String(startMs));
+    }
+    const limit = data.time_limit_seconds;
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startMs) / 1000);
+      const left = limit - elapsed;
+      setTimeLeft(Math.max(0, left));
+      if (left <= 0 && !autoSubmittedRef.current) {
+        autoSubmittedRef.current = true;
+        handleSubmit(true);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [data?.time_limit_seconds, data?.attempts_used, data?.is_past_due, data?.attempts_left, psid, handleSubmit]);
 
   if (loading) return <div className="text-text-tertiary">로딩 중...</div>;
   if (!data) return null;
@@ -101,6 +188,36 @@ export function StudentSolveView({ psid }: Props) {
 
   return (
     <div className="max-w-3xl mx-auto space-y-4">
+      {/* Timer sticky bar */}
+      {timeLeft !== null && !cantSubmit && (
+        <div
+          className={`sticky top-2 z-10 flex items-center justify-between px-4 py-2 rounded-lg shadow-md border-2 ${
+            timeLeft <= 60
+              ? "bg-red-50 border-red-300"
+              : timeLeft <= 300
+                ? "bg-amber-50 border-amber-300"
+                : "bg-emerald-50 border-emerald-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Timer
+              size={18}
+              className={
+                timeLeft <= 60 ? "text-red-700" : timeLeft <= 300 ? "text-amber-700" : "text-emerald-700"
+              }
+            />
+            <span className="text-body font-semibold">남은 시간</span>
+          </div>
+          <span
+            className={`text-h3 font-mono font-bold tabular-nums ${
+              timeLeft <= 60 ? "text-red-700" : timeLeft <= 300 ? "text-amber-700" : "text-emerald-700"
+            }`}
+          >
+            {fmtSeconds(timeLeft)}
+          </span>
+        </div>
+      )}
+
       {/* 헤더 */}
       <div className="bg-bg-primary border border-border-default rounded-lg p-4">
         <h1 className="text-h2 mb-1">{data.title}</h1>
@@ -117,6 +234,16 @@ export function StudentSolveView({ psid }: Props) {
           <span className="flex items-center gap-1">
             <RotateCw size={12} /> 시도 {data.attempts_used}/{data.max_attempts}
           </span>
+          {data.time_limit_seconds && (
+            <span className="flex items-center gap-1">
+              <Timer size={12} /> 제한 {Math.floor(data.time_limit_seconds / 60)}분
+            </span>
+          )}
+          {data.settings?.shuffle_questions && (
+            <span className="px-1.5 py-0.5 bg-cream-100 rounded text-[10px]">
+              문제 순서 random
+            </span>
+          )}
         </div>
         {cantSubmit && (
           <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-caption text-amber-900">
@@ -142,8 +269,8 @@ export function StudentSolveView({ psid }: Props) {
         </div>
       )}
 
-      {/* 문제 list */}
-      {data.problems.map((p, i) => (
+      {/* 문제 list (셔플된 순서) */}
+      {orderedProblems.map((p, i) => (
         <ProblemCard
           key={p.id}
           index={i}
@@ -161,7 +288,7 @@ export function StudentSolveView({ psid }: Props) {
         <div className="sticky bottom-4 flex justify-end">
           <button
             type="button"
-            onClick={handleSubmit}
+            onClick={() => handleSubmit(false)}
             disabled={submitting}
             className="px-6 py-2.5 bg-accent-default text-white rounded-lg shadow-md hover:opacity-90 disabled:opacity-50 flex items-center gap-2 text-body"
           >
@@ -245,7 +372,7 @@ function ProblemCard({
                   }}
                 />
                 <span className="font-mono text-caption text-text-tertiary w-5">{letter}</span>
-                <span className="text-body">{c}</span>
+                <span className="text-body"><InlineMathText text={c} /></span>
               </label>
             );
           })}
@@ -291,13 +418,13 @@ function ProblemCard({
           {problem.answer && (
             <div className="text-caption">
               <span className="text-text-tertiary font-semibold">정답:</span>{" "}
-              <span className="text-text-primary">{problem.answer}</span>
+              <span className="text-text-primary"><InlineMathText text={problem.answer} /></span>
             </div>
           )}
           {problem.solution && (
             <div className="text-caption">
               <div className="text-text-tertiary font-semibold mb-1">해설</div>
-              <div className="text-text-secondary whitespace-pre-wrap">{problem.solution}</div>
+              <ProblemContent content={problem.solution} className="text-text-secondary whitespace-pre-wrap" />
             </div>
           )}
         </div>

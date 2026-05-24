@@ -17,7 +17,7 @@ import { ArrowLeft, Download, FileSpreadsheet, CheckCircle2, XCircle, Pencil } f
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { ManualGradeModal } from "@/components/courseware/ManualGradeModal";
-import { ProblemContent } from "@/components/courseware/ProblemContent";
+import { ProblemContent, InlineMathText } from "@/components/courseware/ProblemContent";
 import type { ProblemSetDetail, ResultsResp } from "@/components/courseware/types";
 import { STATUS_LABEL, STATUS_BADGE_TONE } from "@/components/courseware/types";
 
@@ -247,7 +247,7 @@ export default function CoursewareResultsPage() {
                   </div>
                   <ProblemContent content={p.content} className="text-body mb-1 line-clamp-2" />
                   {p.answer && (
-                    <div className="text-caption text-text-tertiary">정답: {p.answer}</div>
+                    <div className="text-caption text-text-tertiary">정답: <InlineMathText text={p.answer} /></div>
                   )}
                   <div className="mt-2 h-1.5 bg-bg-secondary rounded overflow-hidden">
                     <div

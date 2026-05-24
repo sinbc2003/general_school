@@ -697,6 +697,110 @@ async def problem_set_results(
     return {"students": students_out, "problems": problems_out}
 
 
+@router.get("/me/wrong-attempts")
+async def my_wrong_attempts(
+    course_id: int | None = None,
+    subject: str | None = None,
+    limit: int = 100,
+    user: User = Depends(require_permission("classroom.courseware.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인이 풀어본 문제 중 틀린 것 모음 (오답 노트).
+
+    - 같은 (problem_set, problem)의 여러 시도 중 최신 attempt만
+    - 자동채점 결과 False만 (수동채점 대기·정답은 제외)
+    - 정답·해설은 ps.show_solution_after_due + 마감 지난 경우만 노출
+    - 필터: course_id, subject (Problem.subject)
+    """
+    from sqlalchemy import desc
+
+    q = select(StudentProblemAttempt).where(
+        StudentProblemAttempt.student_id == user.id,
+        StudentProblemAttempt.is_correct == False,  # noqa: E712
+    ).order_by(
+        StudentProblemAttempt.problem_set_id.desc(),
+        StudentProblemAttempt.problem_id.asc(),
+        desc(StudentProblemAttempt.attempt_number),
+    )
+    rows = (await db.execute(q)).scalars().all()
+
+    # 같은 (psid, pid)는 최신 attempt만
+    seen: set[tuple[int, int]] = set()
+    latest: list[StudentProblemAttempt] = []
+    for r in rows:
+        key = (r.problem_set_id, r.problem_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        latest.append(r)
+        if len(latest) >= limit:
+            break
+
+    if not latest:
+        return {"items": []}
+
+    # 관련 문제 + 세트 + 강좌 일괄 로드
+    pids = list({a.problem_id for a in latest})
+    psids = list({a.problem_set_id for a in latest})
+
+    problems_rows = (await db.execute(
+        select(Problem).where(Problem.id.in_(pids))
+    )).scalars().all()
+    p_by_id = {p.id: p for p in problems_rows}
+
+    sets_rows = (await db.execute(
+        select(CourseProblemSet).where(CourseProblemSet.id.in_(psids))
+    )).scalars().all()
+    s_by_id = {s.id: s for s in sets_rows}
+
+    cids = list({s.course_id for s in sets_rows})
+    courses_rows = (await db.execute(
+        select(Course).where(Course.id.in_(cids))
+    )).scalars().all()
+    c_by_id = {c.id: c for c in courses_rows}
+
+    now = datetime.now(timezone.utc)
+    items: list[dict] = []
+    for a in latest:
+        p = p_by_id.get(a.problem_id)
+        ps = s_by_id.get(a.problem_set_id)
+        if not p or not ps:
+            continue
+        if course_id is not None and ps.course_id != course_id:
+            continue
+        if subject and (p.subject or "") != subject:
+            continue
+        course = c_by_id.get(ps.course_id)
+        # 정답·해설 노출 정책 — student-view와 동일
+        is_past_due = ps.due_date is not None and ps.due_date < now
+        reveal = bool(ps.show_solution_after_due and is_past_due)
+
+        items.append({
+            "attempt_id": a.id,
+            "attempt_number": a.attempt_number,
+            "problem_set_id": ps.id,
+            "problem_set_title": ps.title,
+            "course_id": ps.course_id,
+            "course_name": course.name if course else f"#{ps.course_id}",
+            "problem_id": p.id,
+            "problem_type": p.question_type,
+            "subject": p.subject,
+            "difficulty": p.difficulty,
+            "content": p.content,
+            "answer_data_view": {
+                "choices": (p.answer_data or {}).get("choices")
+                if p.answer_data else None,
+            },
+            "your_answer": a.answer_data,
+            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+            "answer": p.answer if reveal else None,
+            "solution": p.solution if reveal else None,
+            "revealed": reveal,
+        })
+
+    return {"items": items}
+
+
 @router.get("/problem-sets/{psid}/students/{sid}/attempts")
 async def student_attempts(
     psid: int, sid: int,

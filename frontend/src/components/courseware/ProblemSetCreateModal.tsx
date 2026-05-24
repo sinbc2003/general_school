@@ -43,6 +43,8 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [showSolutionAfterDue, setShowSolutionAfterDue] = useState(true);
   const [status, setStatus] = useState<"draft" | "published">("draft");
+  const [timeLimitMin, setTimeLimitMin] = useState<number | "">("");
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
 
   const [mode, setMode] = useState<Mode>("inline");
   const [saving, setSaving] = useState(false);
@@ -137,6 +139,18 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
     });
   };
 
+  const commonBody = () => ({
+    title,
+    description: description || null,
+    status,
+    due_date: dueDate ? new Date(dueDate).toISOString() : null,
+    max_attempts: maxAttempts,
+    show_solution_after_due: showSolutionAfterDue,
+    time_limit_seconds:
+      timeLimitMin === "" || timeLimitMin <= 0 ? null : Math.round(timeLimitMin * 60),
+    settings: shuffleQuestions ? { shuffle_questions: true } : null,
+  });
+
   const handleSave = async () => {
     if (!title.trim()) {
       toast.show("제목을 입력하세요", "error");
@@ -154,13 +168,8 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
           return;
         }
         const body = {
-          title,
-          description: description || null,
+          ...commonBody(),
           problems: validProblems,
-          status,
-          due_date: dueDate ? new Date(dueDate).toISOString() : null,
-          max_attempts: maxAttempts,
-          show_solution_after_due: showSolutionAfterDue,
         };
         const created = await api.post<{ id: number }>(
           `/api/courseware/courses/${cid}/problem-sets`,
@@ -201,13 +210,8 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
           return;
         }
         const body = {
-          title,
-          description: description || null,
+          ...commonBody(),
           problem_ids: Array.from(bankSelected),
-          status,
-          due_date: dueDate ? new Date(dueDate).toISOString() : null,
-          max_attempts: maxAttempts,
-          show_solution_after_due: showSolutionAfterDue,
         };
         const created = await api.post<{ id: number }>(
           `/api/courseware/courses/${cid}/problem-sets/from-bank`,
@@ -301,6 +305,27 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
                 <option value="draft">초안 (학생에게 안 보임)</option>
                 <option value="published">게시 (학생 풀이 가능)</option>
               </select>
+            </label>
+            <label className="text-caption">
+              <div className="text-text-secondary mb-1">시간 제한 (분, 선택)</div>
+              <input
+                type="number"
+                min={1}
+                value={timeLimitMin}
+                onChange={(e) =>
+                  setTimeLimitMin(e.target.value === "" ? "" : parseInt(e.target.value))
+                }
+                placeholder="비워두면 무제한"
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-caption">
+              <input
+                type="checkbox"
+                checked={shuffleQuestions}
+                onChange={(e) => setShuffleQuestions(e.target.checked)}
+              />
+              문제 순서 random (학생간 컨닝 방지)
             </label>
           </div>
 

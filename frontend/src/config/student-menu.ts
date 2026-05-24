@@ -16,6 +16,7 @@ import {
   FileText,
   HardDrive,
   BookOpen,
+  NotebookPen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +39,7 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: null },
   { key: "assignment", label: "과제", icon: ClipboardList, path: "/s/assignment", permission: null },
   { key: "classroom", label: "내 수업", icon: GraduationCap, path: "/s/classroom", permission: null },
+  { key: "wrong-notes", label: "오답 노트", icon: NotebookPen, path: "/s/courseware/wrong-notes", permission: null },
   { key: "enrollment-wizard", label: "수강과목 신청", icon: BookOpen, path: "/s/enrollment-wizard", permission: null },
   { key: "my-drive", label: "내 드라이브", icon: HardDrive, path: "/s/drive", permission: null },
   { key: "my-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
