@@ -18,11 +18,13 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { X, Save } from "lucide-react";
+import { X, Save, Bot, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { ProblemContent } from "./ProblemContent";
-import type { ProblemFull } from "./types";
+import type { ProblemFull, GradingStatus, LLMMetadata } from "./types";
+
+const AI_PREFIX = "(AI 채점) ";
 
 interface AttemptRow {
   id: number;
@@ -33,6 +35,9 @@ interface AttemptRow {
   auto_score: number | null;
   manual_score: number | null;
   manual_feedback: string | null;
+  graded_by: number | null;
+  grading_status: GradingStatus;
+  llm_metadata: LLMMetadata | null;
   submitted_at: string | null;
 }
 
@@ -68,12 +73,14 @@ export function ManualGradeModal({ psid, studentId, problems, onClose, onSaved }
       );
       const rows = res.items.filter((r) => manualProblemIds.has(r.problem_id));
       setAttempts(rows);
-      // edit map 초기화
+      // edit map 초기화 — AI prefix는 편집창에서 제거 (교사가 수정 시 자동으로 사람 채점됨)
       const init: Record<number, { score: number; feedback: string }> = {};
       for (const r of rows) {
+        const fb = r.manual_feedback || "";
+        const cleanFb = fb.startsWith(AI_PREFIX) ? fb.slice(AI_PREFIX.length) : fb;
         init[r.id] = {
           score: r.manual_score ?? 0,
-          feedback: r.manual_feedback || "",
+          feedback: cleanFb,
         };
       }
       setEdits(init);
@@ -126,8 +133,11 @@ export function ManualGradeModal({ psid, studentId, problems, onClose, onSaved }
               const edit = edits[a.id] || { score: 0, feedback: "" };
               return (
                 <div key={a.id} className="border border-border-default rounded p-3">
-                  <div className="text-caption text-text-tertiary mb-1">
-                    시도 #{a.attempt_number} · 문제 {a.problem_id} · {p?.type}
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-caption text-text-tertiary">
+                      시도 #{a.attempt_number} · 문제 {a.problem_id} · {p?.type}
+                    </div>
+                    <AttemptStatusBadge attempt={a} />
                   </div>
                   {p && <ProblemContent content={p.content} className="text-body mb-2" />}
                   <div className="bg-bg-secondary rounded p-2 mb-2">
@@ -141,6 +151,9 @@ export function ManualGradeModal({ psid, studentId, problems, onClose, onSaved }
                       <div className="text-caption text-text-tertiary mb-1">채점 기준</div>
                       <div className="text-caption">{p.answer_data.rubric}</div>
                     </div>
+                  )}
+                  {a.llm_metadata && (
+                    <LLMResultDetail meta={a.llm_metadata} status={a.grading_status} />
                   )}
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     <label className="text-caption">
@@ -199,6 +212,82 @@ export function ManualGradeModal({ psid, studentId, problems, onClose, onSaved }
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function AttemptStatusBadge({ attempt }: { attempt: AttemptRow }) {
+  if (attempt.grading_status === "done") {
+    return (
+      <span className="text-caption text-emerald-700 flex items-center gap-1">
+        <Bot size={12} /> AI 채점 완료
+      </span>
+    );
+  }
+  if (attempt.grading_status === "running") {
+    return (
+      <span className="text-caption text-sky-700 flex items-center gap-1">
+        <Bot size={12} /> AI 채점 중
+      </span>
+    );
+  }
+  if (attempt.grading_status === "failed") {
+    return (
+      <span className="text-caption text-red-700 flex items-center gap-1">
+        <Bot size={12} /> AI 채점 실패
+      </span>
+    );
+  }
+  if (attempt.grading_status === "pending") {
+    return (
+      <span className="text-caption text-text-tertiary flex items-center gap-1">
+        <Bot size={12} /> AI 채점 대기
+      </span>
+    );
+  }
+  if (attempt.graded_by) {
+    return (
+      <span className="text-caption text-text-secondary">교사 채점 완료</span>
+    );
+  }
+  return <span className="text-caption text-text-tertiary">미채점</span>;
+}
+
+
+function LLMResultDetail({ meta, status }: { meta: LLMMetadata; status: GradingStatus }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = meta.model_label || meta.model || "?";
+  return (
+    <div className={`border rounded p-2 mb-2 ${
+      status === "failed"
+        ? "bg-red-50 border-red-200"
+        : "bg-sky-50 border-sky-200"
+    }`}>
+      <div className="flex items-center justify-between gap-2 text-caption">
+        <div className="flex items-center gap-1.5 text-text-secondary">
+          <Bot size={12} />
+          <span className="font-semibold">{label}</span>
+          <span className="text-text-tertiary">
+            (in {meta.tokens_in ?? 0} / out {meta.tokens_out ?? 0} · ${Number(meta.cost_usd ?? 0).toFixed(6)})
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="text-text-tertiary hover:text-text-primary p-0.5"
+        >
+          {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </button>
+      </div>
+      {meta.error && (
+        <div className="text-caption text-red-700 mt-1">{meta.error}</div>
+      )}
+      {expanded && meta.raw_response && (
+        <pre className="text-[11px] mt-2 p-2 bg-bg-primary border border-border-default rounded whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+          {meta.raw_response}
+        </pre>
+      )}
     </div>
   );
 }

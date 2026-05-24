@@ -10,12 +10,22 @@
  * 메타(제목·마감·재응시·해설표시)는 공통.
  */
 
-import { useState } from "react";
-import { X, Plus, Upload, Library, Trash2, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Plus, Upload, Library, Trash2, Search, Bot } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { InlineProblemForm } from "./InlineProblemForm";
 import type { ProblemInline, BankSearchItem } from "./types";
+
+interface ModelItem {
+  id: number;
+  provider: string;
+  model_id: string;
+  display_name: string;
+  input_per_1m_usd: number;
+  output_per_1m_usd: number;
+  active: boolean;
+}
 
 interface Props {
   cid: number;
@@ -45,6 +55,17 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
   const [status, setStatus] = useState<"draft" | "published">("draft");
   const [timeLimitMin, setTimeLimitMin] = useState<number | "">("");
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
+
+  // LLM 자동 채점 (학생 제출 시 background)
+  const [llmGraderEnabled, setLlmGraderEnabled] = useState(false);
+  const [llmGraderModelKey, setLlmGraderModelKey] = useState<string>("");  // "provider|model_id"
+  const [models, setModels] = useState<ModelItem[]>([]);
+
+  useEffect(() => {
+    api.get<{ items: ModelItem[] }>("/api/chatbot/models")
+      .then((res) => setModels(res.items.filter((m) => m.active)))
+      .catch(() => setModels([]));
+  }, []);
 
   const [mode, setMode] = useState<Mode>("inline");
   const [saving, setSaving] = useState(false);
@@ -139,17 +160,31 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
     });
   };
 
-  const commonBody = () => ({
-    title,
-    description: description || null,
-    status,
-    due_date: dueDate ? new Date(dueDate).toISOString() : null,
-    max_attempts: maxAttempts,
-    show_solution_after_due: showSolutionAfterDue,
-    time_limit_seconds:
-      timeLimitMin === "" || timeLimitMin <= 0 ? null : Math.round(timeLimitMin * 60),
-    settings: shuffleQuestions ? { shuffle_questions: true } : null,
-  });
+  const commonBody = () => {
+    const settings: Record<string, any> = {};
+    if (shuffleQuestions) settings.shuffle_questions = true;
+    if (llmGraderEnabled) {
+      settings.llm_grader_enabled = true;
+      if (llmGraderModelKey) {
+        const [provider, model_id] = llmGraderModelKey.split("|");
+        if (provider && model_id) {
+          settings.llm_grader_provider = provider;
+          settings.llm_grader_model = model_id;
+        }
+      }
+    }
+    return {
+      title,
+      description: description || null,
+      status,
+      due_date: dueDate ? new Date(dueDate).toISOString() : null,
+      max_attempts: maxAttempts,
+      show_solution_after_due: showSolutionAfterDue,
+      time_limit_seconds:
+        timeLimitMin === "" || timeLimitMin <= 0 ? null : Math.round(timeLimitMin * 60),
+      settings: Object.keys(settings).length ? settings : null,
+    };
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -327,6 +362,46 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
               />
               문제 순서 random (학생간 컨닝 방지)
             </label>
+          </div>
+
+          {/* LLM 자동 채점 — essay/주관식 문제용 */}
+          <div className="bg-cream-50 border border-cream-300 rounded p-3 space-y-2">
+            <label className="flex items-center gap-1.5 text-caption">
+              <input
+                type="checkbox"
+                checked={llmGraderEnabled}
+                onChange={(e) => setLlmGraderEnabled(e.target.checked)}
+              />
+              <Bot size={14} className="text-text-secondary" />
+              <span className="font-semibold">AI 자동 채점 — essay/주관식</span>
+              <span className="text-text-tertiary text-[11px]">
+                (객관식·단답·수치는 자동채점 그대로)
+              </span>
+            </label>
+            {llmGraderEnabled && (
+              <div className="pl-6">
+                <div className="text-[11px] text-text-tertiary mb-1">
+                  학생 제출 즉시 background로 AI 채점 → 교사가 결과 검토·override 가능
+                </div>
+                <select
+                  value={llmGraderModelKey}
+                  onChange={(e) => setLlmGraderModelKey(e.target.value)}
+                  className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+                >
+                  <option value="">시스템 기본 (학생용 모델)</option>
+                  {models.map((m) => (
+                    <option key={`${m.provider}|${m.model_id}`} value={`${m.provider}|${m.model_id}`}>
+                      {m.provider} · {m.display_name} (in ${m.input_per_1m_usd}/M, out ${m.output_per_1m_usd}/M)
+                    </option>
+                  ))}
+                </select>
+                {models.length === 0 && (
+                  <div className="text-[11px] text-amber-700 mt-1">
+                    활성 모델이 없습니다. /system/llm/providers에서 API 키 등록 + 활성화 필요.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 추가 방식 탭 */}

@@ -14,11 +14,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2, XCircle, Clock, RotateCw, Send, FileQuestion, Timer,
+  Bot, Loader2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { ProblemContent, InlineMathText } from "./ProblemContent";
-import type { StudentViewResp, SubmitResult, ProblemForStudent } from "./types";
+import type {
+  StudentViewResp, SubmitResult, ProblemForStudent, MyAttemptRow, GradingStatus,
+} from "./types";
 
 interface Props {
   psid: number;
@@ -44,6 +47,9 @@ export function StudentSolveView({ psid }: Props) {
   const [lastResult, setLastResult] = useState<SubmitResult | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const autoSubmittedRef = useRef(false);
+  // LLM 채점 polling — submit 후 llm_grading_started면 시작
+  const [llmPolling, setLlmPolling] = useState(false);
+  const [llmStatusByPid, setLlmStatusByPid] = useState<Record<number, MyAttemptRow>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,6 +136,10 @@ export function StudentSolveView({ psid }: Props) {
         sessionStorage.removeItem(startKey);
         sessionStorage.removeItem(orderKey);
       }
+      // LLM 채점 시작 → polling
+      if (res.llm_grading_started) {
+        setLlmPolling(true);
+      }
       toast.show(
         (auto ? "시간 초과 자동 제출 — " : "제출 완료 — ") +
           `자동채점 ${res.auto_correct}/${res.auto_graded}` +
@@ -143,6 +153,34 @@ export function StudentSolveView({ psid }: Props) {
       setSubmitting(false);
     }
   }, [data, answers, psid, toast, load]);
+
+  // ── LLM 채점 polling — submit 후 활성 (5초 주기). 모두 done/failed면 정지.
+  useEffect(() => {
+    if (!llmPolling) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await api.get<{ items: MyAttemptRow[]; attempts_used: number }>(
+          `/api/courseware/problem-sets/${psid}/my-attempts`,
+        );
+        if (cancelled) return;
+        const latestN = Math.max(...res.items.map((r) => r.attempt_number), 0);
+        const latest = res.items.filter((r) => r.attempt_number === latestN);
+        const map: Record<number, MyAttemptRow> = {};
+        latest.forEach((r) => { map[r.problem_id] = r; });
+        setLlmStatusByPid(map);
+        const inflight = latest.some(
+          (r) => r.grading_status === "pending" || r.grading_status === "running",
+        );
+        if (!inflight) setLlmPolling(false);
+      } catch {
+        // best-effort
+      }
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [llmPolling, psid]);
 
   // ── Timer — time_limit_seconds 켜져있을 때
   useEffect(() => {
@@ -269,6 +307,16 @@ export function StudentSolveView({ psid }: Props) {
         </div>
       )}
 
+      {/* LLM 채점 진행 표시 (제출 직후 polling 중) */}
+      {llmPolling && (
+        <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 flex items-center gap-2">
+          <Loader2 size={16} className="text-sky-700 animate-spin" />
+          <span className="text-caption text-sky-900">
+            AI 채점 진행 중… (essay/주관식 문제 — 보통 10~30초 소요)
+          </span>
+        </div>
+      )}
+
       {/* 문제 list (셔플된 순서) */}
       {orderedProblems.map((p, i) => (
         <ProblemCard
@@ -279,6 +327,7 @@ export function StudentSolveView({ psid }: Props) {
           onChange={(next) => setAnswers((prev) => ({ ...prev, [p.id]: next }))}
           revealed={data.solution_revealed}
           lastResult={lastResult?.results.find((r) => r.problem_id === p.id)}
+          llmStatus={llmStatusByPid[p.id]}
           disabled={cantSubmit}
         />
       ))}
@@ -312,12 +361,51 @@ interface ProblemCardProps {
     is_correct: boolean | null;
     auto_score: number;
     has_manual_pending: boolean;
+    llm_grading?: boolean;
   };
+  llmStatus?: MyAttemptRow;
   disabled?: boolean;
 }
 
+function LLMStatusBadge({ status }: { status: MyAttemptRow }) {
+  const s = status.grading_status;
+  if (s === "pending") {
+    return (
+      <span className="text-text-tertiary flex items-center gap-1">
+        <Bot size={12} /> AI 채점 대기…
+      </span>
+    );
+  }
+  if (s === "running") {
+    return (
+      <span className="text-sky-700 flex items-center gap-1">
+        <Loader2 size={12} className="animate-spin" /> AI 채점 중…
+      </span>
+    );
+  }
+  if (s === "done") {
+    return (
+      <span className="text-emerald-700 flex items-center gap-1 font-semibold">
+        <Bot size={12} /> AI 채점 완료
+        {status.manual_score !== null && (
+          <span>({Math.round(status.manual_score * 100)}점)</span>
+        )}
+      </span>
+    );
+  }
+  if (s === "failed") {
+    return (
+      <span className="text-red-700 flex items-center gap-1">
+        <Bot size={12} /> AI 채점 실패 (교사 검토 필요)
+      </span>
+    );
+  }
+  return <span className="text-amber-700 font-semibold">수동 채점 대기</span>;
+}
+
+
 function ProblemCard({
-  index, problem, answer, onChange, revealed, lastResult, disabled,
+  index, problem, answer, onChange, revealed, lastResult, llmStatus, disabled,
 }: ProblemCardProps) {
   return (
     <div className="bg-bg-primary border border-border-default rounded-lg p-4">
@@ -339,7 +427,11 @@ function ProblemCard({
                 <span className="text-red-700 font-semibold">오답</span>
               </>
             )}
-            {lastResult.is_correct === null && lastResult.has_manual_pending && (
+            {/* LLM 채점 상태 우선 표시 (수동 채점 대기보다 우선) */}
+            {lastResult.is_correct === null && llmStatus && (
+              <LLMStatusBadge status={llmStatus} />
+            )}
+            {lastResult.is_correct === null && !llmStatus && lastResult.has_manual_pending && (
               <span className="text-amber-700 font-semibold">수동 채점 대기</span>
             )}
           </div>
@@ -410,6 +502,23 @@ function ProblemCard({
           placeholder="답안 작성"
           className="w-full px-3 py-2 border border-border-default rounded text-body font-mono"
         />
+      )}
+
+      {/* LLM 채점 피드백 (done 시) */}
+      {llmStatus?.grading_status === "done" && llmStatus.manual_feedback && (
+        <div className="mt-3 pt-3 border-t border-cream-300 bg-cream-50 rounded p-2 -mx-2">
+          <div className="flex items-center gap-1 text-caption text-text-tertiary font-semibold mb-1">
+            <Bot size={12} /> AI 피드백
+            {llmStatus.manual_score !== null && (
+              <span className="ml-1 text-text-secondary">
+                ({Math.round(llmStatus.manual_score * 100)}점)
+              </span>
+            )}
+          </div>
+          <div className="text-caption text-text-secondary whitespace-pre-wrap">
+            {llmStatus.manual_feedback}
+          </div>
+        </div>
       )}
 
       {/* 정답·해설 (revealed일 때만) */}

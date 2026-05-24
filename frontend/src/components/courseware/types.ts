@@ -81,12 +81,43 @@ export interface SubmitResult {
   auto_correct: number;
   auto_score_sum: number;
   manual_pending: number;
+  llm_pending?: number;
+  llm_grading_started?: boolean;
   results: {
     problem_id: number;
     is_correct: boolean | null;
     auto_score: number;
     has_manual_pending: boolean;
+    llm_grading?: boolean;
   }[];
+}
+
+export type GradingStatus = "none" | "pending" | "running" | "done" | "failed";
+
+export interface LLMMetadata {
+  provider?: string;
+  model?: string;
+  model_label?: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost_usd?: number;
+  raw_response?: string;
+  graded_at?: string;
+  error?: string;
+}
+
+export interface MyAttemptRow {
+  attempt_number: number;
+  problem_id: number;
+  answer_data: Record<string, any> | null;
+  is_correct: boolean | null;
+  auto_score: number | null;
+  manual_score: number | null;
+  manual_feedback: string | null;
+  grading_status: GradingStatus;
+  llm_metadata: LLMMetadata | null;
+  submitted_at: string | null;
+  graded_at: string | null;
 }
 
 export interface ResultsResp {

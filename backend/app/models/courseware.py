@@ -134,6 +134,18 @@ class StudentProblemAttempt(Base):
     graded_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
+    # LLM 채점 상태 — 'none' (LLM 대상 X) / 'pending' / 'running' / 'done' / 'failed'
+    # 자동채점 가능(choices/exact/regex/numeric) attempt는 'none'.
+    # essay/manual/llm grader는 학생 제출 시 settings.llm_grader_enabled에 따라
+    # 'pending' 으로 저장 → background task가 'running' → 'done'/'failed' 전이.
+    grading_status: Mapped[str] = mapped_column(
+        String(20), default="none", nullable=False, server_default="none",
+    )
+    # LLM 채점 메타데이터 (감사·재현·비용 추적)
+    # 형식: {"provider": str, "model": str, "model_label": str,
+    #        "tokens_in": int, "tokens_out": int, "cost_usd": float,
+    #        "raw_response": str, "graded_at": iso8601, "error": str?}
+    llm_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

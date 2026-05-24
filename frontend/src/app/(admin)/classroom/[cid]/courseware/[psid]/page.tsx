@@ -13,10 +13,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Download, FileSpreadsheet, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { ArrowLeft, Download, FileSpreadsheet, CheckCircle2, XCircle, Pencil, Bot } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { ManualGradeModal } from "@/components/courseware/ManualGradeModal";
+import { LLMGradeModal } from "@/components/courseware/LLMGradeModal";
 import { ProblemContent, InlineMathText } from "@/components/courseware/ProblemContent";
 import type { ProblemSetDetail, ResultsResp } from "@/components/courseware/types";
 import { STATUS_LABEL, STATUS_BADGE_TONE } from "@/components/courseware/types";
@@ -33,6 +34,7 @@ export default function CoursewareResultsPage() {
   const [results, setResults] = useState<ResultsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [manualSid, setManualSid] = useState<number | null>(null);
+  const [showLLMGrade, setShowLLMGrade] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,6 +147,16 @@ export default function CoursewareResultsPage() {
                 className="text-caption px-3 py-1.5 border border-amber-300 text-amber-700 rounded hover:bg-amber-50"
               >
                 마감
+              </button>
+            )}
+            {manualCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowLLMGrade(true)}
+                className="text-caption px-3 py-1.5 border border-sky-300 text-sky-700 rounded hover:bg-sky-50 flex items-center gap-1"
+                title="essay/주관식 문제 LLM 일괄 채점"
+              >
+                <Bot size={12} /> AI 채점
               </button>
             )}
             <button
@@ -271,6 +283,14 @@ export default function CoursewareResultsPage() {
           problems={detail.problems}
           onClose={() => setManualSid(null)}
           onSaved={() => { setManualSid(null); load(); }}
+        />
+      )}
+
+      {showLLMGrade && (
+        <LLMGradeModal
+          psid={psid}
+          onClose={() => setShowLLMGrade(false)}
+          onDone={() => { setShowLLMGrade(false); load(); }}
         />
       )}
     </div>

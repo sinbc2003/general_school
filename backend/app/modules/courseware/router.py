@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -445,6 +445,7 @@ async def get_problem_set_student_view(
 @router.post("/problem-sets/{psid}/submit")
 async def submit_problem_set(
     psid: int, body: SubmitAttemptReq, request: Request,
+    background: BackgroundTasks,
     user: User = Depends(require_permission("classroom.courseware.submit")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -488,11 +489,15 @@ async def submit_problem_set(
     by_id: dict[int, Problem] = {p.id: p for p in problems}
     answer_by_pid = {a.problem_id: a.answer for a in body.answers}
 
+    # ProblemSet.settings.llm_grader_enabled이면 학생 제출 시 background LLM 채점
+    llm_grader_enabled = bool((ps.settings or {}).get("llm_grader_enabled"))
+
     results: list[dict] = []
     auto_score_sum = 0.0
     auto_graded = 0
     auto_correct = 0
     manual_pending = 0
+    llm_pending = 0
 
     for p in problems:
         sub = answer_by_pid.get(p.id)
@@ -502,6 +507,11 @@ async def submit_problem_set(
             and (p.answer_data.get("grader_type") or "").lower() in MANUAL_GRADER_TYPES
         )
 
+        # LLM 채점 대상 — manual grader + llm_grader_enabled
+        grading_status = "none"
+        if is_correct is None and has_manual and llm_grader_enabled:
+            grading_status = "pending"
+
         att = StudentProblemAttempt(
             problem_set_id=psid,
             problem_id=p.id,
@@ -510,6 +520,7 @@ async def submit_problem_set(
             answer_data=sub,
             is_correct=is_correct,
             auto_score=score,
+            grading_status=grading_status,
             graded_at=datetime.now(timezone.utc) if is_correct is not None else None,
         )
         db.add(att)
@@ -517,6 +528,8 @@ async def submit_problem_set(
         if is_correct is None:
             if has_manual:
                 manual_pending += 1
+                if grading_status == "pending":
+                    llm_pending += 1
         else:
             auto_graded += 1
             if is_correct:
@@ -528,15 +541,21 @@ async def submit_problem_set(
             "is_correct": is_correct,
             "auto_score": score,
             "has_manual_pending": has_manual,
+            "llm_grading": grading_status == "pending",
         })
 
     await db.flush()
     await log_action(
         db, user, "courseware.attempt.submit",
         target=f"set:{psid} attempt:{attempt_n}",
-        detail=f"correct={auto_correct}/{auto_graded} pending={manual_pending}",
+        detail=f"correct={auto_correct}/{auto_graded} pending={manual_pending} llm={llm_pending}",
         request=request,
     )
+
+    # LLM 채점 background spawn (response sent 후 실행) — pending이 1개 이상일 때만
+    if llm_pending > 0:
+        from app.services.llm_grader import grade_pending_for_student
+        background.add_task(grade_pending_for_student, psid, user.id, attempt_n)
 
     return {
         "ok": True,
@@ -546,6 +565,8 @@ async def submit_problem_set(
         "auto_correct": auto_correct,
         "auto_score_sum": auto_score_sum,
         "manual_pending": manual_pending,
+        "llm_pending": llm_pending,
+        "llm_grading_started": llm_pending > 0,
         "results": results,
     }
 
@@ -584,6 +605,8 @@ async def my_attempts(
             "auto_score": r.auto_score,
             "manual_score": r.manual_score,
             "manual_feedback": r.manual_feedback,
+            "grading_status": r.grading_status,
+            "llm_metadata": r.llm_metadata,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
             "graded_at": r.graded_at.isoformat() if r.graded_at else None,
         }
@@ -836,6 +859,9 @@ async def student_attempts(
             "auto_score": r.auto_score,
             "manual_score": r.manual_score,
             "manual_feedback": r.manual_feedback,
+            "graded_by": r.graded_by,
+            "grading_status": r.grading_status,
+            "llm_metadata": r.llm_metadata,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
             "graded_at": r.graded_at.isoformat() if r.graded_at else None,
         }
@@ -883,3 +909,4 @@ async def manual_grade_attempt(
 # Sub-routers — 같은 router 인스턴스에 endpoint 추가 (chatbots 패턴 동일)
 from app.modules.courseware import bank  # noqa: E402,F401
 from app.modules.courseware import io    # noqa: E402,F401
+from app.modules.courseware import llm   # noqa: E402,F401

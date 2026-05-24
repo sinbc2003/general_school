@@ -105,3 +105,35 @@ class ManualGradeReq(BaseModel):
     attempt_id: int = Field(..., gt=0)
     score: float = Field(..., ge=0, le=1.0)  # 0.0 ~ 1.0 정규화 점수
     feedback: str | None = Field(default=None, max_length=2000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM 자동 채점
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class LLMGradeReq(BaseModel):
+    """교사 trigger batch LLM 채점 요청."""
+    provider: str | None = None       # None이면 settings/system default
+    model_id: str | None = None
+    only_ungraded: bool = True        # manual_score가 NULL인 것만
+    force: bool = False               # True면 이미 채점된 것도 덮어쓰기
+
+
+class LLMGradeResultResp(BaseModel):
+    total: int
+    graded: int
+    failed: int
+    total_cost_usd: float
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LLMGradePreviewResp(BaseModel):
+    """dry-run cost 예측 응답."""
+    eligible_attempts: int            # 채점 대상 개수
+    provider: str | None
+    model_id: str | None
+    model_label: str | None
+    input_per_1m_usd: float
+    output_per_1m_usd: float
+    estimated_cost_usd: float         # 평균 토큰 추정 기반

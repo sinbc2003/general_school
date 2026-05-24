@@ -420,6 +420,37 @@ async def _update_storage_volumes() -> int:
     return checked
 
 
+async def _fail_stale_llm_grading(db: AsyncSession) -> int:
+    """LLM 채점 'running' 상태로 1시간+ 지난 attempt를 'failed' 마크.
+
+    서버 재시작·crash로 in-flight task 사라지면 grading_status='running' 영구 잔존 위험.
+    매 tick(1h)에 1시간 임계 넘은 것 cleanup. 교사가 결과 페이지에서 재시도 가능.
+    """
+    from app.models import StudentProblemAttempt
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    rows = (await db.execute(
+        select(StudentProblemAttempt).where(
+            StudentProblemAttempt.grading_status == "running",
+            StudentProblemAttempt.submitted_at < cutoff,
+        )
+    )).scalars().all()
+
+    failed_count = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for a in rows:
+        a.grading_status = "failed"
+        meta = dict(a.llm_metadata or {})
+        meta.setdefault("error", "stale running — 서버 재시작/timeout 추정 (1시간 초과)")
+        meta.setdefault("graded_at", now_iso)
+        a.llm_metadata = meta
+        failed_count += 1
+
+    if failed_count > 0:
+        log.info("[NOTIF SCHED] stale LLM grading — %d개 failed로 마크", failed_count)
+    return failed_count
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick.
 
@@ -442,6 +473,7 @@ async def _scheduler_loop() -> None:
         ("expired_users", _disable_expired_users, None),  # 내부에서 log
         ("revision_purge", _maybe_purge_old_revisions, None),  # 내부에서 log
         ("github_update_check", _maybe_check_github_updates, None),  # 내부에서 log
+        ("stale_llm_grading", _fail_stale_llm_grading, None),  # 내부에서 log
     ]
 
     while True:
