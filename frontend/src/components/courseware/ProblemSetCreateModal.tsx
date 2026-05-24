@@ -1,0 +1,512 @@
+"use client";
+
+/**
+ * 문제 세트 출제 모달 — 3가지 추가 방식 탭.
+ *
+ *  1. inline 직접 입력 (InlineProblemForm)
+ *  2. JSONL 파일 업로드 (서버에서 검증 + dry-run 가능)
+ *  3. 라이브러리에서 선택 (bank search)
+ *
+ * 메타(제목·마감·재응시·해설표시)는 공통.
+ */
+
+import { useState } from "react";
+import { X, Plus, Upload, Library, Trash2, Search } from "lucide-react";
+import { api } from "@/lib/api/client";
+import { useToast } from "@/components/ui/Toast";
+import { InlineProblemForm } from "./InlineProblemForm";
+import type { ProblemInline, BankSearchItem } from "./types";
+
+interface Props {
+  cid: number;
+  onClose: () => void;
+  onCreated: (psid: number) => void;
+}
+
+type Mode = "inline" | "jsonl" | "bank";
+
+const DEFAULT_PROBLEM: ProblemInline = {
+  type: "short_answer",
+  content: "",
+  answer: "",
+  answer_data: { grader_type: "exact", correct: "" },
+  difficulty: "medium",
+};
+
+export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
+  const toast = useToast();
+
+  // 공통 메타
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [showSolutionAfterDue, setShowSolutionAfterDue] = useState(true);
+  const [status, setStatus] = useState<"draft" | "published">("draft");
+
+  const [mode, setMode] = useState<Mode>("inline");
+  const [saving, setSaving] = useState(false);
+
+  // inline
+  const [problems, setProblems] = useState<ProblemInline[]>([{ ...DEFAULT_PROBLEM }]);
+
+  // jsonl
+  const [jsonlFile, setJsonlFile] = useState<File | null>(null);
+  const [jsonlPreview, setJsonlPreview] = useState<{
+    total: number; valid: number; errors: { line: number; message: string }[];
+  } | null>(null);
+
+  // bank
+  const [bankQuery, setBankQuery] = useState("");
+  const [bankSubject, setBankSubject] = useState("");
+  const [bankDifficulty, setBankDifficulty] = useState("");
+  const [bankItems, setBankItems] = useState<BankSearchItem[]>([]);
+  const [bankSelected, setBankSelected] = useState<Set<number>>(new Set());
+  const [bankLoading, setBankLoading] = useState(false);
+
+  const addProblem = () =>
+    setProblems((prev) => [...prev, { ...DEFAULT_PROBLEM }]);
+
+  const updateProblem = (i: number, next: ProblemInline) =>
+    setProblems((prev) => prev.map((p, idx) => (idx === i ? next : p)));
+
+  const removeProblem = (i: number) =>
+    setProblems((prev) => prev.filter((_, idx) => idx !== i));
+
+  const runJsonlPreview = async () => {
+    if (!jsonlFile) {
+      toast.show("JSONL 파일을 선택하세요", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", jsonlFile);
+      const res = await api.fetch<{
+        total: number; valid: number;
+        errors: { line: number; message: string }[];
+      }>(
+        `/api/courseware/courses/${cid}/problems/import-jsonl?dry_run=true&create_set=false`,
+        { method: "POST", body: fd },
+      );
+      setJsonlPreview(res);
+    } catch (e: any) {
+      toast.show(e?.detail || "검증 실패", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const searchBank = async () => {
+    setBankLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", "1");
+      params.set("page_size", "30");
+      if (bankQuery) params.set("search", bankQuery);
+      if (bankSubject) params.set("subject", bankSubject);
+      if (bankDifficulty) params.set("difficulty", bankDifficulty);
+      const res = await api.get<{ items: BankSearchItem[] }>(
+        `/api/courseware/problems-bank/search?${params.toString()}`,
+      );
+      setBankItems(res.items);
+    } catch (e: any) {
+      toast.show(e?.detail || "검색 실패", "error");
+    } finally {
+      setBankLoading(false);
+    }
+  };
+
+  const toggleBankItem = (id: number) => {
+    setBankSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      toast.show("제목을 입력하세요", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      let psid: number | null = null;
+
+      if (mode === "inline") {
+        const validProblems = problems.filter((p) => p.content.trim());
+        if (validProblems.length === 0) {
+          toast.show("문제를 1개 이상 입력하세요", "error");
+          setSaving(false);
+          return;
+        }
+        const body = {
+          title,
+          description: description || null,
+          problems: validProblems,
+          status,
+          due_date: dueDate ? new Date(dueDate).toISOString() : null,
+          max_attempts: maxAttempts,
+          show_solution_after_due: showSolutionAfterDue,
+        };
+        const created = await api.post<{ id: number }>(
+          `/api/courseware/courses/${cid}/problem-sets`,
+          body,
+        );
+        psid = created.id;
+      } else if (mode === "jsonl") {
+        if (!jsonlFile) {
+          toast.show("JSONL 파일을 선택하세요", "error");
+          setSaving(false);
+          return;
+        }
+        const fd = new FormData();
+        fd.append("file", jsonlFile);
+        const url = new URL(
+          `/api/courseware/courses/${cid}/problems/import-jsonl`,
+          "http://x",
+        );
+        url.searchParams.set("dry_run", "false");
+        url.searchParams.set("create_set", "true");
+        url.searchParams.set("set_title", title);
+        const res = await api.fetch<{
+          problem_set_id: number | null; valid: number; errors: any[];
+        }>(url.pathname + url.search, { method: "POST", body: fd });
+        psid = res.problem_set_id;
+        if (!psid) {
+          toast.show(`import 실패 — 유효 문제 ${res.valid}건, 오류 ${res.errors.length}건`, "error");
+          setSaving(false);
+          return;
+        }
+      } else {
+        // bank
+        if (bankSelected.size === 0) {
+          toast.show("문제를 1개 이상 선택하세요", "error");
+          setSaving(false);
+          return;
+        }
+        const body = {
+          title,
+          description: description || null,
+          problem_ids: Array.from(bankSelected),
+          status,
+          due_date: dueDate ? new Date(dueDate).toISOString() : null,
+          max_attempts: maxAttempts,
+          show_solution_after_due: showSolutionAfterDue,
+        };
+        const created = await api.post<{ id: number }>(
+          `/api/courseware/courses/${cid}/problem-sets/from-bank`,
+          body,
+        );
+        psid = created.id;
+      }
+      if (psid) {
+        toast.show("문제 세트 생성됨", "success");
+        onCreated(psid);
+      }
+    } catch (e: any) {
+      toast.show(e?.detail || "생성 실패", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-bg-primary rounded-lg w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border-default">
+          <h2 className="text-h3">문제 세트 출제</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-tertiary hover:text-text-primary p-1"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* 메타 */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-caption col-span-2">
+              <div className="text-text-secondary mb-1">제목 *</div>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="예: 1단원 형성평가"
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              />
+            </label>
+            <label className="text-caption col-span-2">
+              <div className="text-text-secondary mb-1">설명 (선택)</div>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              />
+            </label>
+            <label className="text-caption">
+              <div className="text-text-secondary mb-1">마감 (선택)</div>
+              <input
+                type="datetime-local"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              />
+            </label>
+            <label className="text-caption">
+              <div className="text-text-secondary mb-1">재응시 횟수</div>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={maxAttempts}
+                onChange={(e) => setMaxAttempts(parseInt(e.target.value || "1"))}
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-caption">
+              <input
+                type="checkbox"
+                checked={showSolutionAfterDue}
+                onChange={(e) => setShowSolutionAfterDue(e.target.checked)}
+              />
+              마감 후 정답·해설 공개
+            </label>
+            <label className="text-caption">
+              <div className="text-text-secondary mb-1">상태</div>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as any)}
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              >
+                <option value="draft">초안 (학생에게 안 보임)</option>
+                <option value="published">게시 (학생 풀이 가능)</option>
+              </select>
+            </label>
+          </div>
+
+          {/* 추가 방식 탭 */}
+          <div className="border-b border-border-default flex gap-1">
+            {[
+              { id: "inline" as const, label: "직접 입력", icon: Plus },
+              { id: "jsonl" as const, label: "JSONL 업로드", icon: Upload },
+              { id: "bank" as const, label: "라이브러리", icon: Library },
+            ].map((t) => {
+              const Icon = t.icon;
+              const isActive = mode === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setMode(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-caption border-b-2 transition ${
+                    isActive
+                      ? "border-accent-default text-accent-default font-semibold"
+                      : "border-transparent text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  <Icon size={14} />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* inline */}
+          {mode === "inline" && (
+            <div className="space-y-3">
+              {problems.map((p, i) => (
+                <InlineProblemForm
+                  key={i}
+                  index={i}
+                  value={p}
+                  onChange={(next) => updateProblem(i, next)}
+                  onRemove={() => removeProblem(i)}
+                />
+              ))}
+              <button
+                type="button"
+                onClick={addProblem}
+                className="w-full py-2 border border-dashed border-border-default rounded text-caption text-text-secondary hover:bg-bg-secondary"
+              >
+                + 문제 추가
+              </button>
+            </div>
+          )}
+
+          {/* JSONL */}
+          {mode === "jsonl" && (
+            <div className="space-y-3">
+              <div className="bg-cream-100 border border-cream-300 rounded p-3 text-caption text-text-secondary">
+                <div className="font-semibold mb-1">JSONL 형식 (한 줄 = 한 문제)</div>
+                <pre className="bg-bg-primary border border-border-default rounded p-2 text-[11px] overflow-x-auto">
+{`{"type": "multiple_choice", "content": "1+1은?",
+ "answer_data": {"grader_type": "choices", "correct": ["B"],
+                 "choices": ["A. 1", "B. 2", "C. 3"]},
+ "answer": "2", "difficulty": "easy", "subject": "수학", "tags": ["기초"]}
+{"type": "numeric", "content": "원주율 소수 둘째자리까지",
+ "answer_data": {"grader_type": "numeric", "value": 3.14, "tolerance": 0.01}}
+{"type": "short_answer", "content": "조선왕조 4대왕은?",
+ "answer_data": {"grader_type": "exact", "correct": "세종"}}`}
+                </pre>
+              </div>
+              <input
+                type="file"
+                accept=".jsonl,.json"
+                onChange={(e) => {
+                  setJsonlFile(e.target.files?.[0] || null);
+                  setJsonlPreview(null);
+                }}
+                className="text-body"
+              />
+              {jsonlFile && (
+                <button
+                  type="button"
+                  onClick={runJsonlPreview}
+                  disabled={saving}
+                  className="px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
+                >
+                  {saving ? "검증 중..." : "검증 실행 (dry-run)"}
+                </button>
+              )}
+              {jsonlPreview && (
+                <div className={`p-3 rounded text-caption ${
+                  jsonlPreview.errors.length === 0
+                    ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+                    : "bg-amber-50 border border-amber-200 text-amber-900"
+                }`}>
+                  <div className="font-semibold mb-1">
+                    총 {jsonlPreview.total}줄 · 유효 {jsonlPreview.valid}개 · 오류 {jsonlPreview.errors.length}건
+                  </div>
+                  {jsonlPreview.errors.length > 0 && (
+                    <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                      {jsonlPreview.errors.slice(0, 20).map((e, i) => (
+                        <li key={i} className="text-[11px]">
+                          <span className="font-mono">L{e.line}</span>: {e.message}
+                        </li>
+                      ))}
+                      {jsonlPreview.errors.length > 20 && (
+                        <li className="text-[11px] italic">…+{jsonlPreview.errors.length - 20}건 더</li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* bank */}
+          {mode === "bank" && (
+            <div className="space-y-3">
+              <div className="flex gap-2 items-end">
+                <input
+                  value={bankQuery}
+                  onChange={(e) => setBankQuery(e.target.value)}
+                  placeholder="본문 검색"
+                  className="flex-1 px-2 py-1.5 border border-border-default rounded text-body"
+                  onKeyDown={(e) => e.key === "Enter" && searchBank()}
+                />
+                <input
+                  value={bankSubject}
+                  onChange={(e) => setBankSubject(e.target.value)}
+                  placeholder="과목"
+                  className="w-24 px-2 py-1.5 border border-border-default rounded text-body"
+                />
+                <select
+                  value={bankDifficulty}
+                  onChange={(e) => setBankDifficulty(e.target.value)}
+                  className="px-2 py-1.5 border border-border-default rounded text-body"
+                >
+                  <option value="">전체</option>
+                  <option value="easy">쉬움</option>
+                  <option value="medium">보통</option>
+                  <option value="hard">어려움</option>
+                  <option value="olympiad">올림피아드</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={searchBank}
+                  disabled={bankLoading}
+                  className="px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Search size={12} /> {bankLoading ? "..." : "검색"}
+                </button>
+              </div>
+              <div className="text-caption text-text-tertiary">
+                선택됨: {bankSelected.size}개
+              </div>
+              <div className="space-y-1 max-h-96 overflow-y-auto">
+                {bankItems.length === 0 ? (
+                  <div className="text-caption text-text-tertiary text-center py-8">
+                    검색 결과 없음
+                  </div>
+                ) : (
+                  bankItems.map((p) => {
+                    const selected = bankSelected.has(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`flex items-start gap-2 p-2 border rounded cursor-pointer ${
+                          selected ? "border-accent-default bg-cream-50" : "border-border-default hover:bg-bg-secondary"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleBankItem(p.id)}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 text-caption text-text-tertiary mb-0.5">
+                            <span className="px-1.5 py-0.5 bg-bg-secondary rounded text-[10px]">
+                              {p.question_type}
+                            </span>
+                            <span>{p.subject}</span>
+                            <span>·</span>
+                            <span>{p.difficulty}</span>
+                            {p.grader_type && (
+                              <>
+                                <span>·</span>
+                                <span className="font-mono">{p.grader_type}</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="text-body line-clamp-2">{p.content_preview}</div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 푸터 */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-default">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-1.5 text-caption bg-accent-default text-white rounded hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "저장 중..." : "생성"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

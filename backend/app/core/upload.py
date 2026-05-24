@@ -113,6 +113,14 @@ POLICY_HWP = FilePolicy(
 )
 
 
+# 문제은행 JSONL — 한 줄당 한 문제. 5MB ≈ 약 10,000문제 (행당 500B 기준)
+POLICY_PROBLEMS_JSONL = FilePolicy(
+    name="problems_jsonl",
+    max_size_bytes=5 * 1024 * 1024,
+    allowed_extensions=frozenset({".jsonl", ".json"}),
+)
+
+
 # ── 검증 함수 ──────────────────────────────────────────────────
 
 def _human_size(n: int) -> str:

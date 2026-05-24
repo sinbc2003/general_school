@@ -25,6 +25,7 @@ import { BulkAddModal } from "./_components/BulkAddModal";
 import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
 import { PeopleTab } from "@/components/classroom/PeopleTab";
 import { CourseChatbots } from "@/components/classroom/CourseChatbots";
+import { CoursewareTab } from "@/components/courseware/CoursewareTab";
 import { StreamTab } from "./_components/StreamTab";
 import type { Post, CourseDetail } from "./_components/types";
 
@@ -214,6 +215,11 @@ export default function CourseDetailAdminPage() {
           onAdd={() => setShowBulk(true)}
           onRemove={removeStudent}
         />
+      )}
+
+      {/* ── 문제 ── */}
+      {activeTab === "courseware" && (
+        <CoursewareTab cid={cid} canEdit={canEdit} variant="admin" />
       )}
 
       {/* ── 챗봇 ── */}

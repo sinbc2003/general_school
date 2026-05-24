@@ -697,6 +697,49 @@ async def problem_set_results(
     return {"students": students_out, "problems": problems_out}
 
 
+@router.get("/problem-sets/{psid}/students/{sid}/attempts")
+async def student_attempts(
+    psid: int, sid: int,
+    user: User = Depends(require_permission("classroom.courseware.grade")),
+    db: AsyncSession = Depends(get_db),
+):
+    """교사가 특정 학생의 모든 시도+답안 조회 (수동 채점 UI용)."""
+    ps = await db.get(CourseProblemSet, psid)
+    if not ps or ps.deleted_at is not None:
+        raise HTTPException(404)
+    course = await db.get(Course, ps.course_id)
+    if not course:
+        raise HTTPException(404)
+    await _assert_editor(db, user, course)
+
+    rows = (await db.execute(
+        select(StudentProblemAttempt).where(
+            StudentProblemAttempt.problem_set_id == psid,
+            StudentProblemAttempt.student_id == sid,
+        ).order_by(
+            StudentProblemAttempt.attempt_number.asc(),
+            StudentProblemAttempt.problem_id.asc(),
+        )
+    )).scalars().all()
+
+    items = [
+        {
+            "id": r.id,
+            "attempt_number": r.attempt_number,
+            "problem_id": r.problem_id,
+            "answer_data": r.answer_data,
+            "is_correct": r.is_correct,
+            "auto_score": r.auto_score,
+            "manual_score": r.manual_score,
+            "manual_feedback": r.manual_feedback,
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+            "graded_at": r.graded_at.isoformat() if r.graded_at else None,
+        }
+        for r in rows
+    ]
+    return {"items": items}
+
+
 @router.post("/attempts/{attempt_id}/manual-grade")
 async def manual_grade_attempt(
     attempt_id: int, body: ManualGradeReq, request: Request,
@@ -731,3 +774,8 @@ async def manual_grade_attempt(
         request=request,
     )
     return {"ok": True, "manual_score": att.manual_score}
+
+
+# Sub-routers — 같은 router 인스턴스에 endpoint 추가 (chatbots 패턴 동일)
+from app.modules.courseware import bank  # noqa: E402,F401
+from app.modules.courseware import io    # noqa: E402,F401

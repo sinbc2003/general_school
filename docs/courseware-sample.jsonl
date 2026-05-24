@@ -1,0 +1,8 @@
+{"type": "multiple_choice", "content": "다음 중 가장 큰 수는?", "answer_data": {"grader_type": "choices", "correct": ["C"], "choices": ["1.4", "1.41", "1.414", "1"]}, "answer": "1.414", "difficulty": "easy", "subject": "수학"}
+{"type": "numeric", "content": "원주율을 소수 둘째 자리까지 쓰시오.", "answer_data": {"grader_type": "numeric", "value": 3.14, "tolerance": 0.005}, "answer": "3.14", "difficulty": "easy", "subject": "수학"}
+{"type": "short_answer", "content": "조선왕조 4대왕의 이름은?", "answer_data": {"grader_type": "exact", "correct": "세종", "trim": true}, "answer": "세종", "difficulty": "easy", "subject": "역사"}
+{"type": "short_answer", "content": "Python에서 빈 list 리터럴은?", "answer_data": {"grader_type": "exact", "correct": "[]", "trim": true, "case_sensitive": false}, "answer": "[]", "difficulty": "easy", "subject": "정보"}
+{"type": "numeric", "content": "0.1 + 0.2 = ?", "answer_data": {"grader_type": "numeric", "value": 0.3, "tolerance": 0.0001}, "answer": "0.3", "difficulty": "easy", "subject": "수학", "tags": ["부동소수점"]}
+{"type": "multiple_choice", "content": "다음 중 소수가 아닌 것은?", "answer_data": {"grader_type": "choices", "correct": ["B"], "choices": ["A. 2", "B. 4", "C. 7", "D. 11"]}, "answer": "4", "difficulty": "easy", "subject": "수학"}
+{"type": "essay", "content": "이차함수의 그래프 개형을 설명하시오.", "answer_data": {"grader_type": "essay", "rubric": "꼭짓점·축·대칭성 3개 언급 시 만점, 1~2개는 부분점수"}, "difficulty": "medium", "subject": "수학"}
+{"type": "short_answer", "content": "햄릿의 작가는?", "answer_data": {"grader_type": "exact", "correct": "셰익스피어", "trim": true}, "answer": "셰익스피어", "difficulty": "easy", "subject": "문학"}

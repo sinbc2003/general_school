@@ -6,10 +6,10 @@
  * useState 기반 controlled 탭. parent에서 active 상태 관리.
  */
 
-import { MessageSquare, ClipboardList, Users, BarChart3, Bot } from "lucide-react";
+import { MessageSquare, ClipboardList, Users, BarChart3, Bot, FileQuestion } from "lucide-react";
 import type { CourseTone } from "./_color";
 
-export type CourseTab = "stream" | "coursework" | "people" | "grades" | "chatbots";
+export type CourseTab = "stream" | "coursework" | "courseware" | "people" | "grades" | "chatbots";
 
 interface CourseTabsProps {
   active: CourseTab;
@@ -20,6 +20,7 @@ interface CourseTabsProps {
 const TABS: { id: CourseTab; label: string; icon: any }[] = [
   { id: "stream", label: "게시판", icon: MessageSquare },
   { id: "coursework", label: "수업 과제", icon: ClipboardList },
+  { id: "courseware", label: "문제", icon: FileQuestion },
   { id: "people", label: "사용자", icon: Users },
   { id: "grades", label: "성적", icon: BarChart3 },
   { id: "chatbots", label: "챗봇", icon: Bot },
