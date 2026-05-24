@@ -174,10 +174,9 @@ async def create_course_chatbot(
     db.add(b)
     await db.flush()
     await log_action(
-        db, user, request,
-        action="classroom.chatbot.create",
-        target_type="course_chatbot",
-        target_id=b.id,
+        db, user, "classroom.chatbot.create",
+        target=f"course_chatbot:{b.id}",
+        request=request,
     )
     return _to_dict(b)
 
@@ -224,10 +223,9 @@ async def update_course_chatbot(
     # JSON column이 list[ContextAttachment] 그대로 받아도 model_dump로 이미 dict 변환됨.
     await db.flush()
     await log_action(
-        db, user, request,
-        action="classroom.chatbot.update",
-        target_type="course_chatbot",
-        target_id=bid,
+        db, user, "classroom.chatbot.update",
+        target=f"course_chatbot:{bid}",
+        request=request,
     )
     return _to_dict(b)
 
@@ -302,10 +300,9 @@ async def start_chatbot_session(
     await db.flush()
 
     await log_action(
-        db, user, request,
-        action="classroom.chatbot.session_start",
-        target_type="course_chatbot",
-        target_id=bid,
+        db, user, "classroom.chatbot.session_start",
+        target=f"course_chatbot:{bid}",
+        request=request,
     )
 
     return {
@@ -337,9 +334,8 @@ async def delete_course_chatbot(
 
     await db.delete(b)
     await log_action(
-        db, user, request,
-        action="classroom.chatbot.delete",
-        target_type="course_chatbot",
-        target_id=bid,
+        db, user, "classroom.chatbot.delete",
+        target=f"course_chatbot:{bid}",
+        request=request,
     )
     return {"ok": True}

@@ -226,10 +226,9 @@ async def delete_course_post(
         raise HTTPException(409, "이전 학기 강좌의 글은 삭제할 수 없습니다 (read-only).")
     await db.delete(p)
     await log_action(
-        db, user, request,
-        action="classroom.post.delete",
-        target_type="course_post",
-        target_id=pid,
+        db, user, "classroom.post.delete",
+        target=f"course_post:{pid}",
+        request=request,
     )
     return {"ok": True}
 

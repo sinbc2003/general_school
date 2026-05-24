@@ -297,10 +297,9 @@ async def get_or_create_my_copy(
     await db.flush()
 
     await log_action(
-        db, user, request,
-        action="classroom.post.copy_created",
-        target_type="post_attachment_copy",
-        target_id=mapping.id,
+        db, user, "classroom.post.copy_created",
+        target=f"post_attachment_copy:{mapping.id}",
+        request=request,
     )
 
     return {
