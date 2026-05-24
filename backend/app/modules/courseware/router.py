@@ -267,6 +267,79 @@ async def my_problem_sets(
     for ps in set_rows:
         sets_by_cid.setdefault(ps.course_id, []).append(ps)
 
+    # ── set별 stats 일괄 로드 (in-memory 집계) ─────────────────────────────
+    psids = [ps.id for ps in set_rows]
+    set_stats_by_id: dict[int, dict] = {}
+    if psids:
+        attempt_q = select(StudentProblemAttempt).where(
+            StudentProblemAttempt.problem_set_id.in_(psids),
+        )
+        if is_student:
+            attempt_q = attempt_q.where(
+                StudentProblemAttempt.student_id == user.id,
+            )
+        all_attempts = (await db.execute(attempt_q)).scalars().all()
+
+        if is_student:
+            # 학생: best per ps + attempts_used + last_submitted_at
+            for a in all_attempts:
+                s = set_stats_by_id.setdefault(a.problem_set_id, {
+                    "best_score": 0.0,
+                    "attempts_used": 0,
+                    "last_submitted_at": None,
+                    "graded_count": 0,
+                    "total_count": 0,
+                })
+                s["total_count"] += 1
+                if a.attempt_number > s["attempts_used"]:
+                    s["attempts_used"] = a.attempt_number
+                score = 0.0
+                if a.is_correct is True:
+                    score = a.auto_score or 1.0
+                    s["graded_count"] += 1
+                elif a.is_correct is False:
+                    score = a.auto_score or 0.0
+                    s["graded_count"] += 1
+                elif a.manual_score is not None:
+                    score = a.manual_score
+                    s["graded_count"] += 1
+                if score > s["best_score"]:
+                    s["best_score"] = score
+                if a.submitted_at and (
+                    s["last_submitted_at"] is None
+                    or a.submitted_at > s["last_submitted_at"]
+                ):
+                    s["last_submitted_at"] = a.submitted_at
+            # 직렬화 (datetime → isoformat)
+            for psid_, s in set_stats_by_id.items():
+                if s["last_submitted_at"]:
+                    s["last_submitted_at"] = s["last_submitted_at"].isoformat()
+        else:
+            # 교사·admin: per ps × per student best → 평균
+            # {psid: {sid: best}}
+            best_map: dict[int, dict[int, float]] = {}
+            needs_review_cnt: dict[int, int] = {}
+            for a in all_attempts:
+                bm = best_map.setdefault(a.problem_set_id, {})
+                score = 0.0
+                if a.is_correct is True:
+                    score = a.auto_score or 1.0
+                elif a.is_correct is False:
+                    score = a.auto_score or 0.0
+                elif a.manual_score is not None:
+                    score = a.manual_score
+                if score > bm.get(a.student_id, 0.0):
+                    bm[a.student_id] = score
+                if a.grading_status == "needs_review":
+                    needs_review_cnt[a.problem_set_id] = needs_review_cnt.get(a.problem_set_id, 0) + 1
+            for psid_, sm in best_map.items():
+                avg = round(sum(sm.values()) / len(sm), 3) if sm else 0.0
+                set_stats_by_id[psid_] = {
+                    "submissions_count": len(sm),
+                    "avg_score": avg,
+                    "needs_review_count": needs_review_cnt.get(psid_, 0),
+                }
+
     # 응답 — 강좌별 그룹 (문제 세트 없는 강좌도 admin/teacher 입장에선 표시)
     out_courses: list[dict] = []
     for c in course_rows:
@@ -283,7 +356,13 @@ async def my_problem_sets(
                 "id": sem.id, "year": sem.year, "term": sem.semester, "name": sem.name,
             } if sem else None,
             "is_active": c.is_active,
-            "sets": [_set_to_dict(ps) for ps in sets],
+            "sets": [
+                {
+                    **_set_to_dict(ps),
+                    "stats": set_stats_by_id.get(ps.id, {}),
+                }
+                for ps in sets
+            ],
         })
 
     # 활성 강좌 우선, 학기 내림차순
@@ -1011,6 +1090,7 @@ async def manual_grade_attempt(
 
 
 # Sub-routers — 같은 router 인스턴스에 endpoint 추가 (chatbots 패턴 동일)
-from app.modules.courseware import bank  # noqa: E402,F401
-from app.modules.courseware import io    # noqa: E402,F401
-from app.modules.courseware import llm   # noqa: E402,F401
+from app.modules.courseware import bank       # noqa: E402,F401
+from app.modules.courseware import io         # noqa: E402,F401
+from app.modules.courseware import llm        # noqa: E402,F401
+from app.modules.courseware import dashboard  # noqa: E402,F401

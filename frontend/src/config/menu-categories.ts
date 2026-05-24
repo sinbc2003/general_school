@@ -71,8 +71,8 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "teaching",
       name: "수업",
       icon: "BookOpen",
-      // 수업 자료실 + 대회·과제 + 동아리·연구 통합
-      items: ["archive", "classroom", "contest", "assignment", "club", "research"],
+      // 수업 자료실 + 클래스룸 + 코스웨어 + 대회·과제 + 동아리·연구 통합
+      items: ["archive", "classroom", "courseware", "contest", "assignment", "club", "research"],
     },
     {
       id: "students",
@@ -118,7 +118,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "class",
       name: "수업",
       icon: "BookOpen",
-      items: ["classroom", "enrollment-wizard", "my-docs"],
+      items: ["classroom", "courseware", "wrong-notes", "enrollment-wizard", "my-docs"],
     },
     {
       id: "competition",
