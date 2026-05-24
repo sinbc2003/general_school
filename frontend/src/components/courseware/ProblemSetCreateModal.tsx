@@ -59,6 +59,7 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
   // LLM 자동 채점 (학생 제출 시 background)
   const [llmGraderEnabled, setLlmGraderEnabled] = useState(false);
   const [llmGraderModelKey, setLlmGraderModelKey] = useState<string>("");  // "provider|model_id"
+  const [llmGraderSamples, setLlmGraderSamples] = useState<number>(1);  // SC 횟수 (1/3/5)
   const [models, setModels] = useState<ModelItem[]>([]);
 
   useEffect(() => {
@@ -171,6 +172,9 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
           settings.llm_grader_provider = provider;
           settings.llm_grader_model = model_id;
         }
+      }
+      if (llmGraderSamples > 1) {
+        settings.llm_grader_samples = llmGraderSamples;
       }
     }
     return {
@@ -379,8 +383,8 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
               </span>
             </label>
             {llmGraderEnabled && (
-              <div className="pl-6">
-                <div className="text-[11px] text-text-tertiary mb-1">
+              <div className="pl-6 space-y-2">
+                <div className="text-[11px] text-text-tertiary">
                   학생 제출 즉시 background로 AI 채점 → 교사가 결과 검토·override 가능
                 </div>
                 <select
@@ -395,8 +399,26 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
                     </option>
                   ))}
                 </select>
+                <div className="flex items-center gap-2 text-caption">
+                  <span className="text-text-tertiary">신뢰도</span>
+                  <select
+                    value={llmGraderSamples}
+                    onChange={(e) => setLlmGraderSamples(parseInt(e.target.value))}
+                    className="px-2 py-1 border border-border-default rounded text-body"
+                  >
+                    <option value={1}>1회 호출 (default — 비용 최저)</option>
+                    <option value={3}>3회 자체일치 (Self-Consistency, 비용 3배, 정확도 +)</option>
+                    <option value={5}>5회 자체일치 (비용 5배, 정확도 최고)</option>
+                  </select>
+                </div>
+                {llmGraderSamples > 1 && (
+                  <div className="text-[11px] text-text-tertiary">
+                    같은 답안을 {llmGraderSamples}번 채점해 평균. 점수 편차(σ) 큰 답안은
+                    "검토 필요" 마크 → 교사 우선 확인.
+                  </div>
+                )}
                 {models.length === 0 && (
-                  <div className="text-[11px] text-amber-700 mt-1">
+                  <div className="text-[11px] text-amber-700">
                     활성 모델이 없습니다. /system/llm/providers에서 API 키 등록 + 활성화 필요.
                   </div>
                 )}

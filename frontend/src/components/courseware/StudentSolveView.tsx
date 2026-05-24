@@ -383,12 +383,15 @@ function LLMStatusBadge({ status }: { status: MyAttemptRow }) {
       </span>
     );
   }
-  if (s === "done") {
+  if (s === "done" || s === "needs_review") {
     return (
       <span className="text-emerald-700 flex items-center gap-1 font-semibold">
         <Bot size={12} /> AI 채점 완료
         {status.manual_score !== null && (
           <span>({Math.round(status.manual_score * 100)}점)</span>
+        )}
+        {s === "needs_review" && (
+          <span className="text-amber-700 text-[10px]">· 교사 검토 중</span>
         )}
       </span>
     );
@@ -504,8 +507,8 @@ function ProblemCard({
         />
       )}
 
-      {/* LLM 채점 피드백 (done 시) */}
-      {llmStatus?.grading_status === "done" && llmStatus.manual_feedback && (
+      {/* LLM 채점 피드백 (done 또는 needs_review 시) */}
+      {(llmStatus?.grading_status === "done" || llmStatus?.grading_status === "needs_review") && llmStatus.manual_feedback && (
         <div className="mt-3 pt-3 border-t border-cream-300 bg-cream-50 rounded p-2 -mx-2">
           <div className="flex items-center gap-1 text-caption text-text-tertiary font-semibold mb-1">
             <Bot size={12} /> AI 피드백

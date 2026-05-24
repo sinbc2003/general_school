@@ -92,12 +92,26 @@ export interface SubmitResult {
   }[];
 }
 
-export type GradingStatus = "none" | "pending" | "running" | "done" | "failed";
+export type GradingStatus = "none" | "pending" | "running" | "done" | "needs_review" | "failed";
+
+export interface LLMSampleSummary {
+  score: number | null;
+  reasoning?: string;
+  feedback?: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost_usd?: number;
+  error?: string;
+}
 
 export interface LLMMetadata {
   provider?: string;
   model?: string;
   model_label?: string;
+  samples?: LLMSampleSummary[];     // Self-Consistency 호출 결과 N개
+  score_mean?: number;
+  score_median?: number;
+  score_std?: number;                // σ — needs_review 결정
   tokens_in?: number;
   tokens_out?: number;
   cost_usd?: number;

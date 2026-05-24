@@ -29,6 +29,7 @@ interface PreviewResp {
   provider: string | null;
   model_id: string | null;
   model_label: string | null;
+  samples: number;
   input_per_1m_usd: number;
   output_per_1m_usd: number;
   estimated_cost_usd: number;
@@ -37,7 +38,9 @@ interface PreviewResp {
 interface GradeResultResp {
   total: number;
   graded: number;
+  needs_review: number;
   failed: number;
+  samples: number;
   total_cost_usd: number;
   errors: { attempt_id: number | null; message: string }[];
 }
@@ -52,6 +55,7 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
   const toast = useToast();
   const [models, setModels] = useState<ModelItem[]>([]);
   const [modelKey, setModelKey] = useState<string>("");
+  const [samples, setSamples] = useState<number>(1);
   const [force, setForce] = useState(false);
   const [preview, setPreview] = useState<PreviewResp | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -64,7 +68,7 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
       .catch(() => setModels([]));
   }, []);
 
-  const fetchPreview = async (mKey: string, f: boolean) => {
+  const fetchPreview = async (mKey: string, samp: number, f: boolean) => {
     setPreviewing(true);
     try {
       const params = new URLSearchParams();
@@ -73,6 +77,7 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
         if (p) params.set("provider", p);
         if (m) params.set("model_id", m);
       }
+      if (samp && samp !== 1) params.set("samples", String(samp));
       params.set("only_ungraded", String(!f));
       params.set("force", String(f));
       const res = await api.get<PreviewResp>(
@@ -86,10 +91,9 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
     }
   };
 
-  // 모달 열릴 때 + 옵션 변경 시 자동 preview
   useEffect(() => {
-    fetchPreview(modelKey, force);
-  }, [modelKey, force]);  // eslint-disable-line react-hooks/exhaustive-deps
+    fetchPreview(modelKey, samples, force);
+  }, [modelKey, samples, force]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRun = async () => {
     if (!preview || preview.eligible_attempts === 0) {
@@ -107,6 +111,7 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
         {
           provider: provider || null,
           model_id: model_id || null,
+          samples: samples === 1 ? null : samples,
           only_ungraded: !force,
           force,
         },
@@ -162,6 +167,27 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
                 </select>
               </div>
 
+              <div>
+                <label className="text-caption block mb-1">
+                  <span className="text-text-secondary font-semibold">신뢰도 (Self-Consistency)</span>
+                </label>
+                <select
+                  value={samples}
+                  onChange={(e) => setSamples(parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+                >
+                  <option value={1}>1회 호출 (default · 비용 최저)</option>
+                  <option value={3}>3회 자체일치 (비용 3배 · 정확도 +)</option>
+                  <option value={5}>5회 자체일치 (비용 5배 · 정확도 최고)</option>
+                </select>
+                {samples > 1 && (
+                  <div className="text-[11px] text-text-tertiary mt-1">
+                    같은 답안을 {samples}회 채점 → 평균. 점수 편차 큰 답안은 "검토 필요"
+                    표시 → 교사 우선 확인.
+                  </div>
+                )}
+              </div>
+
               <label className="flex items-start gap-2 text-caption">
                 <input
                   type="checkbox"
@@ -172,7 +198,7 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
                 <div>
                   <span className="font-semibold">이미 채점된 attempt도 재채점</span>
                   <div className="text-text-tertiary text-[11px]">
-                    체크 안 하면 manual_score 비어있는 것만 채점. 모델 바꿔서 재시도 시 체크.
+                    체크 안 하면 manual_score 비어있는 것만 채점. 모델·samples 바꿔 재시도 시 체크.
                   </div>
                 </div>
               </label>
@@ -228,8 +254,23 @@ export function LLMGradeModal({ psid, onClose, onDone }: Props) {
               <div className="bg-emerald-50 border border-emerald-200 rounded p-3">
                 <div className="text-body font-semibold text-emerald-900 mb-1">채점 완료</div>
                 <div className="text-caption text-emerald-800 space-y-0.5">
-                  <div>총 {result.total}건 — 성공 {result.graded}건, 실패 {result.failed}건</div>
-                  <div>총 비용: <span className="font-mono">${result.total_cost_usd.toFixed(6)}</span></div>
+                  <div>
+                    총 {result.total}건 — 성공 {result.graded}건
+                    {result.needs_review > 0 && (
+                      <span className="text-amber-700">
+                        {" "}· 검토 필요 {result.needs_review}건
+                      </span>
+                    )}
+                    {result.failed > 0 && (
+                      <span className="text-red-700">
+                        {" "}· 실패 {result.failed}건
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    Self-Consistency: {result.samples}회 호출 ·
+                    총 비용: <span className="font-mono">${result.total_cost_usd.toFixed(6)}</span>
+                  </div>
                 </div>
               </div>
               {result.errors.length > 0 && (

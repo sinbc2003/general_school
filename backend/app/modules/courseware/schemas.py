@@ -116,6 +116,7 @@ class LLMGradeReq(BaseModel):
     """교사 trigger batch LLM 채점 요청."""
     provider: str | None = None       # None이면 settings/system default
     model_id: str | None = None
+    samples: int | None = Field(default=None, ge=1, le=7)  # Self-Consistency 횟수
     only_ungraded: bool = True        # manual_score가 NULL인 것만
     force: bool = False               # True면 이미 채점된 것도 덮어쓰기
 
@@ -123,7 +124,9 @@ class LLMGradeReq(BaseModel):
 class LLMGradeResultResp(BaseModel):
     total: int
     graded: int
+    needs_review: int = 0             # σ > 임계점인 attempt (사람 검토 필요)
     failed: int
+    samples: int = 1
     total_cost_usd: float
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -134,6 +137,7 @@ class LLMGradePreviewResp(BaseModel):
     provider: str | None
     model_id: str | None
     model_label: str | None
+    samples: int = 1
     input_per_1m_usd: float
     output_per_1m_usd: float
-    estimated_cost_usd: float         # 평균 토큰 추정 기반
+    estimated_cost_usd: float         # 평균 토큰 × samples 추정 기반
