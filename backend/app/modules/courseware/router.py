@@ -194,6 +194,110 @@ async def _load_problems_for_set(
 # 교사 — ProblemSet CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
+@router.get("/my-problem-sets")
+async def my_problem_sets(
+    user: User = Depends(require_permission("classroom.courseware.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인 관련 ProblemSet 강좌별 그룹화.
+
+    - 교사·admin: 본인이 가르치는 강좌(owner OR co_teacher) 또는 admin이면 전체
+      · status 무관 (draft 포함) — 출제 관리용
+    - 학생: 본인 active 수강 강좌 + status in (published, closed) 만
+    """
+    from app.models import CourseTeacher, Semester
+
+    is_admin = _is_admin(user)
+    is_student = user.role == "student"
+
+    # 강좌 id 결정
+    if is_admin:
+        course_rows = (await db.execute(
+            select(Course).where(Course.is_active == True)  # noqa: E712
+        )).scalars().all()
+    elif is_student:
+        cs_rows = (await db.execute(
+            select(CourseStudent.course_id).where(
+                CourseStudent.student_id == user.id,
+                CourseStudent.status == "active",
+            )
+        )).scalars().all()
+        if not cs_rows:
+            return {"courses": []}
+        course_rows = (await db.execute(
+            select(Course).where(Course.id.in_(cs_rows))
+        )).scalars().all()
+    else:
+        # 교사·직원: owner + co_teacher
+        owner_cids = (await db.execute(
+            select(Course.id).where(Course.teacher_id == user.id)
+        )).scalars().all()
+        co_cids = (await db.execute(
+            select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+        )).scalars().all()
+        ids = list(set(list(owner_cids) + list(co_cids)))
+        if not ids:
+            return {"courses": []}
+        course_rows = (await db.execute(
+            select(Course).where(Course.id.in_(ids))
+        )).scalars().all()
+
+    if not course_rows:
+        return {"courses": []}
+
+    # 학기 정보 (그룹화·정렬용)
+    sem_ids = list({c.semester_id for c in course_rows if c.semester_id})
+    semesters = (await db.execute(
+        select(Semester).where(Semester.id.in_(sem_ids))
+    )).scalars().all() if sem_ids else []
+    sem_by_id = {s.id: s for s in semesters}
+
+    # ProblemSet 일괄 로드
+    cids = [c.id for c in course_rows]
+    q = select(CourseProblemSet).where(
+        CourseProblemSet.course_id.in_(cids),
+        CourseProblemSet.deleted_at.is_(None),
+    )
+    if is_student:
+        q = q.where(CourseProblemSet.status.in_(["published", "closed"]))
+    q = q.order_by(CourseProblemSet.course_id, CourseProblemSet.created_at.desc())
+    set_rows = (await db.execute(q)).scalars().all()
+
+    sets_by_cid: dict[int, list[CourseProblemSet]] = {}
+    for ps in set_rows:
+        sets_by_cid.setdefault(ps.course_id, []).append(ps)
+
+    # 응답 — 강좌별 그룹 (문제 세트 없는 강좌도 admin/teacher 입장에선 표시)
+    out_courses: list[dict] = []
+    for c in course_rows:
+        sem = sem_by_id.get(c.semester_id) if c.semester_id else None
+        sets = sets_by_cid.get(c.id, [])
+        if is_student and not sets:
+            continue  # 학생은 게시된 세트 있는 강좌만
+        out_courses.append({
+            "course_id": c.id,
+            "course_name": c.name,
+            "subject": c.subject,
+            "class_name": c.class_name,
+            "semester": {
+                "id": sem.id, "year": sem.year, "term": sem.term, "name": sem.name,
+            } if sem else None,
+            "is_active": c.is_active,
+            "sets": [_set_to_dict(ps) for ps in sets],
+        })
+
+    # 활성 강좌 우선, 학기 내림차순
+    out_courses.sort(
+        key=lambda x: (
+            not x["is_active"],
+            -(x["semester"]["year"] if x["semester"] else 0),
+            -(x["semester"]["term"] if x["semester"] else 0),
+            x["course_name"],
+        )
+    )
+    return {"courses": out_courses}
+
+
 @router.get("/courses/{cid}/problem-sets")
 async def list_problem_sets(
     cid: int,

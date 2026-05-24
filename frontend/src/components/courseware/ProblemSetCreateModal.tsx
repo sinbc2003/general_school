@@ -27,10 +27,21 @@ interface ModelItem {
   active: boolean;
 }
 
+interface CourseOption {
+  id: number;
+  name: string;
+  class_name: string | null;
+  semester: { year: number; term: number } | null;
+}
+
 interface Props {
-  cid: number;
+  cid: number;                       // 기본 강좌 (강좌 페이지에서 진입 시) 또는 초기 선택
   onClose: () => void;
   onCreated: (psid: number) => void;
+  /** 강좌 무관 메뉴에서 진입 시 true — 강좌 select UI 표시 */
+  allowCourseSelect?: boolean;
+  /** allowCourseSelect=true일 때 옵션 list (본인 강좌) */
+  courseOptions?: CourseOption[];
 }
 
 type Mode = "inline" | "jsonl" | "bank";
@@ -43,8 +54,13 @@ const DEFAULT_PROBLEM: ProblemInline = {
   difficulty: "medium",
 };
 
-export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
+export function ProblemSetCreateModal({
+  cid, onClose, onCreated, allowCourseSelect, courseOptions,
+}: Props) {
   const toast = useToast();
+
+  // 강좌 선택 (allowCourseSelect=true일 때만 UI 표시; 그 외엔 props cid 고정)
+  const [selectedCid, setSelectedCid] = useState<number>(cid);
 
   // 공통 메타
   const [title, setTitle] = useState("");
@@ -84,10 +100,10 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
 
   const isZipFile = (f: File | null) =>
     !!f && f.name.toLowerCase().endsWith(".zip");
-  const uploadEndpoint = (cid: number, f: File | null) =>
+  const uploadEndpoint = (targetCid: number, f: File | null) =>
     isZipFile(f)
-      ? `/api/courseware/courses/${cid}/problems/import-zip`
-      : `/api/courseware/courses/${cid}/problems/import-jsonl`;
+      ? `/api/courseware/courses/${targetCid}/problems/import-zip`
+      : `/api/courseware/courses/${targetCid}/problems/import-jsonl`;
 
   // bank
   const [bankQuery, setBankQuery] = useState("");
@@ -115,7 +131,7 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
     try {
       const fd = new FormData();
       fd.append("file", jsonlFile);
-      const ep = uploadEndpoint(cid, jsonlFile);
+      const ep = uploadEndpoint(selectedCid, jsonlFile);
       const res = await api.fetch<{
         total: number; valid: number;
         errors: { line: number; message: string }[];
@@ -211,7 +227,7 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
           problems: validProblems,
         };
         const created = await api.post<{ id: number }>(
-          `/api/courseware/courses/${cid}/problem-sets`,
+          `/api/courseware/courses/${selectedCid}/problem-sets`,
           body,
         );
         psid = created.id;
@@ -223,7 +239,7 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
         }
         const fd = new FormData();
         fd.append("file", jsonlFile);
-        const ep = uploadEndpoint(cid, jsonlFile);
+        const ep = uploadEndpoint(selectedCid, jsonlFile);
         const url = new URL(ep, "http://x");
         url.searchParams.set("dry_run", "false");
         url.searchParams.set("create_set", "true");
@@ -253,7 +269,7 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
           problem_ids: Array.from(bankSelected),
         };
         const created = await api.post<{ id: number }>(
-          `/api/courseware/courses/${cid}/problem-sets/from-bank`,
+          `/api/courseware/courses/${selectedCid}/problem-sets/from-bank`,
           body,
         );
         psid = created.id;
@@ -286,6 +302,25 @@ export function ProblemSetCreateModal({ cid, onClose, onCreated }: Props) {
 
         {/* 본문 */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* 강좌 select (allowCourseSelect=true일 때만) */}
+          {allowCourseSelect && courseOptions && courseOptions.length > 0 && (
+            <label className="text-caption block">
+              <div className="text-text-secondary mb-1 font-semibold">출제할 강좌</div>
+              <select
+                value={selectedCid}
+                onChange={(e) => setSelectedCid(Number(e.target.value))}
+                className="w-full px-2 py-1.5 border border-border-default rounded text-body"
+              >
+                {courseOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.semester ? `[${c.semester.year}-${c.semester.term}] ` : ""}
+                    {c.name}{c.class_name ? ` (${c.class_name})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {/* 메타 */}
           <div className="grid grid-cols-2 gap-3">
             <label className="text-caption col-span-2">

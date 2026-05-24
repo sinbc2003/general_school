@@ -33,6 +33,7 @@ import {
   Building2,
   Globe,
   Github,
+  FileQuestion,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -156,6 +157,14 @@ export const adminMenu: MenuItem[] = [
     icon: GraduationCap,
     path: "/classroom",
     permission: "classroom.course.view",
+    excludeRoles: ["student"],
+  },
+  {
+    key: "courseware",
+    label: "코스웨어",
+    icon: FileQuestion,
+    path: "/courseware",
+    permission: "classroom.courseware.view",
     excludeRoles: ["student"],
   },
   {
