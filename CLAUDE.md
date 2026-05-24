@@ -1827,7 +1827,7 @@ decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 
 - 테스트: pytest 32/32 + frontend tsc 0 error 매 commit 통과
 - 사용자 다른 세션 작업 4개 .sh 파일은 fs metadata(executable bit)만 변경됐던 것 → chmod +x 복원
 
-### 다음 세션 후보
+### 다음 세션 후보 (작성 시점, 일부는 후속 세션에서 완료됨)
 1. **챗봇 첨부 type 통합** — 글 attachment에 `type: "chatbot"` 추가, 학생 클릭 시 챗봇 자동 시작
 2. **챗봇 컨텍스트 자료 첨부** — `CourseChatbot.context_attachments` 활용 (강좌 자료를 system prompt에 자동 주입)
 3. **Storage Volume Step 2 Phase 2** — files/router.py에서 storage_volume_id 보고 root 분기, 업로드 endpoint 적용
@@ -1835,5 +1835,132 @@ decks/surveys는 backend 도구는 있지만 페이지에서 `AIAssistantPanel` 
 5. **AI 회귀 감사 — F2 발견 HIGH 2건 처리**:
    - is_course_editor SSOT 채택 (co_teacher가 본인 강좌 글 작성·삭제 못함)
    - batch-organize atomic rollback 강화 (`except Exception` + undo replay)
+
+다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
+
+---
+
+## 2026-05-23 후반 — F2 audit fix + 챗봇 통합·컨텍스트 + GitHub 알림 + 코스웨어 Phase 1
+
+### F2 AI 회귀 감사 HIGH 2건 fix
+**1. classroom is_course_editor SSOT 채택** (commit `a984d31`):
+- `_assert_course_access` (router.py:102) — owner만 'teacher' 반환 → `is_course_editor` 호출로 교체. co_teacher가 강좌 글 조회·작성 endpoint 5곳에서 403 떨어지던 issue 해소.
+- posts.py 5곳 (글 작성/수정/삭제/댓글 삭제/첨부 업로드) — `c.teacher_id == user.id` 직접 비교 → `is_course_editor / is_course_editor_or_admin` SSOT로 교체.
+  - 수정/삭제는 author 본인 + 강좌 editor + admin 정책 (이전엔 author + admin만)
+- chatbots.py `_is_course_member` / `_is_course_admin` — `is_course_editor(db, user, course)` 시그니처 뒤바뀐 버그 fix (실제 시그니처는 `(db, course, user)`). co_teacher가 챗봇 접근·관리 못하던 버그 해소.
+- 영향: co_teacher가 owner와 동등하게 글·댓글·첨부·챗봇 관리 가능.
+
+**2. drive batch-organize atomic rollback 강화** (commit `3d9db44`):
+- 기존: `except HTTPException`만 잡고 비-HTTPException 시 raw exception 노출 + 명시적 임시폴더 db.delete cleanup (transaction에 의해 자동 rollback될 변경에 대해 redundant).
+- 수정: `except Exception` 추가해 500 + type 이름만 wrap. 명시적 cleanup 제거 — get_db dependency가 transaction rollback 자동 처리. atomicity 보장 주석 명시.
+
+### 챗봇 첨부 type 통합 (commit `48ea29e`)
+**Backend**: schemas.py Attachment에 `type="chatbot"` + `chatbot_id` 필드. 기존 `POST /api/classroom/chatbots/{bid}/start-session` 활용.
+
+**Frontend**:
+- `ChatbotPickerModal.tsx` 신규 — 강좌 활성 챗봇 list + 1클릭 선택
+- AssignmentModal 첨부 row "챗봇" 버튼 (sky 톤) + Bot 아이콘
+- PostDetailView `ChatbotAttachmentRow` 신규 — 클릭 시 start-session POST → `${baseHref가 /s/* 시작이면 /s/chat 아니면 /chat}?sid={session_id}` redirect
+- ChatInterface `useSearchParams`로 `?sid=` 자동 활성화 + loadSessions 동기화 + `window.history.replaceState`로 URL 정리
+
+**흐름**: 글 작성 → 챗봇 선택 → 글 저장 → 학생 클릭 → 본인 ChatSession 자동 생성 → /chat 또는 /s/chat 페이지로 redirect.
+
+### 챗봇 컨텍스트 자료 자동 주입 (commit `24ea19e`)
+이미 모델에 있던 `CourseChatbot.context_attachments` JSON 컬럼 활성화.
+
+**Backend** (`app/services/chatbot_context.py` 신규):
+- `build_context_text(db, attachments)` — doc/deck `plain_text` + sheet/hwp 제목 → "=== 강좌 참고 자료 ===" 헤더로 system_prompt 앞에 prepend
+- 자료당 5,000자 / 합쳐서 30,000자 한도 (LLM context window 보호)
+- doc → ClassroomDocument.plain_text / deck → ClassroomSlide.plain_text 순서대로 / sheet·hwp → 제목만 (plain_text 없음 — 차후 확장)
+- ContextAttachment Pydantic — ChatbotCreate/Update에 `list[ContextAttachment]` (max 10) + create endpoint에서 dict 명시 변환
+- start-session: build_context_text 결과를 `"...\n\n--- 시스템 지시 ---\n[원 prompt]"` 형식으로 결합 → ChatSession.system_prompt_text 저장
+
+**Frontend** (`CourseChatbots.tsx`): ChatbotEditModal에 "참고 자료" 섹션 — DrivePicker 활용 (survey 자동 필터) + 중복 제거 + 10개 한도 + X 제거 버튼. `?session=` → `?sid=` 통일.
+
+### GitHub 자동 업데이트 알림 (commit `f68f3bf`)
+학교 자체 서버 운영 시 GitHub 새 commit 발견하면 super_admin in-app 알림 + 가이드 페이지. 자동 git pull은 안 함 (alembic·테스트 미검증 코드 위험).
+
+**Backend**:
+- `services/github_updates.py` 신규
+  - `GITHUB_UPDATE_REPO` env 미설정 시 polling 자동 off (dev 안전)
+  - `git log -1` (asyncio.to_thread) vs `GitHub /commits/{branch}` 비교
+  - `/compare/{a}...{b}` 차이 commit list (max 20)
+  - SchoolConfig `github_update.last_notified_remote_sha` 중복 알림 차단
+- notification_scheduler에 `_maybe_check_github_updates` task (24h cooldown)
+  - 새 commit + 미알림 → notify_users(super_admin all), link_url=/system/updates
+- `modules/system/updates.py` 2 endpoints (`require_super_admin`)
+  - `GET /api/system/updates/status` — 현재/원격/차이 commit
+  - `POST /api/system/updates/check-now` — 즉시 polling
+- 권한 `system.updates.view` 등록
+
+**Frontend** (`/system/updates`):
+- enabled=false 시 환경변수 설정 가이드 카드
+- 최신 동기화: emerald "최신 상태" 카드
+- behind: sky 카드 + 현재/원격 commit 비교 + 차이 commit list + 업데이트 절차 안내 (git pull → pip/npm → alembic upgrade → systemctl restart)
+- "지금 확인" 버튼
+- 사이드바 시스템 카테고리 "코드 업데이트" (Github 아이콘)
+
+운영: 학교 서버 `.env`에 `GITHUB_UPDATE_REPO=sinbc2003/general_school` 한 줄 + backend 재시작.
+
+### 문제은행 코스웨어 Phase 1 (commit `d86d0de`)
+
+**개념**: Assignment(파일 제출형 수행평가) / Contest(올림피아드)와 별개의 신규 시스템.
+교사가 강좌 안에서 자동채점 문제 출제 → 학생 즉시 풀이 → 점수 누적.
+
+**모델** (`backend/app/models/courseware.py` 신규 + Problem 확장):
+- `Problem.answer_data` JSON 추가 — `{grader_type: "choices"|"exact"|"regex"|"numeric"|"essay"|"manual"|"llm", correct/value/pattern/tolerance/rubric, ...}`
+- `CourseProblemSet` — course_id FK, problem_ids JSON ordered, status (draft/published/closed), due_date, time_limit_seconds, max_attempts, show_solution_after_due, settings, deleted_at(soft delete)
+- `StudentProblemAttempt` — UNIQUE(set_id+problem_id+student_id+attempt_number), answer_data, is_correct, auto_score, manual_score, manual_feedback, graded_by, submitted_at, graded_at
+- alembic migration `acccc2f57668`
+
+**자동채점 헬퍼** (`services/courseware_grader.py`):
+- `grade_answer(answer_data, submission) → (is_correct, auto_score)`
+- choices: 객관식 set 비교 (다중정답 OK)
+- exact: 문자열 일치 (case_sensitive·trim 옵션)
+- regex: 매치 (DoS 방지 10KB 한도)
+- numeric: float + tolerance
+- essay/manual/llm: 자동채점 X (is_correct=None, manual_score 필요)
+- 검증 8 case 통과
+
+**모듈** (`app/modules/courseware/`):
+- `permissions.py`: 5개 — `classroom.courseware.create/view/edit/grade` (교사) + `view/submit` (학생)
+- `schemas.py`: ProblemInline + ProblemSetCreate/Update + SubmitAttemptReq + ManualGradeReq + ProblemType/GraderType Literal
+- `router.py`: 12 endpoints
+  - 교사: list / create(problems inline) / get(정답 포함) / update / delete(soft) / publish / close / results(학생별·문제별 정답률) / manual-grade
+  - 학생: student-view(정답 마스킹) / submit(자동채점 즉시) / my-attempts
+- main.py 등록 → 476 → 488 routes (+12)
+- grant_default_roles.py에 학생 view/submit 자동 부여
+
+**Classroom 통합**:
+- `Attachment.type` Literal에 `"problemset"` + `problemset_id` 필드 추가
+- 다음 Phase에서 글 첨부로 통합 (chatbot 패턴 동일)
+
+### log_action 시그니처 이슈 — spawn_task 분리
+classroom/posts.py 등에 `log_action(..., target_type=, target_id=)` 같은 잘못된 keyword 호출 발견. audit.py 실제 시그니처는 `(db, user, action, target=, detail=, request=, is_sensitive=)`. 호출 시 TypeError → 글 삭제 등 endpoint 500. 별도 task로 spawn.
+
+### 통계 (2026-05-23 후반)
+- Commit 6개: classroom SSOT + drive rollback + 챗봇 첨부 + 챗봇 컨텍스트 + GitHub 알림 + 코스웨어 Phase 1
+- Backend: 474 → 488 routes (+14, 코스웨어 12 + system updates 2)
+- 새 모델 2개: CourseProblemSet, StudentProblemAttempt + Problem.answer_data 컬럼
+- 새 모듈 1개: courseware (permissions + schemas + router)
+- 새 service 헬퍼 2개: chatbot_context.py, github_updates.py, courseware_grader.py
+- 새 페이지 1개: `/system/updates`
+- 새 컴포넌트 1개: ChatbotPickerModal.tsx
+- alembic 1개: acccc2f57668 (courseware tables + answer_data)
+- 새 권한 6개: system.updates.view + classroom.courseware.* 5개
+- 테스트: pytest 42/42 + frontend tsc 0 error 매 commit 통과
+- 신병철 다른 세션 .sh 파일 fs metadata 4건 → chmod +x 복원 (재발생 — git mode_filemode 이슈)
+
+### Push 미해결
+이번 후반 세션의 commit 6개 (a984d31, 3d9db44, 48ea29e, 24ea19e, f68f3bf, d86d0de) 모두 SSH key Permission denied로 push 안 됨. notebook 장비에 `ssh-keygen -t ed25519 -C "..."` + GitHub 키 등록 필요.
+
+### 다음 세션 후보
+1. **코스웨어 Phase 2** — 교사 출제 UI (강좌 페이지 "문제 세트" 탭 + 출제 모달 + LaTeX/KaTeX·객관식·단답·수치·주관식 입력)
+2. **코스웨어 Phase 3** — 학생 풀이 UI (`/s/courseware/{psid}` + 자동채점 즉시 결과)
+3. **코스웨어 Phase 4** — 결과 분석 (교사 정답률·오답 분포 / 학생 오답노트 / CSV export)
+4. **챗봇 LLM 주관식 채점 옵션** — `grader_type="llm"` 활성화 (chatbot provider 재사용)
+5. **Storage Volume Step 2 Phase 2** — `files/router.py` 라우팅 통합 (이전 세션 후보)
+6. **log_action 시그니처 fix** — spawn_task 처리 (이미 chip 띄움)
+7. **이전 세션 보류: 코드 모듈화 HIGH 2건** (classroom/[cid]/page.tsx 845줄·students/_tabs 836줄)
 
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
