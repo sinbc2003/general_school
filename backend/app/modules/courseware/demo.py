@@ -14,7 +14,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -217,10 +217,9 @@ async def seed_demo_courseware(
     if not course:
         raise HTTPException(400, "강좌를 찾을 수 없습니다.")
 
-    # 기존 demo Problem 확인 (Problem.extra.demo=True)
-    # SQLAlchemy JSON contains는 PostgreSQL 한정. 단순화: tags에 "demo" 박음
+    # 기존 demo Problem 확인 — tags(JSON)를 text로 cast 후 LIKE.
     existing_demo = (await db.execute(
-        select(Problem).where(Problem.tags.cast(str).like('%"_demo_courseware"%'))
+        select(Problem).where(cast(Problem.tags, String).like('%"_demo_courseware"%'))
     )).scalars().all()
 
     problems_created = 0
