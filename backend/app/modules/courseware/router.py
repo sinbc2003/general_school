@@ -280,7 +280,7 @@ async def my_problem_sets(
             "subject": c.subject,
             "class_name": c.class_name,
             "semester": {
-                "id": sem.id, "year": sem.year, "term": sem.term, "name": sem.name,
+                "id": sem.id, "year": sem.year, "term": sem.semester, "name": sem.name,
             } if sem else None,
             "is_active": c.is_active,
             "sets": [_set_to_dict(ps) for ps in sets],
