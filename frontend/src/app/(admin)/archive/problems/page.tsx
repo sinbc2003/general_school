@@ -6,10 +6,10 @@
  * 필터·페이지네이션·테이블만 본 파일. 등록/수정 모달은 _components/ProblemFormModal.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api/client";
 import {
-  ChevronLeft, ChevronRight, Edit3, Plus, Search, Trash2,
+  ChevronLeft, ChevronRight, Edit3, Plus, Search, Trash2, Send,
 } from "lucide-react";
 
 import type { ProblemItem, ProblemListResponse } from "./_shared";
@@ -19,6 +19,7 @@ import {
   formatDate,
 } from "./_shared";
 import { ProblemFormModal } from "./_components/ProblemFormModal";
+import { PublishToCoursewareModal } from "./_components/PublishToCoursewareModal";
 
 export default function ProblemsPage() {
   const [problems, setProblems] = useState<ProblemItem[]>([]);
@@ -35,6 +36,35 @@ export default function ProblemsPage() {
   // 모달 상태
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // 다중 선택 — 코스웨어로 일괄 출제
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showPublishModal, setShowPublishModal] = useState(false);
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const allChecked = problems.every((p) => next.has(p.id));
+      if (allChecked) {
+        problems.forEach((p) => next.delete(p.id));
+      } else {
+        problems.forEach((p) => next.add(p.id));
+      }
+      return next;
+    });
+  };
+  const allOnPageChecked = useMemo(
+    () => problems.length > 0 && problems.every((p) => selectedIds.has(p.id)),
+    [problems, selectedIds],
+  );
 
   const fetchProblems = useCallback(async () => {
     setLoading(true);
@@ -79,16 +109,39 @@ export default function ProblemsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-title text-text-primary">문제 검색</h1>
-        <button
-          onClick={() => {
-            setEditingId(null);
-            setShowForm(true);
-          }}
-          className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
-        >
-          <Plus size={14} />
-          문제 등록
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <span className="text-caption text-text-tertiary">
+                {selectedIds.size}개 선택됨
+              </span>
+              <button
+                onClick={() => setShowPublishModal(true)}
+                className="flex items-center gap-1 px-3 py-1.5 text-caption border border-accent text-accent rounded hover:bg-cream-50"
+                title="선택한 문제로 코스웨어 출제"
+              >
+                <Send size={14} />
+                코스웨어로 출제
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-caption text-text-tertiary hover:text-text-primary px-2"
+              >
+                선택 해제
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => {
+              setEditingId(null);
+              setShowForm(true);
+            }}
+            className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+          >
+            <Plus size={14} />
+            문제 등록
+          </button>
+        </div>
       </div>
 
       <ProblemFormModal
@@ -101,6 +154,14 @@ export default function ProblemsPage() {
         }}
         onSaved={fetchProblems}
       />
+
+      {showPublishModal && (
+        <PublishToCoursewareModal
+          problemIds={Array.from(selectedIds)}
+          onClose={() => setShowPublishModal(false)}
+          onDone={() => setSelectedIds(new Set())}
+        />
+      )}
 
       {/* 필터 */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -151,6 +212,14 @@ export default function ProblemsPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-bg-secondary">
+              <th className="px-3 py-2 text-center w-[40px]">
+                <input
+                  type="checkbox"
+                  checked={allOnPageChecked}
+                  onChange={toggleAllOnPage}
+                  title="현재 페이지 전체 선택"
+                />
+              </th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium w-[80px]">ID</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">내용 미리보기</th>
               <th className="px-4 py-2 text-left text-caption text-text-tertiary font-medium">과목</th>
@@ -164,7 +233,19 @@ export default function ProblemsPage() {
           </thead>
           <tbody>
             {problems.map((p) => (
-              <tr key={p.id} className="border-t border-border-default hover:bg-bg-secondary">
+              <tr
+                key={p.id}
+                className={`border-t border-border-default hover:bg-bg-secondary ${
+                  selectedIds.has(p.id) ? "bg-cream-50" : ""
+                }`}
+              >
+                <td className="px-3 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(p.id)}
+                    onChange={() => toggleSelected(p.id)}
+                  />
+                </td>
                 <td className="px-4 py-2 text-caption text-text-tertiary">{p.id}</td>
                 <td className="px-4 py-2 text-body text-text-primary max-w-[300px]">
                   <div className="truncate" title={p.content}>
@@ -227,7 +308,7 @@ export default function ProblemsPage() {
             ))}
             {problems.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-body text-text-tertiary">
+                <td colSpan={10} className="px-4 py-8 text-center text-body text-text-tertiary">
                   {loading ? "로딩 중..." : "문제가 없습니다"}
                 </td>
               </tr>

@@ -1094,3 +1094,4 @@ from app.modules.courseware import bank       # noqa: E402,F401
 from app.modules.courseware import io         # noqa: E402,F401
 from app.modules.courseware import llm        # noqa: E402,F401
 from app.modules.courseware import dashboard  # noqa: E402,F401
+from app.modules.courseware import demo       # noqa: E402,F401

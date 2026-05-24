@@ -17,6 +17,7 @@ import {
   AlertTriangle, Award,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
 import { ProblemSetCreateModal } from "./ProblemSetCreateModal";
 import { CircularProgress, StatBox, AccuracyBadge } from "./_widgets";
@@ -120,6 +121,9 @@ interface Props {
 
 export function MyCoursewareView({ variant }: Props) {
   const toast = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+  const [seedingDemo, setSeedingDemo] = useState(false);
   const [courses, setCourses] = useState<CourseGroup[]>([]);
   const [studentDash, setStudentDash] = useState<StudentDashboard | null>(null);
   const [teacherDash, setTeacherDash] = useState<TeacherDashboard | null>(null);
@@ -196,6 +200,35 @@ export function MyCoursewareView({ variant }: Props) {
       ? `/classroom/${cid}/courseware/${psid}`
       : `/s/classroom/${cid}/courseware/${psid}`;
 
+  const handleSeedDemo = async () => {
+    if (!confirm("데모 데이터를 생성합니다 (Problem 10개 + 세트 3개 + 학생 attempt 다양성). 진행할까요?")) return;
+    setSeedingDemo(true);
+    try {
+      const res = await api.post<{
+        course_name: string;
+        problems_created: number;
+        sets_created: number;
+        attempts_created: number;
+        student_count: number;
+        skipped_reason?: string;
+      }>(`/api/courseware/_demo/seed`);
+      if (res.skipped_reason) {
+        toast.show(`Skip: ${res.skipped_reason}`, "info");
+      } else {
+        toast.show(
+          `데모 생성 — ${res.course_name}: 문제 ${res.problems_created} · ` +
+          `세트 ${res.sets_created} · attempt ${res.attempts_created} (학생 ${res.student_count}명)`,
+          "success",
+        );
+      }
+      load();
+    } catch (e: any) {
+      toast.show(e?.detail || "데모 생성 실패", "error");
+    } finally {
+      setSeedingDemo(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-5">
       {/* 헤더 */}
@@ -211,15 +244,29 @@ export function MyCoursewareView({ variant }: Props) {
               : "수강 강좌의 문제 — 풀이·점수·약점 확인"}
           </p>
         </div>
-        {variant === "admin" && courses.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setCreateForCid(courses[0].course_id)}
-            className="px-3 py-2 text-caption bg-accent-default text-white rounded-lg hover:opacity-90 flex items-center gap-1.5 shrink-0 shadow-sm"
-          >
-            <Plus size={14} /> 문제 세트 출제
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {variant === "admin" && isSuperAdmin && (
+            <button
+              type="button"
+              onClick={handleSeedDemo}
+              disabled={seedingDemo}
+              className="px-3 py-2 text-caption border border-dashed border-cream-300 text-text-secondary rounded-lg hover:bg-cream-50 disabled:opacity-50 flex items-center gap-1.5"
+              title="개발용 — 데모 데이터 생성 (멱등)"
+            >
+              <Sparkles size={14} className="text-amber-500" />
+              {seedingDemo ? "생성 중..." : "데모 데이터"}
+            </button>
+          )}
+          {variant === "admin" && courses.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCreateForCid(courses[0].course_id)}
+              className="px-3 py-2 text-caption bg-accent-default text-white rounded-lg hover:opacity-90 flex items-center gap-1.5 shadow-sm"
+            >
+              <Plus size={14} /> 문제 세트 출제
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 통계 패널 */}
