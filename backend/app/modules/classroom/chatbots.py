@@ -295,6 +295,7 @@ async def start_chatbot_session(
         model_id=model_id,
         system_prompt_id=None,
         system_prompt_text=final_prompt,
+        source_chatbot_id=b.id,
     )
     db.add(s)
     await db.flush()

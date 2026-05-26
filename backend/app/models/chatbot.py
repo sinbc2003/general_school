@@ -105,6 +105,11 @@ class ChatSession(Base):
     # 시스템 프롬프트를 직접 저장 (별도 SystemPrompt row 안 만들기 위함).
     # 메시지 발송 시 sessions.py가 우선 사용 (id보다 text 우선).
     system_prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 강좌 챗봇으로 시작된 세션이면 origin 챗봇 FK — 학생 챗봇 리스트에서 시각 구분.
+    # 챗봇 삭제 시 SET NULL (세션·메시지 보존, 단지 origin 표시만 사라짐).
+    source_chatbot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("course_chatbots.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     total_input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

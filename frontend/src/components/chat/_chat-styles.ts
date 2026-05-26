@@ -16,6 +16,11 @@ export interface Session {
   total_cost_usd: number;
   created_at: string;
   last_message_at: string | null;
+  // 강좌 챗봇으로 시작된 세션 (없으면 null). 사이드바 시각 구분에 사용.
+  source_chatbot_id?: number | null;
+  source_chatbot_name?: string | null;
+  source_course_id?: number | null;
+  source_course_name?: string | null;
 }
 
 export interface Message {

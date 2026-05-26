@@ -20,6 +20,7 @@ from app.models.chatbot import (
     ChatbotConfig, ChatMessage, ChatSession, ChatUsageDaily,
     LLMModel, LLMProvider, SystemPrompt,
 )
+from app.models.classroom import Course, CourseChatbot
 from app.models.user import User
 from app.services.llm.base import LLMMessage
 from app.services.llm.cost import calculate_cost_usd
@@ -101,14 +102,29 @@ async def list_sessions(
             ChatSession.archived == archived,
         )
     )).scalar() or 0
-    q = select(ChatSession).where(
-        ChatSession.user_id == user.id,
-        ChatSession.archived == archived,
-    ).order_by(
-        desc(ChatSession.pinned), desc(ChatSession.last_message_at),
-        desc(ChatSession.created_at),
-    ).offset(offset).limit(limit)
-    rows = (await db.execute(q)).scalars().all()
+    # LEFT JOIN으로 강좌 챗봇 정체 (학생 사이드바 시각 구분에 사용).
+    # 챗봇·강좌 삭제됐어도 ChatSession.source_chatbot_id가 SET NULL이라 안전.
+    q = (
+        select(
+            ChatSession,
+            CourseChatbot.id.label("source_chatbot_id_join"),
+            CourseChatbot.name.label("source_chatbot_name"),
+            Course.id.label("source_course_id"),
+            Course.name.label("source_course_name"),
+        )
+        .outerjoin(CourseChatbot, CourseChatbot.id == ChatSession.source_chatbot_id)
+        .outerjoin(Course, Course.id == CourseChatbot.course_id)
+        .where(
+            ChatSession.user_id == user.id,
+            ChatSession.archived == archived,
+        )
+        .order_by(
+            desc(ChatSession.pinned), desc(ChatSession.last_message_at),
+            desc(ChatSession.created_at),
+        )
+        .offset(offset).limit(limit)
+    )
+    rows = (await db.execute(q)).all()
     return {
         "limit": limit, "offset": offset, "total": int(total),
         "items": [
@@ -119,8 +135,12 @@ async def list_sessions(
                 "total_cost_usd": round(s.total_cost_usd, 6),
                 "created_at": s.created_at.isoformat(),
                 "last_message_at": s.last_message_at.isoformat() if s.last_message_at else None,
+                "source_chatbot_id": cbid,
+                "source_chatbot_name": cbname,
+                "source_course_id": ccid,
+                "source_course_name": ccname,
             }
-            for s in rows
+            for s, cbid, cbname, ccid, ccname in rows
         ]
     }
 
