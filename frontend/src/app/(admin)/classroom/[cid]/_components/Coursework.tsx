@@ -239,13 +239,15 @@ function CourseworkItem({
 
   return (
     <div
-      className={`bg-bg-primary border rounded-lg overflow-hidden transition ${
+      className={`bg-bg-primary border rounded-lg transition ${
         expanded ? "border-accent shadow-sm" : "border-border-default hover:shadow-sm"
       }`}
     >
       <div
         onClick={() => setExpanded(!expanded)}
-        className="group flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-bg-secondary"
+        className={`group flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-bg-secondary ${
+          expanded ? "rounded-t-lg" : "rounded-lg"
+        }`}
       >
         <div
           className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
@@ -308,7 +310,7 @@ function CourseworkItem({
       </div>
 
       {expanded && (
-        <div className="px-5 pb-4 border-t border-border-default">
+        <div className="px-5 pb-4 border-t border-border-default rounded-b-lg">
           <div className="flex items-start gap-4 pt-4">
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-semibold text-text-primary mb-1">
