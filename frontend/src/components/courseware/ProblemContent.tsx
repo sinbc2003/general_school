@@ -85,7 +85,8 @@ function AuthedImage({ src, alt }: AuthedImageProps) {
   const [error, setError] = useState(false);
 
   const isAuthed = src.startsWith("/api/files/");
-  const fullSrc = src.startsWith("http") ? src : `${API_URL}${src}`;
+  const isExternal = src.startsWith("http") || src.startsWith("data:");
+  const fullSrc = isExternal ? src : `${API_URL}${src}`;
 
   useEffect(() => {
     if (!isAuthed) return;

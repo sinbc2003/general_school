@@ -11,9 +11,10 @@
  */
 
 import { useEffect, useState } from "react";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Eye } from "lucide-react";
 import type { ProblemInline, ProblemType } from "./types";
 import { DIFFICULTY_OPTIONS, TYPE_OPTIONS } from "./types";
+import { ProblemContent, InlineMathText } from "./ProblemContent";
 
 interface Props {
   index: number;
@@ -100,16 +101,32 @@ export function InlineProblemForm({ index, value, onChange, onRemove }: Props) {
         </label>
       </div>
 
-      <label className="block text-caption mb-3">
-        <div className="text-text-tertiary mb-1">문제 본문</div>
-        <textarea
-          value={value.content}
-          onChange={(e) => update("content", e.target.value)}
-          placeholder="문제를 입력하세요 (수식은 LaTeX $...$ 가능)"
-          rows={3}
-          className="w-full px-2 py-1.5 border border-border-default rounded text-body font-mono"
-        />
-      </label>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <label className="block text-caption">
+          <div className="text-text-tertiary mb-1">문제 본문</div>
+          <textarea
+            value={value.content}
+            onChange={(e) => update("content", e.target.value)}
+            placeholder="문제를 입력하세요 (수식 $...$ / $$...$$, 이미지 ![](url) 지원)"
+            rows={5}
+            className="w-full px-2 py-1.5 border border-border-default rounded text-body font-mono"
+          />
+        </label>
+        <div className="text-caption">
+          <div className="text-text-tertiary mb-1 flex items-center gap-1">
+            <Eye size={11} /> 미리보기
+          </div>
+          <div className="w-full min-h-[8rem] px-2 py-1.5 border border-border-default rounded bg-bg-secondary overflow-auto max-h-48 [&_img]:max-h-24">
+            {value.content.trim() ? (
+              <ProblemContent content={value.content} />
+            ) : (
+              <span className="text-text-tertiary italic text-[11px]">
+                본문 입력 시 수식·이미지가 실시간 표시됩니다
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* 정답 영역 (type별 분기) */}
       {value.type === "multiple_choice" && (

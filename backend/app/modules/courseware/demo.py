@@ -12,19 +12,66 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
-from app.core.permissions import require_super_admin
 from app.core.database import get_db
+from app.core.files import ensure_dir_async, write_bytes_async
+from app.core.permissions import require_super_admin
 from app.models import (
     Course, CourseProblemSet, CourseStudent, CourseTeacher, Problem,
     StudentProblemAttempt, User,
 )
 from app.modules.courseware.router import router
+
+
+# ── 데모용 SVG 이미지 (학교 LAN 외부 차단 대비, storage에 멱등 저장) ─────────
+
+_COURSEWARE_STORAGE = Path(__file__).resolve().parents[3] / "storage" / "courseware"
+
+_DEMO_IMG_TRIANGLE = (
+    """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 100" width="260">
+  <polygon points="20,80 110,80 110,15" fill="none" stroke="#222" stroke-width="1.8"/>
+  <rect x="100" y="70" width="10" height="10" fill="none" stroke="#888" stroke-width="0.8"/>
+  <text x="55" y="92" font-size="11" fill="#222">4</text>
+  <text x="116" y="50" font-size="11" fill="#222">3</text>
+  <text x="50" y="50" font-size="13" font-style="italic" fill="#0066cc">x</text>
+</svg>"""
+).encode("utf-8")
+
+_DEMO_IMG_LINE = (
+    """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="220">
+  <line x1="10" y1="90" x2="92" y2="90" stroke="#888" stroke-width="0.6"/>
+  <line x1="10" y1="8"  x2="10" y2="90" stroke="#888" stroke-width="0.6"/>
+  <line x1="10" y1="90" x2="80" y2="20" stroke="#0066cc" stroke-width="2"/>
+  <circle cx="10" cy="90" r="2" fill="#0066cc"/>
+  <circle cx="80" cy="20" r="2" fill="#0066cc"/>
+  <text x="86" y="96" font-size="7" fill="#666">x</text>
+  <text x="3"  y="14" font-size="7" fill="#666">y</text>
+  <text x="82" y="36" font-size="7" fill="#0066cc" font-style="italic">B(7,7)</text>
+  <text x="14" y="98" font-size="7" fill="#0066cc" font-style="italic">A(0,0)</text>
+</svg>"""
+).encode("utf-8")
+
+_DEMO_IMAGES: dict[str, bytes] = {
+    "demo-triangle.svg": _DEMO_IMG_TRIANGLE,
+    "demo-line.svg": _DEMO_IMG_LINE,
+}
+
+
+async def _ensure_demo_images() -> None:
+    """데모 SVG를 storage/courseware/에 멱등 작성 (이미 있으면 skip)."""
+    await ensure_dir_async(_COURSEWARE_STORAGE)
+    for name, blob in _DEMO_IMAGES.items():
+        target = _COURSEWARE_STORAGE / name
+        if not target.exists():
+            await write_bytes_async(target, blob)
 
 
 # ── 데모 Problem 정의 (10개, 다양한 grader_type) ─────────────────────────────
@@ -171,6 +218,41 @@ DEMO_PROBLEMS: list[dict] = [
         "difficulty": "easy",
         "subject": "문학",
     },
+    # ── 이미지 + 수식 결합 데모 ────────────────────────────────────────────
+    {
+        "content": (
+            "다음 직각삼각형에서 $x$의 값은? (피타고라스 정리 활용)\n\n"
+            "![직각삼각형 도형](/api/files/storage/courseware/demo-triangle.svg)"
+        ),
+        "answer": "5",
+        "answer_data": {
+            "grader_type": "numeric",
+            "value": 5,
+            "tolerance": 0.001,
+        },
+        "question_type": "numeric",
+        "difficulty": "medium",
+        "subject": "수학",
+        "solution": "$x^2 = 3^2 + 4^2 = 25$, 따라서 $x = 5$.",
+        "tags": ["피타고라스", "이미지"],
+    },
+    {
+        "content": (
+            "원점 $A(0, 0)$과 점 $B(7, 7)$을 지나는 직선의 기울기는?\n\n"
+            "![좌표평면 위 직선](/api/files/storage/courseware/demo-line.svg)"
+        ),
+        "answer": "1",
+        "answer_data": {
+            "grader_type": "numeric",
+            "value": 1,
+            "tolerance": 0.001,
+        },
+        "question_type": "numeric",
+        "difficulty": "easy",
+        "subject": "수학",
+        "solution": "기울기 $= \\dfrac{7-0}{7-0} = 1$.",
+        "tags": ["일차함수", "이미지"],
+    },
 ]
 
 
@@ -227,6 +309,8 @@ async def seed_demo_courseware(
     attempts_created = 0
 
     if existing_demo:
+        # 데모 Problem이 이미 있어도 이미지 파일이 누락됐을 수 있으니 멱등 확인.
+        await _ensure_demo_images()
         return {
             "course_id": course.id,
             "course_name": course.name,
@@ -236,7 +320,10 @@ async def seed_demo_courseware(
             "skipped_reason": f"이미 데모 Problem {len(existing_demo)}개 존재 — 멱등 skip",
         }
 
-    # 1) Problem 10개 생성
+    # 0) 데모 SVG 이미지 storage에 작성
+    await _ensure_demo_images()
+
+    # 1) Problem 12개 생성
     created_problems: list[Problem] = []
     for pd in DEMO_PROBLEMS:
         tags = list(pd.get("tags", [])) + ["_demo_courseware"]

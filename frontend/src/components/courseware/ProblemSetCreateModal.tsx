@@ -15,6 +15,7 @@ import { X, Plus, Upload, Library, Trash2, Search, Bot } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToast } from "@/components/ui/Toast";
 import { InlineProblemForm } from "./InlineProblemForm";
+import { ProblemContent } from "./ProblemContent";
 import type { ProblemInline, BankSearchItem } from "./types";
 
 interface ModelItem {
@@ -668,7 +669,9 @@ export function ProblemSetCreateModal({
                               </>
                             )}
                           </div>
-                          <div className="text-body line-clamp-2">{p.content_preview}</div>
+                          <div className="text-body max-h-24 overflow-hidden [&_img]:max-h-20 [&_img]:my-0.5">
+                            <ProblemContent content={p.content_preview} />
+                          </div>
                         </div>
                       </label>
                     );

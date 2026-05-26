@@ -20,6 +20,7 @@ import {
 } from "./_shared";
 import { ProblemFormModal } from "./_components/ProblemFormModal";
 import { PublishToCoursewareModal } from "./_components/PublishToCoursewareModal";
+import { ProblemContent } from "@/components/courseware/ProblemContent";
 
 export default function ProblemsPage() {
   const [problems, setProblems] = useState<ProblemItem[]>([]);
@@ -248,8 +249,11 @@ export default function ProblemsPage() {
                 </td>
                 <td className="px-4 py-2 text-caption text-text-tertiary">{p.id}</td>
                 <td className="px-4 py-2 text-body text-text-primary max-w-[300px]">
-                  <div className="truncate" title={p.content}>
-                    {p.content}
+                  <div
+                    className="max-h-20 overflow-hidden text-body [&_img]:max-h-16 [&_img]:my-0.5"
+                    title={p.content}
+                  >
+                    <ProblemContent content={p.content} />
                   </div>
                 </td>
                 <td className="px-4 py-2 text-body text-text-secondary">{p.subject}</td>
