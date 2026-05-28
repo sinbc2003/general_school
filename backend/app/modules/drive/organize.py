@@ -163,7 +163,7 @@ async def copy_drive_item(
             from pathlib import Path
 
             if src.file_path:
-                STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+                from app.core.files import DEFAULT_STORAGE_ROOT as STORAGE_ROOT  # noqa: F811
                 src_full = STORAGE_ROOT / src.file_path
                 fmt = src.file_format or "hwpx"
                 token = secrets.token_urlsafe(8)
@@ -195,7 +195,7 @@ async def copy_drive_item(
             try:
                 from app.core.files import unlink_async
                 from pathlib import Path
-                STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+                from app.core.files import DEFAULT_STORAGE_ROOT as STORAGE_ROOT  # noqa: F811
                 await unlink_async(STORAGE_ROOT / copied_hwp_path)
             except Exception:
                 pass

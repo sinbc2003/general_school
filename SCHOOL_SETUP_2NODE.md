@@ -134,19 +134,17 @@ cd ~/general_school
 
 ### **4. storage 디렉터리를 NFS로 연결** — 2분
 
+**옵션 A (권장, 환경변수)**: `.env`에 `STORAGE_ROOT=/mnt/gs-storage` 한 줄. 모든 업로드가 B로. 코드 수정 0.
+
+**옵션 B (대안, 심볼릭 링크)**:
 ```bash
 cd ~/general_school/backend
-
-# 빈 storage 디렉터리 삭제 (있다면)
-rmdir storage 2>/dev/null
-
-# NFS 마운트 포인트로 심볼릭 링크
-ln -s /mnt/gs-storage storage
-
-# 확인
-ls -la | grep storage
-# storage -> /mnt/gs-storage  로 나오면 OK
+rmdir storage 2>/dev/null      # 빈 storage 디렉터리 삭제 (있다면)
+ln -s /mnt/gs-storage storage  # NFS 마운트 포인트로 링크
+ls -la | grep storage          # storage -> /mnt/gs-storage  로 나오면 OK
 ```
+
+두 방식 다 동일하게 작동. 옵션 A가 명시적이고 dev/prod 분리 쉬워 권장.
 
 ---
 
@@ -171,6 +169,11 @@ ENCRYPTION_MASTER_KEY=<openssl rand -hex 32 결과>
 
 # CORS — 학교 LAN IP
 CORS_ALLOW_ORIGINS=http://192.168.1.10
+
+# 파일 저장 root — 모든 업로드(드라이브·과제·연구 등) 여기로 감
+# 옵션 A: NFS 마운트 절대경로 → B 노트북에 자동 분리 저장
+STORAGE_ROOT=/mnt/gs-storage
+# 옵션 B(설정 안 하면): backend/storage/ (CWD 기준) — 옵션 B 심볼릭 링크 방식과 동일
 
 # 백업 destination = NFS = 노트북 B
 BACKUP_DEST=/mnt/gs-storage/backups

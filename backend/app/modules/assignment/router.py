@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.core.permissions import require_permission
 from app.core.semester import (
     get_active_semester_id_or_404,
@@ -21,7 +22,8 @@ from app.modules.assignment.schemas import (
 )
 
 router = APIRouter(prefix="/api/assignment", tags=["assignment"])
-UPLOAD_DIR = os.path.join("storage", "assignments")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "assignments")
 
 
 @router.post("/_filename-preview")

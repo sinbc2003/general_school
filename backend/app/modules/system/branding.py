@@ -25,7 +25,9 @@ from app.modules.system.schemas import BrandingUpdate
 from app.modules.system.router import router
 
 
-BRANDING_DIR = Path(__file__).resolve().parents[3] / "storage" / "branding"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+BRANDING_DIR = DEFAULT_STORAGE_ROOT / "branding"
 ALLOWED_FAVICON_EXTS = {".ico", ".png", ".svg", ".jpg", ".jpeg"}
 
 

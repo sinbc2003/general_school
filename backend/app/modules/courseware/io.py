@@ -49,8 +49,9 @@ from app.modules.courseware.router import router
 from app.modules.courseware.schemas import ProblemInline
 
 
-# Storage paths
-COURSEWARE_STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage" / "courseware"
+# Storage paths — settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+COURSEWARE_STORAGE_DIR = DEFAULT_STORAGE_ROOT / "courseware"
 ALLOWED_IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
 MAX_IMAGES_PER_ZIP = 500
 MAX_ZIP_UNCOMPRESSED = 200 * 1024 * 1024  # 200MB (zip-bomb 방어)

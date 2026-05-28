@@ -63,10 +63,9 @@ PALETTE = [
     "#039BE5", "#0B8043", "#3F51B5", "#D81B60", "#616161", "#0097A7",
 ]
 
-BANNER_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "storage", "classroom", "banners",
-)
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+BANNER_DIR = str(DEFAULT_STORAGE_ROOT / "classroom" / "banners")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 입력 5MB 한도
 
 

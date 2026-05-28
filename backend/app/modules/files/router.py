@@ -41,7 +41,9 @@ from app.models.user import User
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
-STORAGE_DIR = Path(__file__).resolve().parents[3] / "storage"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+STORAGE_DIR = DEFAULT_STORAGE_ROOT
 
 
 # ── section별 가드 ─────────────────────────────────────────

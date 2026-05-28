@@ -10,13 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.core.permissions import require_permission
 from app.models.archive import Document, DocumentStatus, Problem, Tag, PublishedProblemSet
 from app.models.user import User
 from app.modules.archive.schemas import ProblemCreate, ProblemUpdate
 
 router = APIRouter(prefix="/api/archive", tags=["archive"])
-UPLOAD_DIR = os.path.join("storage", "documents")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합). env STORAGE_ROOT 변경 시 backend 재시작.
+UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "documents")
 
 
 # ── Documents ──

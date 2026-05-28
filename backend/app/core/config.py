@@ -92,5 +92,14 @@ class Settings(BaseSettings):
     # 운영 환경: 양쪽 .env에 동일한 강한 랜덤 값.
     HOCUSPOCUS_INTERNAL_TOKEN: str = ""
 
+    # ── 파일 저장 root (Phase 2-Q 통합 진입점) ──
+    # 기본: backend/storage/ (CWD 기준 relative). 학교 NFS 운영 시 절대경로 override.
+    #   예) STORAGE_ROOT=/mnt/gs-storage  (B 노트북 NFS 마운트)
+    #       STORAGE_ROOT=/srv/general_school/storage  (외장 SSD)
+    # 변경 즉시 모든 신규 업로드가 이 root 하위로 감. 기존 파일도 이 root에 있어야 읽힘.
+    # 분산 운영(외장 SSD 추가 등)은 별도 StorageVolume 모델 + storage_volume_id로 처리 —
+    # 그 경우 모델이 채워진 row만 그 볼륨, 나머지는 이 STORAGE_ROOT 사용.
+    STORAGE_ROOT: str = "storage"
+
 
 settings = Settings()

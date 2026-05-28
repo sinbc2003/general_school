@@ -26,7 +26,9 @@ from app.modules.student_self.router import router
 from app.modules.student_self._helpers import _artifact_to_dict, _require_student
 
 
-ARTIFACT_DIR = Path(__file__).resolve().parents[3] / "storage" / "artifacts"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+ARTIFACT_DIR = DEFAULT_STORAGE_ROOT / "artifacts"
 
 
 @router.get("/artifacts")

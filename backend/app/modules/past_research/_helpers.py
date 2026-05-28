@@ -1,14 +1,14 @@
 """Past research 공통 헬퍼 — sub-module들이 공유."""
 
-import os
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.models.past_research import PastResearch
 from app.models.timetable import Semester
 
-UPLOAD_DIR = os.path.join("storage", "past_research")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "past_research")
 MAX_PDFS_PER_ZIP = 2000
 MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB per PDF
 

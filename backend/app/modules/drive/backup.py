@@ -56,9 +56,11 @@ from app.models import (
     ClassroomDocument, ClassroomHwp, ClassroomPresentation, ClassroomSheet,
     ClassroomSlide, Folder, Survey, SurveyAnswer, SurveyQuestion, SurveyResponse, User,
 )
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.modules.drive.router import router
 
-STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+STORAGE_ROOT = DEFAULT_STORAGE_ROOT
 
 
 def _serialize_folder(f: Folder) -> dict[str, Any]:

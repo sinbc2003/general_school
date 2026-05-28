@@ -50,11 +50,13 @@ from app.models import (
     SheetMember,
     User,
 )
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.modules.classroom.router import router
 from app.modules.classroom.teachers import is_course_editor
 
 
-STORAGE_ROOT = Path("storage")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+STORAGE_ROOT = DEFAULT_STORAGE_ROOT
 
 # att.type → (Model, MemberModel, member FK column name)
 _TYPE_MAP: dict[str, tuple] = {

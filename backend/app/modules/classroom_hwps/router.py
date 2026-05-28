@@ -31,7 +31,9 @@ from app.models.user import User
 router = APIRouter(prefix="/api/classroom/hwps", tags=["classroom_hwps"])
 
 
-STORAGE_BASE = Path(__file__).resolve().parents[3] / "storage" / "hwps"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+STORAGE_BASE = DEFAULT_STORAGE_ROOT / "hwps"
 MAX_FILE_BYTES = POLICY_HWP.max_size_bytes
 
 

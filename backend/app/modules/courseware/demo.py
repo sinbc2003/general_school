@@ -30,8 +30,10 @@ from app.modules.courseware.router import router
 
 
 # ── 데모용 SVG 이미지 (학교 LAN 외부 차단 대비, storage에 멱등 저장) ─────────
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
 
-_COURSEWARE_STORAGE = Path(__file__).resolve().parents[3] / "storage" / "courseware"
+_COURSEWARE_STORAGE = DEFAULT_STORAGE_ROOT / "courseware"
 
 _DEMO_IMG_TRIANGLE = (
     """<?xml version="1.0" encoding="UTF-8"?>

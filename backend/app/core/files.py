@@ -122,15 +122,28 @@ async def unlink_async(
     )
 
 
-# ── Storage volume 인지 헬퍼 (Phase 2-Q 통합 1단계) ──
+# ── Storage volume 인지 헬퍼 (Phase 2-Q 통합) ──
 #
-# 현재 모든 업로드는 backend/storage/ 고정 디렉터리 사용. 외장 SSD 등 추가
-# StorageVolume이 등록돼 있어도 활용 안 됨. 이 헬퍼는 **신규 호출자가 명시적으로
-# 사용할 때**만 active volume 경로를 반환 — 기존 호출자(write_bytes_async 등 path
-# 직접 받는 헬퍼들)는 변경 없음. 라우팅 통합은 endpoint별 검증 후 별도 단계에서.
+# 두 단계 추상화:
+#   1. **DEFAULT_STORAGE_ROOT** = settings.STORAGE_ROOT (env var 기반).
+#      모든 endpoint 통일된 root. 학교 NFS 운영 시 STORAGE_ROOT=/mnt/gs-storage 한 줄로 전환.
+#   2. **StorageVolume 분산**: 모델에 ``storage_volume_id`` 컬럼 채워진 row만
+#      그 볼륨 path 사용. NULL이면 DEFAULT_STORAGE_ROOT.
+#      외장 SSD 추가 등 분산 운영 시 활용.
+#
+# 신규 endpoint 권장: ``save_upload_to_volume_async()`` 한 번 호출 — 위 두 단계 자동 처리.
+# 기존 endpoint도 ``DEFAULT_STORAGE_ROOT``를 path 시작점으로 쓰면 NFS 전환은 환경변수만으로 가능.
 
-# Default storage root — 기존 backend/storage/ 경로 (CWD 기준 relative)
-DEFAULT_STORAGE_ROOT = Path("storage")
+
+def _default_storage_root() -> Path:
+    """settings.STORAGE_ROOT 기반 default root. 매 호출 (env override 즉시 반영)."""
+    from app.core.config import settings
+    return Path(settings.STORAGE_ROOT)
+
+
+# 호환성: 기존 코드의 from app.core.files import DEFAULT_STORAGE_ROOT 지원.
+# 모듈 로드 시점 값 — settings 변경 후 재시작 필요.
+DEFAULT_STORAGE_ROOT = _default_storage_root()
 
 
 async def get_storage_root_with_volume(

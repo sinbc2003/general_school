@@ -371,7 +371,9 @@ async def delete_post_comment(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-STORAGE_ROOT = Path(__file__).resolve().parents[3] / "storage"
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+from app.core.files import DEFAULT_STORAGE_ROOT
+STORAGE_ROOT = DEFAULT_STORAGE_ROOT
 CLASSROOM_DIR = STORAGE_ROOT / "classroom"
 
 

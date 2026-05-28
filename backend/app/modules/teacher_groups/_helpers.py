@@ -1,15 +1,15 @@
 """Teacher group 공통 헬퍼."""
 
-import os
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.models.department import Department
 from app.models.teacher_group import TeacherGroup, TeacherGroupMember
 from app.models.user import User
 
-UPLOAD_DIR = os.path.join("storage", "group_submissions")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "group_submissions")
 
 
 def is_admin(u: User) -> bool:

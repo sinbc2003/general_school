@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.files import DEFAULT_STORAGE_ROOT
 from app.core.permissions import require_permission
 from app.models.research import ResearchProject, ResearchLog, ResearchSubmission, ResearchJournal
 from app.models.user import User
@@ -19,7 +20,8 @@ from app.modules.research.schemas import (
 )
 
 router = APIRouter(prefix="/api/research", tags=["research"])
-UPLOAD_DIR = os.path.join("storage", "research")
+# settings.STORAGE_ROOT 기반 (Phase 2-Q 통합).
+UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "research")
 
 
 @router.post("")
