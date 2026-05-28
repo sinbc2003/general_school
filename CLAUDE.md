@@ -1148,6 +1148,44 @@ async def handler(...): ...
 
 ---
 
+## 2026-05-28 마감 — 학교 셋업 결정 (실행 직전 합의)
+
+### 구성 결정
+- **원래 계획**: 3대 (서버·DB·미러)
+- **변경**: 1대(미러)는 보류, DB도 분리 안 함. **2대 — 서버 노트북 A + 스토리지 노트북 B (NFS)**
+- 원래 윈도우 노트북을 SMB 외장 SSD 대용으로 검토 → 결국 **양쪽 다 리눅스 깡통 노트북**으로 진행 결정
+
+### 데이터 배치
+| | 노트북 A (서버) | 노트북 B (스토리지) |
+|---|---|---|
+| PostgreSQL DB (5~20GB) | ✅ 본체 SSD | ❌ (네트워크 latency 민감) |
+| `backend/storage/` (300~600GB 추정) | ❌ | ✅ NFS export |
+| 자동 백업 ZIP | ❌ | ✅ `/mnt/gs-storage/backups/` |
+
+### 셋업 가이드 (실제 학교 가서 따라할 거)
+**[SCHOOL_SETUP_2NODE.md](SCHOOL_SETUP_2NODE.md)** 신규 — 0~9단계 시나리오 + 막힐 부분
+대처 + 가져갈 체크리스트. 2~3시간 예상. 학교 가서 휴대폰·태블릿으로 보고 따라하기.
+
+기존 셋업 문서들:
+- [DEPLOYMENT_DAY.md](DEPLOYMENT_DAY.md) — 윈도우→우분투 설치부터 (3~5h, 다른 시나리오)
+- [DEPLOY_TO_SCHOOL.md](DEPLOY_TO_SCHOOL.md) — 우분투 설치된 상태 + 1대 (1~2h)
+- [production/README.md](production/README.md) — 가동 후 운영 명령
+
+### 추후 확장 트리거
+- 미러 노트북 추가 (안정성) — cron으로 매일 pg_dump rsync
+- DB 분리 (성능) — `.env`의 `DATABASE_URL` 1줄 변경
+- 외장 SSD/NAS (용량) — `/etc/fstab` mount 지점 변경
+
+### Storage Volume Step 2 Phase 2 — 여전히 미완
+- `StorageVolume` 모델 + `/proc/mounts` 자동 감지 UI + `get_storage_root()` 헬퍼 모두 있음
+- 단 실 업로드는 `backend/storage/` 고정 → 학교 셋업에서 **OS 심볼릭 링크로 해결**
+  (`ln -s /mnt/gs-storage backend/storage`)
+- 추후 multi-volume 라우팅 통합 작업은 다음 세션 후보
+
+다음 세션 catch-up: 위 결정사항 + SCHOOL_SETUP_2NODE.md 시나리오 보면 OK.
+
+---
+
 ## 2026-05-21 세션 — Phase 1.0 + 1.5 + 2 (드라이브 + 마법사 + Google 연동 + 인사이동 + 스토리지)
 
 > 학교 자체 운영 플랫폼의 핵심 인프라 완성. 1400명 × 1년 + 인사이동 + 외장 스토리지까지 통합.
