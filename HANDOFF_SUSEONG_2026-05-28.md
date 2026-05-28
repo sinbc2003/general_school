@@ -3,6 +3,17 @@
 > D 노트북(윈도우 jump host)에 새로 설치한 Claude Code가 이 파일과 CLAUDE.md만 읽고
 > 이어서 작업할 수 있게 정리. 학교 망 정책 + 노트북 역할 + 다음 작업.
 
+## ⚠️ 중요 — 역할 swap (당일 후반 결정)
+
+원래: A=메인서버, B=NFS 스토리지
+**변경**: **B=메인서버, A=NFS 스토리지** (사용자가 집에서 B 셋업하면서 결정)
+
+이유:
+- A는 학교 유선 outbound 차단으로 git clone/Claude API/apt 다 불가 → 메인서버로 어려움
+- B는 집에서 완전 셋업 가능 (외부 인터넷 OK) → 메인서버 최적
+- A는 이미 설치돼있고 SSH OK → NFS 서버 패키지만 추가 설치하면 됨
+- A의 HDD 465GB가 미사용 → NFS export 경로로 활용
+
 ---
 
 ## 📡 학교 망 (수성고) 핵심 발견
@@ -28,18 +39,52 @@
 
 | 노트북 | OS | 위치 | 망 | 역할 | 상태 |
 |---|---|---|---|---|---|
-| **A** | Ubuntu Server 24.04 | 학교 상주 | 학교 유선 (192.168.0.5) | general_school 운영 서버 | ✅ 부팅 완료, SSH 활성, 절전 OFF (부분) |
-| **B** | (집에서 Ubuntu 설치 예정) | 사용자 집 → 다음 방문에 학교 | (예정) 학교 유선 | NFS 스토리지 분리 (`/mnt/gs-storage`) | ⏸ 보류, 다음 방문 시 셋업 |
+| **A** | Ubuntu Server 24.04 | 학교 상주 | 학교 유선 (192.168.0.5) | **NFS 스토리지** (역할 변경) — HDD 465GB export | ✅ 설치 완료, SSH 활성. NFS 패키지 설치 대기 |
+| **B (main-server)** | Ubuntu Server 24.04.4 LTS | **사용자 집 (셋업 중) → 추후 학교** | 집 와이파이 `192.168.123.175` + Tailscale `100.92.66.61` | **general_school 메인서버** (역할 변경) | ✅ Tailscale 등록, SSH 키 인증, NOPASSWD sudo, 절전·도구 셋업 완료 |
 | **C** | Windows 11 (사용자 본인) | 사용자 휴대 | 외부/집 + Tailscale (`100.89.219.102`) | 사용자 작업 노트북 | ✅ 정상 |
-| **D** | Windows | 학교 상주 (오늘 받음) | 학교 유선 + 외부 인터넷 OK + Tailscale (`100.80.133.117`) | **Jump host**: Chrome RD Host + Claude Code | ✅ Tailscale P2P direct 연결 확인 |
+| **D** | Windows | 학교 상주 (오늘 받음) | 학교 유선 + 외부 인터넷 OK + Tailscale (`100.80.133.117`) | **Jump host**: Chrome RD Host + Claude Code + (학교 가서) A·B SSH 게이트웨이 | ✅ Tailscale P2P direct 연결 확인 |
+
+### B 노트북 상세 (main-server, 사용자 집에서 셋업 중)
+- **호스트명**: `main-server`
+- **Wi-Fi IP (현재 집)**: `192.168.123.175/24` (게이트웨이 `192.168.123.1`)
+- **Tailscale IP**: `100.92.66.61` (P2P direct 연결 확인)
+- **MAC (wlo1)**: `34:7d:f6:b5:68:eb`
+- **사용자**: `susung` / 비번 `20260514!@!@` (A와 통일)
+- **OS**: Ubuntu Server 24.04.4 LTS
+- **디스크**: Samsung SSD 119GB (OS + LVM ubuntu-lv 116GB) + Toshiba HDD 465GB (미사용 — 추후 백업/추가 용량)
+- **SSH 접속**:
+  - 외부 어디서든: `ssh susung@100.92.66.61` (Tailscale)
+  - 집 LAN: `ssh susung@192.168.123.175`
+  - 키 인증 완료 (C의 ed25519 등록)
+- **sudo**: NOPASSWD 설정됨 (`/etc/sudoers.d/susung`)
+- **체크리스트 (집에서 완료한 것)**:
+  - ✅ Ubuntu 설치 + apt upgrade
+  - ✅ 절전 OFF (sleep/suspend/hibernate/hybrid-sleep masked)
+  - ✅ 덮개 닫기 ignore (`/etc/systemd/logind.conf.d/99-lid.conf` drop-in)
+  - ✅ 필수 도구: curl, git, wget, build-essential, ca-certificates, ufw
+  - ✅ Tailscale 1.98.3 설치 + 등록
+  - ✅ SSH 키 인증 + NOPASSWD sudo
+- **추가 셋업 (집에서 진행 예정, 다음 세션)**:
+  - ⏳ general_school 코드 clone
+  - ⏳ PostgreSQL (`scripts/setup_postgres.sh`)
+  - ⏳ Node 20 + npm
+  - ⏳ Claude Code 설치
+  - ⏳ `.env` 작성 (STORAGE_ROOT 포함, JWT/ENCRYPTION_MASTER_KEY 강한 랜덤)
+  - ⏳ `bash scripts/setup-production.sh`
+- **학교 이동 후**:
+  - 학교 LAN에 연결 (와이파이 또는 USB-LAN 어댑터로 유선)
+  - IP 변경 (DHCP) — 같은 192.168.0.x 서브넷이면 A와 직접 통신 가능
+  - A를 NFS 마운트 (`/mnt/gs-storage` ← A `/srv/gs-storage`)
+  - 학교 IT에 outbound 허용 요청 (MAC `34:7d:f6:b5:68:eb`)
+- **단방향 SSH**: C/D → B 가능. B에는 다른 곳 SSH 키 없음 (메인서버 보안).
 
 ### D 노트북 상세 (수성고)
 - **호스트명**: `desktop-e8kcl6l`
 - **Tailscale IP**: `100.80.133.117` (P2P direct 연결, 학교 공인 IP `211.114.120.184:41641`)
 - **윈도우 사용자**: `user`
-- **윈도우 비번**: `260317`
-- **SSH 접속**: `ssh user@100.80.133.117` → 비번 `260317`
-- **역할**: C(외부) → SSH → D(학교 유선) → SSH → A(서버) 의 jump host
+- **윈도우 비번**: `260317` (Windows Hello PIN, SSH 비번 인증 X — 키 인증 only)
+- **SSH 접속**: `ssh user@100.80.133.117` (키 인증)
+- **역할**: C(외부) → SSH → D(학교 유선) → SSH → A(NFS 스토리지) 또는 B(메인서버, 학교 이동 후) 의 jump host
 - **체크리스트**:
   - ✅ Tailscale 등록
   - ⏳ OpenSSH 서버 설치 (`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`)
@@ -47,7 +92,7 @@
   - ⏳ Claude Code 설치
   - ⏳ 절전 OFF + 자동 로그인 (`netplwiz`)
 
-### A 노트북 상세
+### A 노트북 상세 (역할 변경 → NFS 스토리지)
 - **IP**: `192.168.0.5` (DHCP), 유선 인터페이스 `enp1s0`, MAC `8c:b0:e9:20:98:98`
 - **계정**: `susung` / `20260514!@!@`
 - **hostname**: `ssh-server`
