@@ -58,7 +58,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "work",
       name: "업무",
       icon: "Briefcase",
-      items: ["dashboard", "announcements", "timetable"],
+      items: ["dashboard", "me-setup", "announcements", "timetable"],
     },
     {
       id: "my-area",
@@ -142,7 +142,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "mypage",
       name: "내 정보",
       icon: "GraduationCap",
-      items: ["profile"],
+      items: ["me-setup", "profile"],
     },
   ],
 };

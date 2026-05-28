@@ -52,5 +52,6 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "my-activities", label: "내 활동", icon: Users2, path: "/s/my-activities", permission: null },
   { key: "research", label: "내 연구 일지", icon: FlaskConical, path: "/s/research", permission: null },
   { key: "club", label: "동아리", icon: Users2, path: "/s/club", permission: null },
+  { key: "me-setup", label: "내 정보 확인", icon: User, path: "/s/me-setup", permission: null },
   { key: "profile", label: "설정", icon: User, path: "/s/profile", permission: null },
 ];

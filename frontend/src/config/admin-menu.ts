@@ -68,6 +68,14 @@ export const adminMenu: MenuItem[] = [
     permission: null,
   },
   {
+    key: "me-setup",
+    label: "내 정보 등록",
+    icon: UserPlus,
+    path: "/me/setup",
+    permission: null,
+    excludeRoles: ["student"],
+  },
+  {
     key: "announcements",
     label: "공지사항",
     icon: Megaphone,
