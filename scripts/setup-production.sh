@@ -99,8 +99,17 @@ cd "$INSTALL_DIR"
 echo ""
 echo "[3/9] Frontend production build (standalone)..."
 cd "$INSTALL_DIR/frontend"
+
+# .env.production — same-origin fetch가 nginx를 통해 backend에 도달하도록 NEXT_PUBLIC_API_URL 빈문자열.
+# (안 박으면 lib/api/client.ts가 fallback http://localhost:8002로 빌드 → 브라우저가 본인 PC localhost 호출해 실패)
+# 운영자가 학교 IP로 override하고 싶으면 이 파일을 수정 후 재빌드.
+if [ ! -f .env.production ]; then
+    echo "NEXT_PUBLIC_API_URL=" > .env.production
+    echo "  .env.production 생성 (same-origin, nginx 통해 backend 프록시)"
+fi
+
 if [ ! -d node_modules ]; then
-    npm ci --silent
+    npm ci --legacy-peer-deps --silent
 fi
 npm run build
 # next standalone은 static 파일을 별도 복사 必
