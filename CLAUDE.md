@@ -2130,3 +2130,91 @@ classroom/posts.py 등에 `log_action(..., target_type=, target_id=)` 같은 잘
 7. **이전 세션 보류: 코드 모듈화 HIGH 2건** (classroom/[cid]/page.tsx 845줄·students/_tabs 836줄)
 
 다음 세션 catch-up: 이 CLAUDE.md만 읽으면 OK.
+
+---
+
+## 2026-05-28 세션 — 학교 NFS 2-노드 운영 사전 정비 (3대 위험 해소)
+
+수성고 방문 직전. A(서버) + B(NFS 스토리지) 분리 운영을 위해 3가지 위험 요소 점검 + 코드 보강.
+
+### 위험 1: STORAGE_ROOT env var 통일 (코드 수정 0으로 NFS 전환)
+
+**기존 문제**: 15개 모듈이 `Path(__file__).resolve().parents[3] / "storage"`, `os.path.join("storage", "X")`, `Path("storage")` 등 제각각 패턴으로 storage 경로 만들었음 → NFS 분리 시 일제 수정 필요.
+
+**해결**:
+- `app/core/config.py`: `STORAGE_ROOT: str = "storage"` env var 신규
+- `app/core/files.py`: `DEFAULT_STORAGE_ROOT = Path(settings.STORAGE_ROOT)` (모듈 import 시 결정 — env 변경 후 재시작 반영)
+- 15개 파일 일제 치환:
+  - archive, assignment, research, teacher_groups, past_research
+  - classroom/{posts,customize,student_copy}, classroom_hwps
+  - courseware/{io,demo}, drive/{backup,organize}
+  - files (다운로드 가드), system/branding, student_self/artifacts
+- 모든 `UPLOAD_DIR`/`STORAGE_ROOT`/`STORAGE_BASE`/`STORAGE_DIR` 정의를 `DEFAULT_STORAGE_ROOT` 사용으로 통일
+
+**운영 사용**:
+```bash
+# .env 에 한 줄
+STORAGE_ROOT=/mnt/gs-storage   # B 노트북 NFS 마운트
+# → 드라이브·과제·연구·문서·HWP·아카이브 등 모든 업로드가 자동으로 B로
+```
+심볼릭 링크 방식(`ln -s /mnt/gs-storage storage`)도 호환 유지.
+
+### 위험 2: NFS hang 차단 (timeout 헬퍼)
+
+**기존 문제**: NFS 마운트가 끊기면 `Path.write_bytes()`가 무한 hang → 라우터 worker 마비. 타임아웃 0.
+
+**해결** (`app/core/files.py`):
+- `write_bytes_async` / `read_bytes_async`: **30초 timeout** (50MB 파일도 1Gbps에서 1초 미만 — 30초면 충분 + 안전)
+- `ensure_dir_async` / `unlink_async`: **5초 timeout** (metadata 작업)
+- `StorageUnavailable(OSError)` 예외 신설 — 기존 `except OSError` 블록 호환
+- 타임아웃 시 ERROR 로그 + 명확한 메시지
+- `app/modules/storage_volumes/router.py`:
+  - `_check_path`: 5초 timeout → hang 시 `("timeout", 0, 0)` fail-soft
+  - `list_volumes`: 순차 → `asyncio.gather` 병렬 (N개 hang해도 5초 컷)
+
+### 위험 3: Quota 개별/일괄 할당 API + 관리자 UI
+
+**기존 문제**: 사용자별 quota 변경 API 없음 (생성 시 역할별 기본값만). 1300명 학교에서 "이 교사만 5GB 더" 같은 운영 불가.
+
+**해결 백엔드** (`app/modules/users/quota.py` 신규):
+- `POST /api/users/{id}/quota` (개별 변경)
+- `POST /api/users/_quota/bulk` (역할별 일괄, super_admin role 제외)
+- 권한: `user.manage.quota` (`requires_2fa=True`, `is_sensitive=True`)
+- 가드: super_admin 항상 무제한 강제, designated_admin은 super_admin 변경 차단, 음수 거부
+- audit: `user_quota_update` / `user_quota_bulk_update` (sensitive)
+
+**해결 프론트엔드**:
+- `frontend/src/types/index.ts` UserItem: `quota_bytes`/`used_bytes` 추가
+- `(admin)/users/page.tsx`:
+  - DataTable에 "드라이브" 컬럼 — `사용량 / 할당량` (초과 시 빨간색) + MB InlineCell 인라인 편집 (super_admin)
+  - 상단 "용량 일괄" 버튼 (HardDrive 아이콘, `user.manage.quota` PermissionGate)
+- `_components/QuotaBulkModal.tsx` 신규 — 역할 선택 → 기본값 자동 채움 → 확인 체크 후 일괄 변경
+
+### 신규 인프라 (외장 SSD 분산 운영 대비)
+
+`app/core/files.py`에 진입점 헬퍼:
+- `save_upload_to_volume_async(db, *, section, filename, data)` — 신규 endpoint용 1줄 헬퍼. volume 선택 + 디렉터리 + write + `StorageVolume.used_bytes` 자동 갱신.
+- `storage_health_check(db)` — default root + 모든 볼륨 병렬 점검 (5초 컷). 응답 `{default_root, volumes, any_unavailable}`.
+- `app/modules/storage_volumes/router.py` 신규 endpoint: `GET /api/storage/health` (운영자가 NFS/외장 SSD 상태 한 줄로 점검).
+
+**보류** (외장 SSD 추가 시점에): 모델별 `storage_volume_id` 컬럼 + 마이그레이션 + endpoint별 `save_upload_to_volume_async` 점진 교체 + download/delete 분기. NFS 1개 운영에는 불필요.
+
+### 신규 권한
+- `user.manage.quota` (super_admin/designated_admin이 부여 가능, 2FA 필수)
+- `storage.volume.view` / `storage.volume.manage` (기존, /health도 view 권한 사용)
+
+### 신규 endpoint (3개)
+- `GET /api/storage/health`
+- `POST /api/users/{id}/quota`
+- `POST /api/users/_quota/bulk`
+
+### 문서 업데이트
+- `SCHOOL_SETUP_2NODE.md` Step 4: `.env`에 `STORAGE_ROOT=/mnt/gs-storage` 한 줄 안내 (옵션 A 권장) + 심볼릭 링크 옵션 B 호환
+- 본 CLAUDE.md 이 섹션 (다음 세션 catch-up)
+
+### 통계 (2026-05-28)
+- Commit 2개: `fd592d9` (timeout + quota UI + health endpoint + 통합 헬퍼) + `75ea33f` (STORAGE_ROOT env var + 15 endpoint 일제 치환)
+- 신규 파일: `users/quota.py`, `users/_components/QuotaBulkModal.tsx`
+- 수정: 19개 파일 (코어 2 + 15 endpoint + frontend 2 + 매뉴얼 1)
+- 부팅 검증: Python syntax 18 파일 OK, import 검증 (venv 안에서) OK
+- A 노트북 학교 Tailscale 등록은 사용자 학교 방문 후 수행 예정 (Plan A); 실패 시 D(여분 윈도우 노트북) Chrome RD jump host로 fallback (Plan B)
