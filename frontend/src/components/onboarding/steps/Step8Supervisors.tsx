@@ -86,8 +86,9 @@ export function Step8Supervisors() {
         <h4 className="text-caption font-semibold mb-2">방법 1: CSV 일괄 등록</h4>
         <ol className="text-caption text-text-secondary list-decimal list-inside space-y-1 mb-2">
           <li><button onClick={downloadTemplate} className="text-accent inline-flex items-center gap-1 hover:underline"><Download size={11} /> 템플릿 다운로드</button> → Excel/스프레드시트 편집</li>
-          <li>컬럼 3개: <code className="px-1 bg-bg-primary rounded text-[11px]">student_username, supervisor_username, topic_title</code></li>
+          <li>컬럼 3개: <code className="px-1 bg-bg-primary rounded text-[11px]">학생아이디, 담당교사아이디, 연구주제</code></li>
           <li>업로드 후 "검증" → "실제 등록"</li>
+          <li className="text-[11px] text-text-tertiary">템플릿 안의 # 으로 시작하는 행은 설명 — 등록 시 자동 무시</li>
         </ol>
 
         <label className="block mb-2">

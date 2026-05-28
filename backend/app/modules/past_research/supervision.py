@@ -193,12 +193,18 @@ async def delete_supervision(
 async def supervisions_csv_template(
     user: User = Depends(require_permission("past_research.supervise")),
 ):
-    """CSV 템플릿 다운로드. UTF-8 BOM + 헤더 3개."""
-    body = "﻿" + "student_username,supervisor_username,topic_title\n10101,kim.teacher,\n10102,kim.teacher,주제 예시\n"
+    """CSV 템플릿 다운로드. UTF-8 BOM + 한글 헤더 + 예시 + 설명행."""
+    body = (
+        "﻿"
+        "학생아이디,담당교사아이디,연구주제\n"
+        "10101,kim.teacher,\n"
+        "10102,kim.teacher,예시 주제\n"
+        "# 학번(5자리 예 10101) 또는 admin 등록 시 사용한 아이디,# 교사 등록 시 사용한 아이디,# 비워두면 학생이 추후 추가\n"
+    )
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="research_supervisions_template.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="연구담당교사_매핑_템플릿.csv"'},
     )
 
 
@@ -216,7 +222,30 @@ async def supervisions_bulk_import(
     text = data.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(iobuf.StringIO(text))
 
-    rows = list(reader)
+    # 한글/영문 헤더 모두 인식
+    COLUMN_ALIASES = {
+        "학생아이디": "student_username", "학생ID": "student_username", "학번": "student_username",
+        "student_username": "student_username",
+        "담당교사아이디": "supervisor_username", "교사아이디": "supervisor_username", "supervisor_username": "supervisor_username",
+        "연구주제": "topic_title", "주제": "topic_title", "topic_title": "topic_title",
+    }
+
+    rows_raw = list(reader)
+    # 한글 헤더 → 영문 키 변환 + 주석 행(#) skip
+    rows = []
+    for r in rows_raw:
+        norm = {}
+        for k, v in r.items():
+            if k is None:
+                continue
+            norm_k = COLUMN_ALIASES.get(k.strip(), k.strip())
+            norm[norm_k] = v
+        # 주석 행 skip
+        first_val = (norm.get("student_username") or "").strip()
+        if first_val.startswith("#"):
+            continue
+        rows.append(norm)
+
     MAX_ROWS = 5000
     if len(rows) > MAX_ROWS:
         raise HTTPException(400, f"행 너무 많음 ({len(rows)} > {MAX_ROWS})")

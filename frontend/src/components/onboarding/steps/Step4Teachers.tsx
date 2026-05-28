@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Upload, Download, Save } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Plus, Trash2, Upload, Download, Save, FileSpreadsheet } from "lucide-react";
 import { api } from "@/lib/api/client";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface TeacherRow {
   name: string;
@@ -99,15 +101,54 @@ export function Step4Teachers() {
     alert(`${ok}명 등록 완료${fail > 0 ? `\n실패 ${fail}건:\n${errors.slice(0, 5).join("\n")}` : ""}`);
   };
 
-  const downloadTemplate = () => {
-    const csv = "name,email,phone,department,is_grade_lead,lead_grade\n김교사,kim@school.kr,010-1234-5678,교무부,false,\n";
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvUploading, setCsvUploading] = useState(false);
+
+  const downloadTemplate = async () => {
+    // backend의 한글 헤더 + 예시 + 설명 포함 템플릿 다운로드
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${API_URL}/api/users/_csv/template/teacher`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      alert(`템플릿 다운로드 실패: ${res.status}`);
+      return;
+    }
+    const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "teachers_template.csv";
+    a.download = "교사_등록_템플릿.csv";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const onCsvUpload = async (file: File) => {
+    if (!file) return;
+    if (!confirm(`'${file.name}' 으로 교사를 일괄 등록합니다. 계속할까요?\n(이미 등록된 이메일·아이디는 자동 skip)`)) {
+      if (csvInputRef.current) csvInputRef.current.value = "";
+      return;
+    }
+    setCsvUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const token = localStorage.getItem("access_token");
+      const res = await fetch(`${API_URL}/api/users/_csv/import/teacher`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+      alert(`${data.ok_count}명 등록 완료${data.errors.length > 0 ? `\n실패 ${data.errors.length}건:\n${data.errors.slice(0, 5).map((e: any) => `행 ${e.row}: ${e.error}`).join("\n")}` : ""}`);
+      await load();
+    } catch (e: any) {
+      alert(`업로드 실패: ${e.message || e}`);
+    } finally {
+      setCsvUploading(false);
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    }
   };
 
   return (
@@ -127,13 +168,21 @@ export function Step4Teachers() {
           >
             <Download size={12} /> 템플릿
           </button>
-          <a
-            href="/users/import"
-            target="_blank"
-            className="px-3 py-1.5 text-[12px] text-accent border border-accent/30 rounded hover:bg-accent/5 flex items-center gap-1"
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            onChange={(e) => e.target.files?.[0] && onCsvUpload(e.target.files[0])}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            disabled={csvUploading}
+            className="px-3 py-1.5 text-[12px] text-accent border border-accent/30 rounded hover:bg-accent/5 flex items-center gap-1 disabled:opacity-50"
           >
-            <Upload size={12} /> CSV 업로드 페이지
-          </a>
+            <Upload size={12} /> {csvUploading ? "업로드 중..." : "CSV 일괄 등록"}
+          </button>
         </div>
       </div>
 

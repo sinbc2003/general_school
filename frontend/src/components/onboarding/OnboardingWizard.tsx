@@ -33,16 +33,18 @@ import { Step8Supervisors } from "./steps/Step8Supervisors";
 import { Step8Done } from "./steps/Step8Done";
 
 const STEPS = [
-  { key: 1, label: "환영" },
-  { key: 2, label: "부서" },
-  { key: 3, label: "학기" },
-  { key: 4, label: "교사" },
-  { key: 5, label: "학생" },
-  { key: 6, label: "담임" },
-  { key: 7, label: "강좌" },
-  { key: 8, label: "연구담당" },
-  { key: 9, label: "완료" },
+  { key: 1, label: "환영", required: true },
+  { key: 2, label: "부서", required: true },
+  { key: 3, label: "학기", required: true },
+  { key: 4, label: "교사", required: true },
+  { key: 5, label: "학생", required: true },
+  { key: 6, label: "담임", required: false },
+  { key: 7, label: "강좌", required: false },
+  { key: 8, label: "연구담당", required: false },
+  { key: 9, label: "완료", required: true },
 ];
+
+const REQUIRED_STEPS_MAX = 5;  // Step 5까지가 super_admin 필수
 
 interface OnboardingStatus {
   completed_at: string | null;
@@ -123,8 +125,13 @@ export function OnboardingWizard({
             <div className="text-[20px]">🧙</div>
             <div>
               <div className="text-body font-semibold text-text-primary">셋업 마법사</div>
-              <div className="text-[11px] text-text-tertiary">
-                {step} / {STEPS.length} — {STEPS[step - 1]?.label}
+              <div className="text-[11px] text-text-tertiary flex items-center gap-1.5">
+                <span>{step} / {STEPS.length} — {STEPS[step - 1]?.label}</span>
+                {step <= REQUIRED_STEPS_MAX ? (
+                  <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium">필수</span>
+                ) : step < 9 ? (
+                  <span className="px-1.5 py-0.5 bg-bg-secondary text-text-tertiary rounded text-[10px]">선택 (개별 사용자가 직접 등록 가능)</span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -191,13 +198,13 @@ export function OnboardingWizard({
             <ChevronLeft size={14} /> 이전
           </button>
           <div className="flex items-center gap-2">
-            {step < 9 && (
+            {step < 9 && step > REQUIRED_STEPS_MAX && (
               <button
                 type="button"
                 onClick={skip}
                 className="px-3 py-2 text-[12px] text-text-tertiary rounded-md hover:bg-bg-secondary"
               >
-                건너뛰기
+                건너뛰기 (개별 등록)
               </button>
             )}
             {step < 9 ? (
