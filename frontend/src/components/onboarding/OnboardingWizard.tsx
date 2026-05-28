@@ -29,6 +29,7 @@ import { Step4Teachers } from "./steps/Step4Teachers";
 import { Step5Students } from "./steps/Step5Students";
 import { Step6Homerooms } from "./steps/Step6Homerooms";
 import { Step7Courses } from "./steps/Step7Courses";
+import { Step8Supervisors } from "./steps/Step8Supervisors";
 import { Step8Done } from "./steps/Step8Done";
 
 const STEPS = [
@@ -39,7 +40,8 @@ const STEPS = [
   { key: 5, label: "학생" },
   { key: 6, label: "담임" },
   { key: 7, label: "강좌" },
-  { key: 8, label: "완료" },
+  { key: 8, label: "연구담당" },
+  { key: 9, label: "완료" },
 ];
 
 interface OnboardingStatus {
@@ -64,7 +66,7 @@ export function OnboardingWizard({
       const s = await api.get<OnboardingStatus>("/api/system/onboarding/status");
       setStatus(s);
       if (s.last_step && s.last_step > 0 && !forceShow) {
-        setStep(Math.min(s.last_step, 8));
+        setStep(Math.min(s.last_step, 9));
       }
     } catch (e) {
       console.error(e);
@@ -80,7 +82,7 @@ export function OnboardingWizard({
   };
 
   const goNext = async () => {
-    if (step >= 8) return;
+    if (step >= 9) return;
     const next = step + 1;
     setStep(next);
     await saveStep(next);
@@ -174,7 +176,8 @@ export function OnboardingWizard({
           {step === 5 && <Step5Students />}
           {step === 6 && <Step6Homerooms />}
           {step === 7 && <Step7Courses />}
-          {step === 8 && <Step8Done />}
+          {step === 8 && <Step8Supervisors />}
+          {step === 9 && <Step8Done />}
         </div>
 
         {/* 푸터 (이전/다음) */}
@@ -188,7 +191,7 @@ export function OnboardingWizard({
             <ChevronLeft size={14} /> 이전
           </button>
           <div className="flex items-center gap-2">
-            {step < 8 && (
+            {step < 9 && (
               <button
                 type="button"
                 onClick={skip}
@@ -197,7 +200,7 @@ export function OnboardingWizard({
                 건너뛰기
               </button>
             )}
-            {step < 8 ? (
+            {step < 9 ? (
               <button
                 type="button"
                 onClick={goNext}

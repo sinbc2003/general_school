@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plus, Trash2, Search, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, Plus, Trash2, Search, X, Upload, FileSpreadsheet, Download } from "lucide-react";
 import { api } from "@/lib/api/client";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 interface Supervision {
   id: number;
@@ -24,6 +26,7 @@ export default function ResearchSupervisorsPage() {
   const [items, setItems] = useState<Supervision[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showCsv, setShowCsv] = useState(false);
 
   useEffect(() => {
     api.get("/api/timetable/semesters").then((d) => {
@@ -62,10 +65,16 @@ export default function ResearchSupervisorsPage() {
             학기별 학생-담당교사 1:1 매핑. 학생은 본인 supervisor에게 연구 보고서를 제출합니다.
           </p>
         </div>
-        <button onClick={() => setShowCreate(true)}
-                className="px-3 py-1.5 bg-accent text-white text-body rounded inline-flex items-center gap-1">
-          <Plus size={14} /> 매핑 추가
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowCsv(true)}
+                  className="px-3 py-1.5 border border-border-default text-body rounded inline-flex items-center gap-1">
+            <FileSpreadsheet size={14} /> CSV 일괄
+          </button>
+          <button onClick={() => setShowCreate(true)}
+                  className="px-3 py-1.5 bg-accent text-white text-body rounded inline-flex items-center gap-1">
+            <Plus size={14} /> 매핑 추가
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-3">
@@ -121,6 +130,117 @@ export default function ResearchSupervisorsPage() {
           onCreated={() => { setShowCreate(false); load(); }}
         />
       )}
+      {showCsv && (
+        <CsvBulkModal
+          semesterId={semesterId}
+          onClose={() => setShowCsv(false)}
+          onDone={() => { setShowCsv(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CsvBulkModal({ semesterId, onClose, onDone }: {
+  semesterId: number; onClose: () => void; onDone: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [dryRunResult, setDryRunResult] = useState<any>(null);
+  const [working, setWorking] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const downloadTemplate = async () => {
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${API_URL}/api/past-research/_supervisions/_csv-template`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) { alert(`템플릿 다운로드 실패: ${res.status}`); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "research_supervisions_template.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const upload = async (dry: boolean) => {
+    if (!file) { alert("CSV 파일을 선택하세요"); return; }
+    setWorking(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("semester_id", String(semesterId));
+      fd.append("dry_run", String(dry));
+      const token = localStorage.getItem("access_token");
+      const res = await fetch(`${API_URL}/api/past-research/_supervisions/_bulk-import`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+      if (dry) {
+        setDryRunResult(data);
+      } else {
+        alert(`완료: 신규 ${data.added}건 / 변경 ${data.updated}건 / 실패 ${data.failed.length}건`);
+        onDone();
+      }
+    } catch (e: any) {
+      alert(`실패: ${e.message || e}`);
+    } finally { setWorking(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-bg-primary rounded-lg p-5 w-full max-w-lg">
+        <h3 className="text-body font-semibold text-text-primary mb-3">학생-담당교사 CSV 일괄 등록</h3>
+
+        <div className="mb-3 text-caption text-text-secondary space-y-1">
+          <p>1. <button onClick={downloadTemplate} className="text-accent inline-flex items-center gap-1 hover:underline"><Download size={11} /> 템플릿 다운로드</button> → Excel 편집</p>
+          <p>2. 컬럼: <code className="px-1 bg-bg-secondary rounded text-[11px]">student_username, supervisor_username, topic_title</code></p>
+          <p>3. 같은 학기 학생 기존 매핑은 supervisor 자동 변경</p>
+        </div>
+
+        <input
+          ref={inputRef} type="file" accept=".csv"
+          onChange={(e) => { setFile(e.target.files?.[0] || null); setDryRunResult(null); }}
+          className="mb-3 w-full text-caption"
+        />
+
+        {dryRunResult && (
+          <div className="mb-3 p-2 bg-bg-secondary rounded">
+            <div className="text-caption font-semibold mb-1">검증 결과 (적용 전)</div>
+            <div className="grid grid-cols-3 gap-1 text-caption">
+              <div className="text-green-700">신규 {dryRunResult.added}</div>
+              <div className="text-blue-700">변경 {dryRunResult.updated}</div>
+              <div className="text-red-700">실패 {dryRunResult.failed.length}</div>
+            </div>
+            {dryRunResult.failed.length > 0 && (
+              <details className="mt-2 text-caption">
+                <summary className="cursor-pointer text-red-600">실패 행 보기</summary>
+                <div className="mt-1 max-h-40 overflow-y-auto space-y-0.5">
+                  {dryRunResult.failed.map((f: any, i: number) => (
+                    <div key={i} className="text-[11px]">행 {f.row}: {f.reason}</div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} disabled={working} className="px-3 py-1.5 text-caption text-text-secondary">취소</button>
+          <button onClick={() => upload(true)} disabled={working || !file}
+                  className="px-3 py-1.5 border border-border-default text-caption rounded disabled:opacity-50">
+            {working && !dryRunResult ? "검증 중..." : "검증만 (dry-run)"}
+          </button>
+          <button onClick={() => upload(false)} disabled={working || !file || (dryRunResult && dryRunResult.added === 0 && dryRunResult.updated === 0)}
+                  className="px-4 py-1.5 bg-accent text-white text-caption rounded disabled:opacity-50">
+            {working ? "등록 중..." : "실제 등록"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

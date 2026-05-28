@@ -709,3 +709,134 @@ async def delete_supervision(
     await db.flush()
     await log_action(db, user, "research_supervision.unassign", f"id={sid}", request=request)
     return {"ok": True}
+
+
+# ── CSV 일괄 매핑 ────────────────────────────────────────────
+
+
+@router.get("/_supervisions/_csv-template")
+async def supervisions_csv_template(
+    user: User = Depends(require_permission("past_research.supervise")),
+):
+    """CSV 템플릿 다운로드. UTF-8 BOM + 헤더 3개."""
+    from fastapi.responses import Response
+    body = "﻿" + "student_username,supervisor_username,topic_title\n10101,kim.teacher,\n10102,kim.teacher,주제 예시\n"
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="research_supervisions_template.csv"'},
+    )
+
+
+@router.post("/_supervisions/_bulk-import")
+async def supervisions_bulk_import(
+    file: UploadFile = File(...),
+    semester_id: int = Form(...),
+    dry_run: bool = Form(False),
+    user: User = Depends(require_permission("past_research.supervise")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """CSV로 학생-담당교사 매핑 일괄 등록.
+
+    컬럼: student_username, supervisor_username, [topic_title]
+    - 학생/교사 username 매칭으로 찾아서 등록.
+    - 같은 학기 학생 기존 매핑이 있으면 supervisor 변경 + topic_title 갱신.
+    - dry_run=True → 검증만 (DB 변경 없음).
+    - 결과: {added, updated, failed: [{row, reason}]}
+    """
+    import csv
+    import io as iobuf
+
+    from app.core.upload import POLICY_CSV
+    data = await validate_upload(file, POLICY_CSV)
+    text = data.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(iobuf.StringIO(text))
+
+    rows = list(reader)
+    MAX_ROWS = 5000
+    if len(rows) > MAX_ROWS:
+        raise HTTPException(400, f"행 너무 많음 ({len(rows)} > {MAX_ROWS})")
+
+    added = 0
+    updated = 0
+    failed: list[dict] = []
+    is_admin = user.role in ("super_admin", "designated_admin")
+
+    # username 일괄 조회 캐시
+    student_usernames = {(r.get("student_username") or "").strip() for r in rows}
+    supervisor_usernames = {(r.get("supervisor_username") or "").strip() for r in rows}
+    all_usernames = (student_usernames | supervisor_usernames) - {""}
+
+    user_map: dict[str, User] = {}
+    if all_usernames:
+        found = (await db.execute(
+            select(User).where(User.username.in_(all_usernames))
+        )).scalars().all()
+        user_map = {u.username: u for u in found}
+
+    for idx, row in enumerate(rows, start=2):  # 헤더 다음부터 2번 라인
+        sn = (row.get("student_username") or "").strip()
+        sv = (row.get("supervisor_username") or "").strip()
+        topic = (row.get("topic_title") or "").strip() or None
+
+        if not sn or not sv:
+            failed.append({"row": idx, "reason": "student_username/supervisor_username 누락"})
+            continue
+        student = user_map.get(sn)
+        if not student or student.role != "student":
+            failed.append({"row": idx, "reason": f"학생 미존재: {sn}"})
+            continue
+        supervisor = user_map.get(sv)
+        if not supervisor or supervisor.role not in ("teacher", "staff", "super_admin", "designated_admin"):
+            failed.append({"row": idx, "reason": f"교사 미존재: {sv}"})
+            continue
+        if not is_admin and supervisor.id != user.id:
+            failed.append({"row": idx, "reason": "본인을 supervisor로만 등록 가능"})
+            continue
+
+        existing = (await db.execute(
+            select(ResearchSupervision).where(
+                ResearchSupervision.semester_id == semester_id,
+                ResearchSupervision.student_id == student.id,
+            )
+        )).scalar_one_or_none()
+
+        if dry_run:
+            if existing:
+                updated += 1
+            else:
+                added += 1
+            continue
+
+        if existing:
+            if not is_admin and existing.supervisor_id != user.id:
+                failed.append({"row": idx, "reason": f"이미 다른 교사 담당 (학생: {sn})"})
+                continue
+            existing.supervisor_id = supervisor.id
+            existing.topic_title = topic
+            updated += 1
+        else:
+            db.add(ResearchSupervision(
+                semester_id=semester_id,
+                student_id=student.id,
+                supervisor_id=supervisor.id,
+                topic_title=topic,
+            ))
+            added += 1
+
+    if not dry_run:
+        await db.flush()
+        await log_action(
+            db, user, "research_supervision.bulk_import",
+            f"sem={semester_id} added={added} updated={updated} failed={len(failed)}",
+            request=request, is_sensitive=True,
+        )
+
+    return {
+        "added": added,
+        "updated": updated,
+        "failed": failed,
+        "total_rows": len(rows),
+        "applied": not dry_run,
+    }
