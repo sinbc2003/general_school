@@ -79,7 +79,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       name: "학생 관리",
       icon: "GraduationCap",
       // 토글 한 단계 줄임 — 학생 관리 카테고리 직속 메뉴
-      items: ["student-list", "admissions", "student-artifacts", "alumni-research"],
+      items: ["student-list", "admissions", "student-artifacts", "alumni-research", "past-research"],
     },
     {
       id: "ai",
@@ -130,7 +130,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "career",
       name: "나의 진로",
       icon: "GraduationCap",
-      items: ["my-portfolio", "career", "research-archive"],
+      items: ["my-portfolio", "career", "research-archive", "past-research"],
     },
     {
       id: "activity",

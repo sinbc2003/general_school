@@ -129,6 +129,14 @@ POLICY_PROBLEMS_ZIP = FilePolicy(
 )
 
 
+# 과거 연구 보고서 ZIP — 학생 연구 PDF 묶음 (수년치 일괄 등록)
+POLICY_PAST_RESEARCH_ZIP = FilePolicy(
+    name="past_research_zip",
+    max_size_bytes=500 * 1024 * 1024,  # 500MB (수년치 PDF 묶음)
+    allowed_extensions=frozenset({".zip"}),
+)
+
+
 # ── 검증 함수 ──────────────────────────────────────────────────
 
 def _human_size(n: int) -> str:

@@ -124,6 +124,7 @@ export const adminMenu: MenuItem[] = [
   { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"] },
   { key: "student-artifacts", label: "학생 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   { key: "alumni-research", label: "과거 연구 자료", icon: Library, path: "/s/research-archive", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
+  { key: "past-research", label: "선배 연구 보고서", icon: FileArchive, path: "/past-research", permission: "past_research.view", excludeRoles: ["student"] },
   {
     key: "archive",
     label: "수업 자료실",

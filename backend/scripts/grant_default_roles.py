@@ -48,6 +48,7 @@ TEACHER_EXCLUDE_KEYS = {
     "google.integration.configure",  # OAuth Client ID/Secret은 admin 전용
     "storage.volume.manage",         # 스토리지 볼륨 관리는 admin 전용
     "storage.volume.view",
+    "past_research.delete",          # 과거 연구 보고서 삭제는 admin 전용 (실수 방지)
 }
 
 # prefix로 제외됐지만 교사에게 명시적으로 부여할 권한 (예외 화이트리스트).
@@ -78,6 +79,8 @@ STAFF_KEYS = {
     "google.integration.use",
     # AI 도우미 (문서/시트/슬라이드/설문 작성) — 교사·직원만, 학생 제외
     "tool.ai_assistant.use",
+    # 과거 연구 보고서 열람
+    "past_research.view",
 }
 
 STUDENT_KEYS = {
@@ -124,6 +127,8 @@ STUDENT_KEYS = {
     "drive.use",
     # Google 연동 (본인)
     "google.integration.use",
+    # 과거 연구 보고서 열람 (학생 진로 탐색용)
+    "past_research.view",
 }
 
 

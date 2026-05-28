@@ -170,6 +170,7 @@ from app.modules.storage_volumes.router import router as storage_volumes_router
 from app.modules.tool_ai.router import router as tool_ai_router
 from app.modules.classroom_hwps.router import router as classroom_hwps_router
 from app.modules.courseware.router import router as courseware_router
+from app.modules.past_research.router import router as past_research_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -211,6 +212,7 @@ app.include_router(storage_volumes_router)
 app.include_router(tool_ai_router)
 app.include_router(classroom_hwps_router)
 app.include_router(courseware_router)
+app.include_router(past_research_router)
 
 
 @app.get("/api/health")

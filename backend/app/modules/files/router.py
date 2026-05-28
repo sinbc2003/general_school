@@ -302,6 +302,31 @@ async def _guard_hwps(db: AsyncSession, user: User, path: str) -> None:
         raise HTTPException(403)
 
 
+async def _guard_past_research(db: AsyncSession, user: User, path: str) -> None:
+    """storage/past_research/{uuid}.pdf — 모든 인증 사용자 view 허용.
+
+    학교 전체 자원이라 강좌·소유자 같은 ownership 없음.
+    DB row 매칭 안 되면 404 (path 추측 차단).
+    past_research.view 권한이 있어야 함 (default_roles에서 student/staff/teacher 모두 부여).
+    """
+    from app.models.past_research import PastResearch
+    from app.core.permissions import resolve_permissions
+
+    stored_path = f"storage/{path}"
+    row = (await db.execute(
+        select(PastResearch).where(PastResearch.stored_path == stored_path)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404)
+
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    perms = await resolve_permissions(db, user)
+    if "past_research.view" in perms:
+        return
+    raise HTTPException(403, "권한 없음")
+
+
 _GUARDS = {
     "artifacts": _guard_artifact,
     "assignments": _guard_assignment,
@@ -312,6 +337,7 @@ _GUARDS = {
     "auto-backups": _guard_auto_backups,
     "hwps": _guard_hwps,
     "courseware": _guard_courseware,
+    "past_research": _guard_past_research,
 }
 
 

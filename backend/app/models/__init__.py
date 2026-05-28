@@ -128,6 +128,9 @@ from app.models.user_favorite_item import UserFavoriteItem
 # ── Courseware (문제은행 — 강좌 안에서 자동채점 문제 출제) ──
 from app.models.courseware import CourseProblemSet, StudentProblemAttempt
 
+# ── Past Research (과거 학생 연구 보고서 PDF 아카이브) ──
+from app.models.past_research import PastResearch
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -203,4 +206,6 @@ __all__ = [
     "UserFavoriteItem",
     # Courseware
     "CourseProblemSet", "StudentProblemAttempt",
+    # Past Research
+    "PastResearch",
 ]
