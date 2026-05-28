@@ -81,6 +81,10 @@ STAFF_KEYS = {
     "tool.ai_assistant.use",
     # 과거 연구 보고서 열람
     "past_research.view",
+    # 그룹 참여 (직원도 부장이면 만들 수 있음 + 멤버로 학생 배정)
+    "teacher_group.view",
+    "teacher_group.assign_student",
+    "teacher_group.review",
 }
 
 STUDENT_KEYS = {
@@ -129,6 +133,12 @@ STUDENT_KEYS = {
     "google.integration.use",
     # 과거 연구 보고서 열람 (학생 진로 탐색용)
     "past_research.view",
+    # 학생 본인 연구 보고서 제출
+    "past_research.submit",
+    # 학생: 그룹 산출물 제출
+    "teacher_group.submit",
+    # 학생: 본인 속한 그룹 조회
+    "teacher_group.view",
 }
 
 

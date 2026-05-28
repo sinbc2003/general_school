@@ -75,3 +75,26 @@ def parse_filename(filename: str) -> dict | None:
         "title": title,
         "is_excellent": is_excellent,
     }
+
+
+def make_standard_filename(
+    year: int,
+    grade: int,
+    semester: int,
+    report_type: str,
+    fields: list[str],
+    title: str,
+    is_excellent: bool = False,
+) -> str:
+    """학생/교사 폼 입력으로부터 표준 파일명 생성.
+
+    예: 2026 3학년 1학기 심층연구활동 보고서(화학, 인공지능 분야)_제목.pdf
+    """
+    clean_fields = [f.strip() for f in (fields or []) if f and f.strip()]
+    fields_str = ", ".join(clean_fields) if clean_fields else "기타"
+    excellence = "(우수)" if is_excellent else ""
+    safe_title = (title or "").strip().replace("/", "_").replace("\\", "_")
+    return (
+        f"{year} {grade}학년 {semester}학기 "
+        f"{(report_type or '연구').strip()} 보고서({fields_str} 분야)_{safe_title}{excellence}.pdf"
+    )

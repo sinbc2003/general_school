@@ -47,6 +47,11 @@ backend/storage/documents/
 backend/storage/meetings/
 backend/storage/assignments/
 backend/storage/research/
+backend/storage/past_research/
+backend/storage/group_submissions/
+backend/storage/classroom/
+backend/storage/hwps/
+backend/storage/courseware/
 # 빈 storage 폴더는 .gitkeep으로 구조만 유지
 
 # ─── IDE / OS ───

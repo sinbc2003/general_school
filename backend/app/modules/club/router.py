@@ -332,3 +332,117 @@ async def assignment_csv_import(
         "total_rows": len(rows),
         "applied": (not dry_run) and added > 0,
     }
+
+
+# ── 산출물 승인 흐름 (advisor 승인 시 StudentArtifact 자동 생성) ──
+
+
+@router.patch("/submissions/{sid}/_review")
+async def review_club_submission(
+    sid: int,
+    status: str = Query(..., pattern="^(approved|rejected)$"),
+    rejection_reason: str | None = Query(None, max_length=500),
+    user: User = Depends(require_permission("club.manage.edit")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """동아리 산출물 승인/거부.
+
+    advisor 본인이거나 admin만 가능. 승인 시 StudentArtifact 자동 등록.
+    """
+    from datetime import datetime, timezone
+    from app.services.notification import notify_users
+    from app.services.student_artifact_sync import ensure_student_artifact
+
+    sub = await db.get(ClubSubmission, sid)
+    if not sub:
+        raise HTTPException(404)
+    if sub.status != "pending":
+        raise HTTPException(409, f"이미 처리됨 (status={sub.status})")
+
+    club = await db.get(Club, sub.club_id)
+    if not club:
+        raise HTTPException(404)
+    is_admin = user.role in ("super_admin", "designated_admin")
+    if not is_admin and club.advisor_id != user.id:
+        raise HTTPException(403, "동아리 advisor만 승인할 수 있습니다")
+
+    sub.status = status
+    sub.reviewed_by_id = user.id
+    sub.reviewed_at = datetime.now(timezone.utc)
+    sub.rejection_reason = rejection_reason if status == "rejected" else None
+
+    if status == "approved":
+        artifact_id = await ensure_student_artifact(
+            db,
+            student_id=sub.author_id,
+            title=sub.title,
+            description=f"{club.name} 동아리 산출물",
+            category=sub.submission_type or "report",
+            file_url=sub.file_path,
+            file_name=sub.title,
+            file_size=None,
+            tags=[club.name],
+            existing_id=sub.student_artifact_id,
+        )
+        if artifact_id:
+            sub.student_artifact_id = artifact_id
+
+    await db.flush()
+
+    if status == "approved":
+        await notify_users(
+            db, user_ids=[sub.author_id],
+            type="club_submission.approved",
+            title=f"{club.name} 동아리 산출물이 승인되었습니다",
+            body=sub.title,
+            link_url="/s/my-portfolio",
+            source_user_id=user.id,
+            meta={"club_id": club.id, "submission_id": sub.id},
+        )
+    else:
+        await notify_users(
+            db, user_ids=[sub.author_id],
+            type="club_submission.rejected",
+            title=f"{club.name} 동아리 산출물이 반려되었습니다",
+            body=rejection_reason or "사유 미기재",
+            link_url=f"/s/club",
+            source_user_id=user.id,
+            meta={"club_id": club.id, "submission_id": sub.id, "reason": rejection_reason},
+        )
+
+    await log_action(
+        db, user, f"club_submission.{status}", f"id={sid}",
+        request=request, is_sensitive=True,
+    )
+    return {"ok": True, "status": sub.status}
+
+
+@router.get("/_my/pending-submissions")
+async def my_pending_club_submissions(
+    user: User = Depends(require_permission("club.manage.edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """본인이 advisor인 동아리의 pending 산출물."""
+    rows = (await db.execute(
+        select(ClubSubmission, User, Club).join(
+            User, User.id == ClubSubmission.author_id,
+        ).join(
+            Club, Club.id == ClubSubmission.club_id,
+        ).where(
+            ClubSubmission.status == "pending",
+            Club.advisor_id == user.id,
+        ).order_by(desc(ClubSubmission.created_at))
+    )).all()
+    return {
+        "items": [
+            {
+                "id": s.id, "club_id": s.club_id, "club_name": c.name,
+                "author_id": s.author_id, "author_name": u.name, "author_username": u.username,
+                "title": s.title, "submission_type": s.submission_type,
+                "file_path": s.file_path,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s, u, c in rows
+        ],
+    }

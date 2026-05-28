@@ -131,6 +131,14 @@ from app.models.courseware import CourseProblemSet, StudentProblemAttempt
 # ── Past Research (과거 학생 연구 보고서 PDF 아카이브) ──
 from app.models.past_research import PastResearch
 
+# ── Research Supervision (학생-담당교사 매핑, 학기 단위) ──
+from app.models.research_supervision import ResearchSupervision
+
+# ── Teacher Groups (임시 행사/대회/연구 등 활동 그룹) ──
+from app.models.teacher_group import (
+    TeacherGroup, TeacherGroupMember, TeacherGroupStudent, GroupSubmission,
+)
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -208,4 +216,8 @@ __all__ = [
     "CourseProblemSet", "StudentProblemAttempt",
     # Past Research
     "PastResearch",
+    # Research Supervision
+    "ResearchSupervision",
+    # Teacher Groups
+    "TeacherGroup", "TeacherGroupMember", "TeacherGroupStudent", "GroupSubmission",
 ]

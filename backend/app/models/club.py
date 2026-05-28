@@ -88,7 +88,11 @@ class ClubActivity(Base):
 
 
 class ClubSubmission(Base):
-    """동아리 산출물 제출 (학생)"""
+    """동아리 산출물 제출 (학생).
+
+    승인 흐름: status='pending' → club.advisor 승인 → 'approved' → StudentArtifact 자동 생성.
+    기존(승인 흐름 도입 전) row는 default='approved'라 호환됨.
+    """
     __tablename__ = "club_submissions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -103,6 +107,18 @@ class ClubSubmission(Base):
     submission_type: Mapped[str] = mapped_column(
         String(30), nullable=False
     )  # report, code, data, presentation
+
+    status: Mapped[str] = mapped_column(String(20), default="approved", nullable=False)
+    # pending | approved | rejected
+    reviewed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    student_artifact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("student_artifacts.id", ondelete="SET NULL"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -112,4 +128,5 @@ class ClubSubmission(Base):
     __table_args__ = (
         Index("ix_club_submissions_club_id", "club_id"),
         Index("ix_club_submissions_author_id", "author_id"),
+        Index("ix_club_submissions_status", "status"),
     )

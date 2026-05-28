@@ -303,11 +303,10 @@ async def _guard_hwps(db: AsyncSession, user: User, path: str) -> None:
 
 
 async def _guard_past_research(db: AsyncSession, user: User, path: str) -> None:
-    """storage/past_research/{uuid}.pdf — 모든 인증 사용자 view 허용.
+    """storage/past_research/{uuid}.pdf — 승인된 보고서는 모든 인증 사용자 view,
+    pending/rejected는 본인(submitter) + supervisor + admin만.
 
-    학교 전체 자원이라 강좌·소유자 같은 ownership 없음.
     DB row 매칭 안 되면 404 (path 추측 차단).
-    past_research.view 권한이 있어야 함 (default_roles에서 student/staff/teacher 모두 부여).
     """
     from app.models.past_research import PastResearch
     from app.core.permissions import resolve_permissions
@@ -321,8 +320,52 @@ async def _guard_past_research(db: AsyncSession, user: User, path: str) -> None:
 
     if user.role in ("super_admin", "designated_admin"):
         return
+
+    if row.status != "approved":
+        # 미승인 자료는 본인 또는 담당교사만
+        if row.submitted_by_student_id == user.id:
+            return
+        if row.supervisor_id == user.id:
+            return
+        raise HTTPException(403, "미승인 보고서")
+
     perms = await resolve_permissions(db, user)
     if "past_research.view" in perms:
+        return
+    raise HTTPException(403, "권한 없음")
+
+
+async def _guard_group_submission(db: AsyncSession, user: User, path: str) -> None:
+    """storage/group_submissions/{uuid}.ext — 학생 그룹 산출물.
+
+    접근: 학생 본인 OR 그룹 owner/멤버 OR admin.
+    """
+    from app.models.teacher_group import (
+        GroupSubmission, TeacherGroup, TeacherGroupMember,
+    )
+
+    file_url = f"/storage/{path}"
+    sub = (await db.execute(
+        select(GroupSubmission).where(GroupSubmission.file_url == file_url)
+    )).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404)
+
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    if sub.student_id == user.id:
+        return
+
+    g = await db.get(TeacherGroup, sub.group_id)
+    if g and g.owner_id == user.id:
+        return
+    membership = (await db.execute(
+        select(TeacherGroupMember).where(
+            TeacherGroupMember.group_id == sub.group_id,
+            TeacherGroupMember.teacher_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if membership:
         return
     raise HTTPException(403, "권한 없음")
 
@@ -338,6 +381,7 @@ _GUARDS = {
     "hwps": _guard_hwps,
     "courseware": _guard_courseware,
     "past_research": _guard_past_research,
+    "group_submissions": _guard_group_submission,
 }
 
 

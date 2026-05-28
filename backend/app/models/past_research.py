@@ -47,6 +47,21 @@ class PastResearch(Base):
     uploaded_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 학생 자가 업로드 → 교사 승인 흐름
+    # status: "approved" (관리자 ZIP 일괄 업로드는 기본 approved) | "pending" | "rejected"
+    status: Mapped[str] = mapped_column(String(20), default="approved", nullable=False)
+    submitted_by_student_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    supervisor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    student_artifact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("student_artifacts.id", ondelete="SET NULL"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -55,4 +70,6 @@ class PastResearch(Base):
         Index("ix_past_researches_year", "year"),
         Index("ix_past_researches_year_semester", "year", "semester"),
         Index("ix_past_researches_report_type", "report_type"),
+        Index("ix_past_researches_status", "status"),
+        Index("ix_past_researches_supervisor_status", "supervisor_id", "status"),
     )

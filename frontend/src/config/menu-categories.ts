@@ -65,7 +65,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       name: "나의 영역",
       icon: "GraduationCap",
       // 학생 전용 항목 — admin 메뉴에 두지만 roles=["student"]라 교사에겐 숨김
-      items: ["my-portfolio", "my-career", "alumni-research-student", "chat-student"],
+      items: ["my-portfolio", "my-career", "research-submit-student", "my-activities-student", "chat-student"],
     },
     {
       id: "teaching",
@@ -79,7 +79,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       name: "학생 관리",
       icon: "GraduationCap",
       // 토글 한 단계 줄임 — 학생 관리 카테고리 직속 메뉴
-      items: ["student-list", "admissions", "student-artifacts", "alumni-research", "past-research"],
+      items: ["student-list", "admissions", "student-artifacts", "past-research", "research-review", "my-groups"],
     },
     {
       id: "ai",
@@ -98,7 +98,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "management",
       name: "관리",
       icon: "Settings",
-      items: ["users", "permissions", "llm-admin", "feedback-manage", "ai-developer", "system"],
+      items: ["users", "permissions", "research-supervisors", "llm-admin", "feedback-manage", "ai-developer", "system"],
     },
   ],
   student: [
@@ -130,13 +130,13 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "career",
       name: "나의 진로",
       icon: "GraduationCap",
-      items: ["my-portfolio", "career", "research-archive", "past-research"],
+      items: ["my-portfolio", "career", "past-research", "research-submit"],
     },
     {
       id: "activity",
       name: "활동",
       icon: "Users2",
-      items: ["research", "club"],
+      items: ["my-activities", "research", "club"],
     },
     {
       id: "mypage",
