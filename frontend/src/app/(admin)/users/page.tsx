@@ -4,12 +4,22 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 import { PermissionGate } from "@/components/common/permission-gate";
-import { Upload, Download, Search, RotateCcw, UserX } from "lucide-react";
+import { Upload, Download, Search, RotateCcw, UserX, HardDrive } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { InlineCell } from "@/components/ui/InlineCell";
 import type { UserItem } from "@/types";
 import { CsvBulkImportModal } from "./_components/CsvBulkImportModal";
 import { LifecycleModal } from "./_components/LifecycleModal";
+import { QuotaBulkModal } from "./_components/QuotaBulkModal";
+
+
+// MB 단위 포맷 (작은 값은 MB, 1024 이상은 GB로)
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "-";
+  const mb = bytes / 1024 / 1024;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)}GB`;
+  return `${Math.round(mb)}MB`;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "최고관리자",
@@ -36,6 +46,7 @@ export default function UsersPage() {
   const [importResult, setImportResult] = useState<any>(null);
   const [lifecycleTarget, setLifecycleTarget] = useState<UserItem | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
+  const [showQuotaBulkModal, setShowQuotaBulkModal] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -135,6 +146,16 @@ export default function UsersPage() {
               CSV 일괄 등록
             </button>
           )}
+          <PermissionGate permission="user.manage.quota">
+            <button
+              onClick={() => setShowQuotaBulkModal(true)}
+              title="역할별로 드라이브 용량 일괄 변경"
+              className="flex items-center gap-1 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
+            >
+              <HardDrive size={14} />
+              용량 일괄
+            </button>
+          </PermissionGate>
           <PermissionGate permission="user.manage.bulk_import">
             <button
               onClick={handleDownloadTemplate}
@@ -159,6 +180,13 @@ export default function UsersPage() {
 
       {showCsvModal && (
         <CsvBulkImportModal onClose={() => { setShowCsvModal(false); fetchUsers(); }} />
+      )}
+
+      {showQuotaBulkModal && (
+        <QuotaBulkModal
+          onClose={() => setShowQuotaBulkModal(false)}
+          onApplied={() => fetchUsers()}
+        />
       )}
 
       {/* 필터 */}
@@ -294,6 +322,47 @@ export default function UsersPage() {
                 }}
               />
             ),
+          },
+          {
+            key: "quota", label: "드라이브",
+            render: (u) => {
+              const quota = u.quota_bytes ?? 0;
+              const used = u.used_bytes ?? 0;
+              const isUnlimited = quota === 0;
+              const isSuper = u.role === "super_admin";
+              const quotaMb = isUnlimited ? 0 : Math.round(quota / 1024 / 1024);
+              const overQuota = !isUnlimited && used > quota;
+              return (
+                <div className="flex items-center gap-2">
+                  <div className="text-caption text-text-secondary min-w-[90px]">
+                    <span className={overQuota ? "text-status-error font-medium" : ""}>
+                      {formatBytes(used)}
+                    </span>
+                    {" / "}
+                    <span>{isUnlimited ? "무제한" : formatBytes(quota)}</span>
+                  </div>
+                  {!isSuper && isSuperAdmin && (
+                    <InlineCell
+                      value={quotaMb}
+                      type="number"
+                      width="w-16"
+                      placeholder="MB"
+                      onSave={async (v) => {
+                        const mb = v === "" ? 0 : parseInt(v, 10);
+                        if (Number.isNaN(mb) || mb < 0) {
+                          throw new Error("0 이상의 숫자 (0 = 무제한)");
+                        }
+                        await api.put(`/api/users/${u.id}`, { quota_mb: mb });
+                        const newBytes = mb * 1024 * 1024;
+                        setUsers((prev) =>
+                          prev.map((x) => x.id === u.id ? { ...x, quota_bytes: newBytes } : x)
+                        );
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            },
           },
           {
             key: "actions", label: "작업", align: "center",

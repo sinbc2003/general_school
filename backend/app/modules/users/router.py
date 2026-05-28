@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 # 다세그먼트 path를 먼저 등록해 /{user_id}와 충돌 안 함.
 from app.modules.users import bulk  # noqa: E402, F401
 from app.modules.users import cohort  # noqa: E402, F401
+from app.modules.users import quota  # noqa: E402, F401  (/_quota/bulk + /{id}/quota)
 from app.modules.users import sessions  # noqa: E402, F401
 from app.modules.users import crud  # noqa: E402, F401
 from app.modules.users import lifecycle  # noqa: E402, F401

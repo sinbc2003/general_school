@@ -6,6 +6,13 @@
 
 여기 헬퍼들은 모두 `asyncio.to_thread`로 위임 — event loop 비차단.
 
+NFS / 외장 스토리지 보호:
+  - 모든 IO에 timeout 적용 (NFS 마운트 끊김 시 OS가 무한 대기할 수 있음 — `soft,timeo=30`
+    옵션 안 걸렸으면 더 위험). 타임아웃 시 `StorageUnavailable` raise.
+  - 라우터는 try/except StorageUnavailable로 503 응답 권장. catch 안 해도 OSError로 잡힘
+    (StorageUnavailable은 OSError 상속).
+  - FileNotFoundError, PermissionError 등 정상 OS 에러는 그대로 통과 — wrapping 안 함.
+
 사용:
     from app.core.files import write_bytes_async, ensure_dir_async
 
@@ -25,24 +32,83 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def write_bytes_async(path: Path | str, data: bytes) -> None:
-    """파일 쓰기를 thread pool에 위임. str도 허용."""
-    await asyncio.to_thread(Path(path).write_bytes, data)
+# ── 타임아웃 (초) ──────────────────────────────────────────────────────────
+# NFS 마운트 끊김 / 외장 SSD 분리 시 OS write/read가 무한 hang 가능 → 강제 차단.
+# 학교 LAN 1Gbps 기준 50MB 파일 = 0.4초 + NFS overhead 1초. 30초면 충분 + 안전.
+# mkdir/unlink는 metadata 작업 = 짧음. 5초면 비정상.
+DEFAULT_IO_TIMEOUT_SEC = 30.0
+DEFAULT_META_TIMEOUT_SEC = 5.0
 
 
-async def ensure_dir_async(path: Path | str) -> None:
-    """디렉터리 생성 (parents=True, exist_ok=True)을 thread pool에 위임. str도 허용."""
+class StorageUnavailable(OSError):
+    """파일 IO 타임아웃 또는 마운트 끊김.
+
+    OSError 상속이라 기존 except OSError 블록에도 잡힘 (호환). 라우터에서 명시적으로
+    catch해 503 응답 줄 수 있음:
+
+        try:
+            await write_bytes_async(path, data)
+        except StorageUnavailable:
+            raise HTTPException(503, "스토리지 일시 장애 — 잠시 후 다시 시도하세요")
+    """
+
+    pass
+
+
+async def _run_with_timeout(coro, timeout: float, op_name: str, path):
+    """asyncio.wait_for 래퍼 — 타임아웃 시 StorageUnavailable 변환 + 로깅."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        logger.error(
+            "files.%s: TIMEOUT after %.1fs on %s — storage hang (NFS unmounted? external SSD detached?)",
+            op_name, timeout, path,
+        )
+        raise StorageUnavailable(
+            f"{op_name} timed out after {timeout}s on {path} — storage unavailable"
+        ) from exc
+
+
+async def write_bytes_async(
+    path: Path | str, data: bytes, *, timeout: float = DEFAULT_IO_TIMEOUT_SEC,
+) -> None:
+    """파일 쓰기를 thread pool에 위임. 기본 30초 타임아웃."""
     p = Path(path)
-    await asyncio.to_thread(lambda: p.mkdir(parents=True, exist_ok=True))
+    await _run_with_timeout(
+        asyncio.to_thread(p.write_bytes, data),
+        timeout=timeout, op_name="write_bytes", path=p,
+    )
 
 
-async def read_bytes_async(path: Path | str) -> bytes:
-    """파일 읽기를 thread pool에 위임. str도 허용."""
-    return await asyncio.to_thread(Path(path).read_bytes)
+async def ensure_dir_async(
+    path: Path | str, *, timeout: float = DEFAULT_META_TIMEOUT_SEC,
+) -> None:
+    """디렉터리 생성 (parents=True, exist_ok=True)을 thread pool에 위임. 기본 5초."""
+    p = Path(path)
+    await _run_with_timeout(
+        asyncio.to_thread(lambda: p.mkdir(parents=True, exist_ok=True)),
+        timeout=timeout, op_name="ensure_dir", path=p,
+    )
 
 
-async def unlink_async(path: Path | str, missing_ok: bool = True) -> None:
-    """파일 삭제를 thread pool에 위임. 기본은 없어도 OK. str도 허용."""
+async def read_bytes_async(
+    path: Path | str, *, timeout: float = DEFAULT_IO_TIMEOUT_SEC,
+) -> bytes:
+    """파일 읽기를 thread pool에 위임. 기본 30초 타임아웃.
+
+    FileNotFoundError 등 정상 OS 에러는 그대로 전파 — wrapping 안 함.
+    """
+    p = Path(path)
+    return await _run_with_timeout(
+        asyncio.to_thread(p.read_bytes),
+        timeout=timeout, op_name="read_bytes", path=p,
+    )
+
+
+async def unlink_async(
+    path: Path | str, missing_ok: bool = True, *, timeout: float = DEFAULT_META_TIMEOUT_SEC,
+) -> None:
+    """파일 삭제를 thread pool에 위임. 기본은 없어도 OK. 5초 타임아웃."""
     p = Path(path)
     def _do():
         try:
@@ -50,7 +116,10 @@ async def unlink_async(path: Path | str, missing_ok: bool = True) -> None:
         except FileNotFoundError:
             if not missing_ok:
                 raise
-    await asyncio.to_thread(_do)
+    await _run_with_timeout(
+        asyncio.to_thread(_do),
+        timeout=timeout, op_name="unlink", path=p,
+    )
 
 
 # ── Storage volume 인지 헬퍼 (Phase 2-Q 통합 1단계) ──
@@ -132,3 +201,161 @@ async def get_storage_root(
             exc,
         )
     return DEFAULT_STORAGE_ROOT
+
+
+# ── 통합 업로드 헬퍼 (Phase 2-Q 통합 권장 진입점) ──
+
+async def save_upload_to_volume_async(
+    db: "AsyncSession",
+    *,
+    section: str,
+    filename: str,
+    data: bytes,
+) -> tuple[str, Path, int | None]:
+    """업로드 1회 통합 헬퍼 — volume 선택 + 디렉터리 보장 + 파일 쓰기 + used_bytes 갱신.
+
+    신규 endpoint에서 권장 진입점. 기존 endpoint는 점진 전환.
+
+    동작:
+      1. ``get_storage_root_with_volume(db, len(data))``로 적절한 volume root + id 선택.
+         active volume 없으면 DEFAULT_STORAGE_ROOT, volume_id=None.
+      2. ``root / section`` 디렉터리 보장 (mkdir parents=True, exist_ok=True).
+      3. ``root / section / filename`` 에 ``write_bytes_async`` (timeout 보호).
+      4. volume_id가 있으면 그 ``StorageVolume.used_bytes += len(data)`` 갱신.
+         (실패해도 파일 자체는 성공한 상태 — best-effort 회계, 다음 헬스체크에서 보정).
+
+    Args:
+        db: 활성 AsyncSession.
+        section: storage 하위 분류 (예: "documents", "artifacts/123", "hwps/45"). 슬래시 포함 가능.
+        filename: 파일명 (UUID 권장 — 충돌 방지는 호출자 책임).
+        data: 파일 바이트.
+
+    Returns:
+        tuple[str, Path, int | None]
+          - ``relative_path`` — DB에 저장할 section-relative path (예: "documents/abc.pdf").
+            ``files/router.py``의 ``_GUARDS`` 호환 유지.
+          - ``full_path`` — 디스크 절대 경로 (필요 시 추가 작업용).
+          - ``volume_id`` — 사용된 StorageVolume.id 또는 None (DEFAULT_STORAGE_ROOT 사용).
+
+    raises:
+        StorageUnavailable — write 30s 초과 (NFS hang 등).
+        OSError — 디스크 가득 참, 권한 오류 등.
+
+    사용:
+        rel, full, vid = await save_upload_to_volume_async(
+            db, section="documents", filename=f"{uuid.uuid4().hex}.pdf", data=content,
+        )
+        doc.stored_path = rel
+        if vid is not None:
+            doc.storage_volume_id = vid  # 모델에 컬럼 있을 때만
+    """
+    size = len(data)
+    root, volume_id = await get_storage_root_with_volume(db, required_bytes=size)
+    section_dir = root / section
+    await ensure_dir_async(section_dir)
+    full_path = section_dir / filename
+    await write_bytes_async(full_path, data)
+
+    if volume_id is not None:
+        # used_bytes 갱신 — best-effort (실패해도 파일 자체는 OK).
+        try:
+            from sqlalchemy import update as sa_update
+
+            from app.models import StorageVolume
+
+            await db.execute(
+                sa_update(StorageVolume)
+                .where(StorageVolume.id == volume_id)
+                .values(used_bytes=(StorageVolume.used_bytes or 0) + size)
+            )
+            # flush는 호출자 트랜잭션에 맡김 (autocommit 환경 무관).
+        except Exception as exc:
+            logger.warning(
+                "save_upload_to_volume_async: used_bytes update failed for volume_id=%s: %s",
+                volume_id, exc,
+            )
+
+    # DB에 저장할 path는 section-relative (root 변경돼도 마이그레이션 가능).
+    relative_path = f"{section}/{filename}"
+    return relative_path, full_path, volume_id
+
+
+async def storage_health_check(db: "AsyncSession") -> dict:
+    """모든 등록 StorageVolume + DEFAULT_STORAGE_ROOT 상태 진단.
+
+    운영 모니터링용 — 외부에서 ``GET /api/storage/health`` 등으로 호출 가능.
+    NFS 마운트가 정상인지, 외장 SSD가 detach됐는지 한 번에 확인.
+
+    Returns:
+        {
+            "default_root": {"path": str, "ok": bool, "free_bytes": int, ...},
+            "volumes": [
+                {"id": int, "name": str, "path": str, "status": str,
+                 "is_active": bool, "free_bytes": int, ...},
+                ...
+            ],
+            "any_unavailable": bool,  # 한 개라도 비정상이면 True
+        }
+    """
+    import shutil as _shutil
+
+    def _quick_check(path_str: str) -> dict:
+        try:
+            p = Path(path_str)
+            if not p.exists():
+                return {"ok": False, "status": "missing"}
+            if not p.is_dir():
+                return {"ok": False, "status": "not_a_dir"}
+            usage = _shutil.disk_usage(path_str)
+            return {
+                "ok": True, "status": "ok",
+                "total_bytes": usage.total,
+                "free_bytes": usage.free,
+            }
+        except Exception as exc:
+            return {"ok": False, "status": "error", "error": str(exc)[:200]}
+
+    async def _checked(path_str: str) -> dict:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_quick_check, path_str),
+                timeout=DEFAULT_META_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            return {"ok": False, "status": "timeout"}
+
+    # default
+    default_path_str = str(DEFAULT_STORAGE_ROOT.resolve())
+    default_info = await _checked(default_path_str)
+    default_info["path"] = default_path_str
+
+    # volumes
+    volumes_out: list[dict] = []
+    try:
+        from sqlalchemy import select as sa_select
+
+        from app.models import StorageVolume
+
+        rows = (await db.execute(
+            sa_select(StorageVolume).order_by(StorageVolume.priority, StorageVolume.id)
+        )).scalars().all()
+        check_results = await asyncio.gather(*[_checked(v.path) for v in rows])
+        for v, info in zip(rows, check_results):
+            volumes_out.append({
+                "id": v.id, "name": v.name, "path": v.path,
+                "is_active": v.is_active,
+                "priority": v.priority,
+                **info,
+            })
+    except Exception as exc:
+        logger.warning("storage_health_check: volumes query failed: %s", exc)
+
+    any_unavail = (not default_info.get("ok")) or any(
+        (not vi.get("ok")) and vi.get("is_active") for vi in volumes_out
+    )
+
+    return {
+        "default_root": default_info,
+        "volumes": volumes_out,
+        "any_unavailable": any_unavail,
+    }

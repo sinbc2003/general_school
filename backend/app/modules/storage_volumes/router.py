@@ -69,8 +69,29 @@ def _check_path_sync(path: str) -> tuple[str, int, int]:
         return ("error", 0, 0)
 
 
+# NFS 마운트 끊김 시 os.path.exists / shutil.disk_usage가 무한 hang 가능 →
+# 강제 5초 컷. 정상 LAN NFS면 metadata 호출은 <100ms.
+_CHECK_PATH_TIMEOUT_SEC = 5.0
+
+
 async def _check_path(path: str) -> tuple[str, int, int]:
-    return await asyncio.to_thread(_check_path_sync, path)
+    """비동기 + 타임아웃. 타임아웃 시 ("timeout", 0, 0) 반환 — fail-soft.
+
+    pick_volume_for_upload 등에서 매 업로드마다 호출되므로 hang은 치명적.
+    timeout 시 그 볼륨을 부적합으로 간주하고 다음 후보로 fallthrough.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_check_path_sync, path),
+            timeout=_CHECK_PATH_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        import logging
+        logging.getLogger(__name__).error(
+            "storage_volumes._check_path: TIMEOUT after %.1fs on %s — mount may be hung",
+            _CHECK_PATH_TIMEOUT_SEC, path,
+        )
+        return ("timeout", 0, 0)
 
 
 def _to_dict(v: StorageVolume, runtime_total: int | None = None, runtime_free: int | None = None) -> dict:
@@ -100,10 +121,13 @@ async def list_volumes(
     rows = (await db.execute(
         select(StorageVolume).order_by(StorageVolume.priority, StorageVolume.name)
     )).scalars().all()
-    items = []
-    for v in rows:
-        st, total, free = await _check_path(v.path)
-        items.append(_to_dict(v, runtime_total=total, runtime_free=free))
+    # 병렬 health check — 한 볼륨이 hang(5s timeout)해도 전체 응답이 5초 안에 끝남.
+    # 순차면 N개 모두 timeout 시 5N초 걸림.
+    checks = await asyncio.gather(*[_check_path(v.path) for v in rows])
+    items = [
+        _to_dict(v, runtime_total=total, runtime_free=free)
+        for v, (st, total, free) in zip(rows, checks)
+    ]
     return {"items": items}
 
 
@@ -323,6 +347,25 @@ async def check_volume(
         v.capacity_bytes = total
     await db.flush()
     return _to_dict(v, runtime_total=total, runtime_free=free)
+
+
+# ── 운영자 헬스 진단 (NFS / 외장 SSD 통합 점검) ──
+
+@router.get("/health")
+async def storage_health(
+    user: User = Depends(require_permission("storage.volume.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """default storage root + 모든 등록 볼륨 한 번에 점검.
+
+    운영 모니터링용. NFS 마운트가 정상인지, 외장 SSD가 detach됐는지 한 응답에서 확인.
+    매 호출이 병렬 health check — 한 볼륨이 hang(5s timeout)해도 전체 5초 내 응답.
+
+    응답 ``any_unavailable=True``이면 active 볼륨 중 하나라도 비정상 →
+    UI에서 상단 배너로 경고 권장.
+    """
+    from app.core.files import storage_health_check
+    return await storage_health_check(db)
 
 
 # ── 헬퍼 (Phase 1.0 upload 로직 통합 전 단계) ──

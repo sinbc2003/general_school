@@ -8,4 +8,6 @@ PERMISSIONS = [
      "requires_2fa": True, "is_sensitive": True},
     {"key": "user.manage.bulk_import", "display_name": "사용자 일괄 등록", "category": "사용자 관리",
      "requires_2fa": True, "is_sensitive": True},
+    {"key": "user.manage.quota", "display_name": "사용자 용량 할당", "category": "사용자 관리",
+     "requires_2fa": True, "is_sensitive": True},
 ]
