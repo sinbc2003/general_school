@@ -31,7 +31,21 @@
 | **A** | Ubuntu Server 24.04 | 학교 상주 | 학교 유선 (192.168.0.5) | general_school 운영 서버 | ✅ 부팅 완료, SSH 활성, 절전 OFF (부분) |
 | **B** | (집에서 Ubuntu 설치 예정) | 사용자 집 → 다음 방문에 학교 | (예정) 학교 유선 | NFS 스토리지 분리 (`/mnt/gs-storage`) | ⏸ 보류, 다음 방문 시 셋업 |
 | **C** | Windows 11 (사용자 본인) | 사용자 휴대 | 외부/집 + Tailscale (`100.89.219.102`) | 사용자 작업 노트북 | ✅ 정상 |
-| **D** | Windows | 학교 상주 (오늘 받음) | 학교 유선 + 외부 인터넷 OK | **Jump host**: Chrome RD Host + Claude Code | ⏳ Claude Code 설치 중 |
+| **D** | Windows | 학교 상주 (오늘 받음) | 학교 유선 + 외부 인터넷 OK + Tailscale (`100.80.133.117`) | **Jump host**: Chrome RD Host + Claude Code | ✅ Tailscale P2P direct 연결 확인 |
+
+### D 노트북 상세 (수성고)
+- **호스트명**: `desktop-e8kcl6l`
+- **Tailscale IP**: `100.80.133.117` (P2P direct 연결, 학교 공인 IP `211.114.120.184:41641`)
+- **윈도우 사용자**: `user`
+- **윈도우 비번**: `260317`
+- **SSH 접속**: `ssh user@100.80.133.117` → 비번 `260317`
+- **역할**: C(외부) → SSH → D(학교 유선) → SSH → A(서버) 의 jump host
+- **체크리스트**:
+  - ✅ Tailscale 등록
+  - ⏳ OpenSSH 서버 설치 (`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`)
+  - ⏳ Chrome RD Host 설치 (보험)
+  - ⏳ Claude Code 설치
+  - ⏳ 절전 OFF + 자동 로그인 (`netplwiz`)
 
 ### A 노트북 상세
 - **IP**: `192.168.0.5` (DHCP), 유선 인터페이스 `enp1s0`, MAC `8c:b0:e9:20:98:98`
