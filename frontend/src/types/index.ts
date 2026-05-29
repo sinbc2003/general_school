@@ -68,6 +68,8 @@ export interface UserInfo {
   // admin 2FA 강제 정책 ON + admin role + 2FA 미등록이면 True
   must_enable_2fa?: boolean;
   permissions: string[];
+  /** Feature Flag dict — 현재 사용자에게 활성 기능 (key → bool). 학교별로 다름. */
+  features?: Record<string, boolean>;
 }
 
 /** 학기 단위 명부(enrollment) — `enrollments` 테이블 */

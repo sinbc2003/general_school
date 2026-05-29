@@ -32,6 +32,8 @@ interface AuthContextValue {
   ) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
+  /** Feature flag 활성 여부 — 학교가 OFF면 false. user.features에서 조회. */
+  isFeatureEnabled: (key: string) => boolean;
   isSuperAdmin: boolean;
   isDesignatedAdmin: boolean;
   isAdmin: boolean;
@@ -192,6 +194,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
+  const isFeatureEnabled = useCallback(
+    (key: string) => {
+      const features = user?.features || {};
+      return !!features[key];
+    },
+    [user]
+  );
+
   const value = useMemo(
     () => ({
       user,
@@ -200,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completeChallenge,
       logout,
       hasPermission,
+      isFeatureEnabled,
       isSuperAdmin: user?.role === "super_admin",
       isDesignatedAdmin: user?.role === "designated_admin",
       isAdmin: user?.role === "super_admin" || user?.role === "designated_admin",
@@ -207,7 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetchUser();
       },
     }),
-    [user, loading, login, completeChallenge, logout, hasPermission, fetchUser]
+    [user, loading, login, completeChallenge, logout, hasPermission, isFeatureEnabled, fetchUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -118,6 +118,12 @@ export function AdminSidebar() {
     }
     if (item.excludeRoles && user && item.excludeRoles.includes(user.role)) return false;
     if (item.permission && !hasPermission(item.permission)) return false;
+    // Feature Flag — 학교가 OFF로 설정하면 메뉴 숨김 (super_admin도 적용 — admin_only로
+    // 설정한 거면 이미 features dict에서 true로 옴)
+    if (item.feature) {
+      const features = user?.features || {};
+      if (!features[item.feature]) return false;
+    }
     if (isHidden(item.key)) return false;
     if (item.children) {
       return item.children.some((c) => isVisible(c));

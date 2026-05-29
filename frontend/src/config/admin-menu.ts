@@ -34,6 +34,7 @@ import {
   Globe,
   Github,
   FileQuestion,
+  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -55,6 +56,12 @@ export interface MenuItem {
    * 숨길 역할 목록. roles와 반대 의미로 빠르게 제외할 때.
    */
   excludeRoles?: string[];
+  /**
+   * Feature Flag 키. 지정하면 해당 flag가 활성일 때만 메뉴 노출.
+   * 예: feature="chatbot" → user.features.chatbot=true일 때만 보임.
+   * 학교가 `/system/feature-flags`에서 ON/OFF.
+   */
+  feature?: string;
   newTab?: boolean;  // true면 target="_blank"로 새 창 열기
   children?: MenuItem[];
 }
@@ -137,7 +144,7 @@ export const adminMenu: MenuItem[] = [
   // "학생 관리" 카테고리의 자식들 — top-level로 평탄화
   // (이전엔 'students' children 토글이었지만 한 단계 줄임)
   { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view", excludeRoles: ["student"] },
-  { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"] },
+  { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"], feature: "admissions" },
   { key: "student-artifacts", label: "학생 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   { key: "past-research", label: "선배 연구 보고서", icon: FileArchive, path: "/past-research", permission: "past_research.view", excludeRoles: ["student"] },
   { key: "research-review", label: "승인 대기함", icon: ClipboardList, path: "/research-review", permission: "past_research.review", excludeRoles: ["student"] },
@@ -161,6 +168,7 @@ export const adminMenu: MenuItem[] = [
     path: "/contest",
     permission: "contest.manage.create",
     excludeRoles: ["student"],
+    feature: "contest",
   },
   {
     key: "assignment",
@@ -185,6 +193,7 @@ export const adminMenu: MenuItem[] = [
     path: "/courseware",
     permission: "classroom.courseware.view",
     excludeRoles: ["student"],
+    feature: "courseware",
   },
   {
     key: "drive",
@@ -201,6 +210,7 @@ export const adminMenu: MenuItem[] = [
     path: "/research",
     permission: "research.project.view",
     excludeRoles: ["student"],
+    feature: "research",
   },
   {
     key: "club",
@@ -209,6 +219,7 @@ export const adminMenu: MenuItem[] = [
     path: "/club",
     permission: "club.manage.create",
     excludeRoles: ["student"],
+    feature: "club",
   },
   // ※ papers (논문/뉴스레터) 메뉴 제거 — 일반 고등학교 운영에서 미사용.
   //   backend papers 라우터/모델은 그대로 둠 (필요 시 menu만 다시 추가하면 됨).
@@ -311,6 +322,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-google", label: "Google 연동", icon: Globe, path: "/system/integrations/google", permission: "google.integration.configure" },
       { key: "sys-storage", label: "스토리지", icon: HardDrive, path: "/system/storage", permission: "storage.volume.view" },
       { key: "sys-updates", label: "코드 업데이트", icon: Github, path: "/system/updates", permission: "system.updates.view" },
+      { key: "sys-feature-flags", label: "기능 활성화", icon: Flag, path: "/system/feature-flags", permission: "system.feature_flags.manage" },
     ],
   },
 ];

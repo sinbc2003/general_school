@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI):
         await seed_chatbot_defaults(db)
         await seed_default_semester(db)
         await seed_default_position_templates(db)  # 권한 시드 후 (perm 키 검증 필요)
+        # Feature flag 시드 — 코드의 KNOWN_FEATURES 중 DB에 없는 것만 추가 (멱등)
+        try:
+            from app.core.features import seed_known_features
+            added = await seed_known_features(db)
+            if added:
+                print(f"[INFO] feature flags seed: {added} new flags added")
+        except Exception as e:
+            print(f"[WARN] seed_known_features 실패: {e}")
         # role-permission 기본값 자동 부여 (멱등 — 이미 부여된 권한은 skip).
         # 새 모듈/권한 추가 시 backend 재시작만으로 teacher/staff/student에 자동 반영.
         try:

@@ -92,9 +92,13 @@ async def me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.features import get_effective_features
     perms = await resolve_permissions(db, user)
     must_2fa = await _check_must_enable_2fa(user, db)
-    return _user_to_dict(user, perms, must_enable_2fa=must_2fa)
+    features = await get_effective_features(db, user)
+    out = _user_to_dict(user, perms, must_enable_2fa=must_2fa)
+    out["features"] = features
+    return out
 
 
 @router.post("/change-password")
