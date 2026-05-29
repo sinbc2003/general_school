@@ -12,4 +12,6 @@ PERMISSIONS = [
     {"key": "system.audit.view", "display_name": "감사 로그 조회", "category": "시스템", "unused_ok": True,
      "requires_2fa": True, "is_sensitive": True},
     {"key": "system.updates.view", "display_name": "GitHub 업데이트 확인", "category": "시스템", "unused_ok": True},
+    {"key": "system.updates.apply", "display_name": "GitHub 업데이트 자동 적용", "category": "시스템", "unused_ok": True,
+     "requires_2fa": True, "is_sensitive": True},
 ]
