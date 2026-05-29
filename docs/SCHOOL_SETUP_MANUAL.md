@@ -241,15 +241,66 @@ sudo systemctl enable --now nfs-kernel-server
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 ```
 
-### B에서 A NFS 마운트
+### A에서 — SSD에 백업 destination도 추가 (권장)
+A의 SSD에 OS 외 빈 공간 약 100GB → B의 매일 자동 백업 destination으로 활용.
+디스크 분산으로 안전성 ↑ (B 디스크 망가져도 백업은 A에).
+```bash
+sudo mkdir -p /srv/backups
+sudo chown susung:susung /srv/backups
+sudo chmod 755 /srv/backups
+# NFS export 추가 (학교 LAN 안만)
+echo "/srv/backups 192.168.0.0/24(rw,sync,no_subtree_check)" | sudo tee -a /etc/exports
+sudo exportfs -ra
+```
+
+### B에서 A NFS 마운트 (스토리지 + 백업 destination 둘 다)
 ```bash
 sudo apt install -y nfs-common
+
+# 1) 학생 파일 NFS (A HDD)
 sudo mkdir -p /mnt/gs-storage
 sudo mount -t nfs <A IP>:/srv/gs-storage /mnt/gs-storage
 echo "<A IP>:/srv/gs-storage /mnt/gs-storage nfs defaults,nofail,_netdev,soft,timeo=30 0 0" | sudo tee -a /etc/fstab
+
+# 2) 백업 destination NFS (A SSD)
+sudo mkdir -p /mnt/a-backups
+sudo mount -t nfs <A IP>:/srv/backups /mnt/a-backups
+echo "<A IP>:/srv/backups /mnt/a-backups nfs defaults,nofail,_netdev,soft,timeo=30 0 0" | sudo tee -a /etc/fstab
+
+# 3) .env 설정 — STORAGE_ROOT + BACKUP_DEST
 sed -i 's|STORAGE_ROOT=.*|STORAGE_ROOT=/mnt/gs-storage|' ~/general_school/.env
+grep -q '^BACKUP_DEST=' ~/general_school/.env \
+  && sed -i 's|BACKUP_DEST=.*|BACKUP_DEST=/mnt/a-backups|' ~/general_school/.env \
+  || echo 'BACKUP_DEST=/mnt/a-backups' >> ~/general_school/.env
+
 sudo systemctl restart gs-backend
 ```
+
+### 백업 검증 (수동 실행)
+```bash
+bash ~/general_school/production/scripts/backup.sh
+ls -la /mnt/a-backups/
+# → gs-backup-YYYYMMDD-HHMMSS.tar.gz 등 보이면 OK
+# 그 후 매일 새벽 2시 cron이 자동 실행
+```
+
+### A·B 디스크 활용 최종 정리
+| 디스크 | 역할 | 보관 |
+|---|---|---|
+| **A SSD** (119GB) | OS + B의 자동 백업 destination | OS 6GB + 백업 ZIP 누적 |
+| **A HDD** (465GB) | NFS export — 학생 파일 (실시간) | PDF·이미지·과제 등 |
+| **B SSD** (119GB) | OS + general_school 코드 + PostgreSQL DB + venv + node_modules | 메인 운영 |
+| **B HDD** (465GB) | 현재 미사용 — 활용 옵션 ↓ | - |
+
+### B HDD 활용 옵션 (선택)
+| 옵션 | 권장 | 비고 |
+|---|---|---|
+| 그대로 미사용 + 미래 확장 | ⭐ | A HDD 80% 차면 그때 추가 마운트 |
+| 2차 백업 사본 (3중) | △ | A 노트북 자체 도난/화재 시 안전 |
+| 외부 학교 데이터 임시 보관 | - | 클러스터 공유 스토리지 |
+| postgres WAL 핫 스탠바이 | X | 전문 운영 영역, 100교 도달 시 |
+
+권장: **운영 초기엔 그대로 미사용**. A HDD가 차기 시작하면 그때 결정.
 
 ## 8. 운영 명령어
 
