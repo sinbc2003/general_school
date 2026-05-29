@@ -44,7 +44,7 @@ from app.services.github_updates import (
     get_remote_commit,
     is_polling_enabled,
 )
-from app.services.update_executor import (
+from app.services.updates import (
     apply_update,
     get_last_result,
     get_progress,
