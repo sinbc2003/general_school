@@ -2218,3 +2218,117 @@ STORAGE_ROOT=/mnt/gs-storage   # B 노트북 NFS 마운트
 - 수정: 19개 파일 (코어 2 + 15 endpoint + frontend 2 + 매뉴얼 1)
 - 부팅 검증: Python syntax 18 파일 OK, import 검증 (venv 안에서) OK
 - A 노트북 학교 Tailscale 등록은 사용자 학교 방문 후 수행 예정 (Plan A); 실패 시 D(여분 윈도우 노트북) Chrome RD jump host로 fallback (Plan B)
+
+---
+
+## 2026-05-29 세션 — 수성고 B 메인서버 배포 + GitHub 자동 업데이트 시스템 + cmd center 관리 학교 탭
+
+### 배포 완료 — B 메인서버 production (집)
+- B (Ubuntu Server 24.04.4 LTS) — 사용자 집 와이파이 `192.168.123.175` + Tailscale `100.92.66.61` (P2P direct)
+- 모든 서비스 systemd로 24/7 자동: gs-backend(8002) + gs-frontend(3000) + gs-hocuspocus(1234) + nginx(80) + postgres(5432) + tailscaled
+- SSH 키 인증(C의 ed25519) + NOPASSWD sudo
+- 부팅 시 모든 서비스 자동 시작 (`enable --now` 등록 완료)
+- 첫 접속: `http://192.168.123.175/auth/register` (메인 `/`은 학교 운영용이라 가입 폼 미노출)
+- 첫 가입자 = 자동 super_admin (`BOOTSTRAP_MODE=first_signup`, User 0명)
+
+### 역할 swap — A↔B
+**원래**: A=메인서버, B=NFS 스토리지
+**변경**: **B=메인서버, A=NFS 스토리지**
+이유: A는 학교 outbound 차단으로 git pull/Claude API/apt 불가 → 메인 어려움.
+B는 집에서 외부 인터넷 OK → 완전 셋업 가능. A는 이미 설치 + SSH OK이라 NFS 패키지만 추가.
+
+### 학교 망 정책 (수성고)
+- 학교 유선 LAN `192.168.0.0/24` — outbound 완전 차단 (10.111.197.104 라우터 거부)
+- 학교 와이파이 `susung_5g` (`susung123`) — outbound OK, **client isolation** (와이파이 → 유선 ARP 차단)
+- 유선끼리는 isolation 없음 (D → A SSH OK)
+- D는 학교 IT 허용된 단말 (외부 인터넷 가능 → Tailscale 등록 작동)
+- Tailscale은 학교 유선에서 작동 불가 (outbound 차단으로 컨트롤 플레인 도달 X)
+
+### setup-production.sh 자동 fix (commit `7608fa0`)
+원인: frontend 빌드 시 `NEXT_PUBLIC_API_URL` 미설정 → fallback `http://localhost:8002` 인라인 → 브라우저가 본인 PC localhost 호출 실패 → "회원가입 비활성화" 잘못 표시.
+fix:
+- `.env.production` 자동 생성 (`NEXT_PUBLIC_API_URL=` 빈문자열)
+- → fetch가 same-origin 상대경로 → nginx가 `/api/*` 백엔드 프록시 → 정상
+- `npm ci --legacy-peer-deps` 자동 적용 (tiptap 3.23.4 vs 3.23.5 충돌 회피)
+
+### 알려진 setup 이슈 + 우회 (매뉴얼에 정리)
+- `alembic upgrade head` 실패(`relation "semester_enrollments" does not exist`): init_db() 우회 (psql DROP + CREATE + python init_db + stamp head)
+- nginx `gzip directive duplicate`: `sed -i '11,18s/^/# /'` 주석
+- pydantic `Extra inputs not permitted: github_update_repo`: .env에서 그 줄 제거 (설정은 GITHUB_UPDATE_REPO env로만)
+
+### GitHub 자동 업데이트 시스템 (commit `70cc284`)
+
+새 신규 모듈:
+- `backend/app/services/update_executor.py` (487줄) — 9단계 자동 실행 + 실패 시 자동 rollback
+- `modules/system/updates.py` — 3개 endpoint 추가 (`POST /apply`, `GET /progress`, `GET /last`)
+- `modules/system/permissions.py` — `system.updates.apply` (2FA + sensitive)
+- `frontend (admin)/system/updates/page.tsx` — `AutoUpdatePanel` 컴포넌트 (확인 다이얼로그 + polling + 단계별 진행 표시 + dry-run 옵션)
+
+apply 9단계:
+1. backup (pg_dump + storage tar.gz, `production/scripts/backup.sh` 사용)
+2. from_commit (현재 git HEAD 저장)
+3. git pull origin main
+4. pip install -r requirements.txt
+5. alembic upgrade head
+6. npm ci --legacy-peer-deps + npm run build
+7. (선택) backend-hocuspocus build
+8. systemctl restart gs-backend gs-frontend gs-hocuspocus
+9. health check (/api/health 60초 polling)
+
+실패 시 자동 rollback (3단계):
+- git reset --hard <from_commit>
+- pg_restore <백업>
+- systemctl restart
+
+안전망:
+- lock 파일 `/tmp/gs-update.lock` (동시 실행 차단, 10분 stale 자동 회수)
+- 진행 상황 `SchoolConfig['system.update.progress']` JSON
+- 마지막 결과 `SchoolConfig['system.update.last_result']` JSON
+- 시작 전 백업 → 데이터 손실 가능성 0
+- 다운타임 1~5초 (systemctl restart, Yjs/세션 자동 재연결)
+- audit log `system.update_apply_start` (is_sensitive=True)
+
+활성화 방법: `.env`에 `GITHUB_UPDATE_REPO=sinbc2003/general_school` 한 줄 + backend 재시작.
+
+### 데이터 보존 정책 (대규모 변경 시)
+| 변경 종류 | DB 데이터 |
+|---|---|
+| UI 변경, 메뉴 추가/삭제, 라우트 이름 변경 | ❌ 영향 없음 (코드만 변경) |
+| 새 컬럼/테이블 추가 | ❌ 영향 없음 (nullable 또는 신규) |
+| 컬럼 이름 변경 / 데이터 형식 변경 | ⚠️ alembic 마이그레이션이 처리 (잘못 작성 시 위험) |
+| 컬럼/테이블 삭제 | ❌ 손실 (의도된 거면 OK, 백업으로 복원 가능) |
+| major version upgrade | ⚠️ 큰 변경, 신중 검토 권장 |
+
+핵심: **메뉴/UI는 코드, 데이터는 DB row** — 둘 별개. 메뉴 없어져도 DB 그대로.
+**백업이 만능 안전망**: 자동 업데이트는 시작 전 백업 → 언제든 그 시점으로 복원 가능 (`/system/backup`).
+
+### cmd center 관리 학교 탭 (Mac1 `~/shared/command-center/`)
+- 신규 blueprint `routes/schools.py` (135줄)
+- 신규 template `templates/schools.html` (195줄, 다크 테마, 3탭 UI)
+- 사이드바에 "🏫 관리 학교 (탭)" 항목 추가
+- API: `GET /schools`, `GET /api/schools`, `GET /api/schools/<en>`
+- 학교별 디렉토리: `data/schools/<en>/meta.json`
+- 매뉴얼: GitHub raw URL fetch (`general_school/docs/SCHOOL_SETUP_MANUAL.md`) + marked.js 렌더링
+- 장비 헬스 자동 매핑 (cluster `_node_status_cache` 활용)
+
+NODES에 추가됨 (Mac1 `config.py`):
+- SuseongB (100.92.66.61, susung, Linux, school: "수성고")
+- SuseongA (192.168.0.5, susung, Linux, school: "수성고", lan_only:True, jump_host:"user@100.80.133.117")
+- SuseongD (이미 있던 거, school: "수성고")
+
+cmd center 실행: `nohup /opt/homebrew/Cellar/python@3.14/3.14.2_1/.../Python server.py > server.log 2>&1 &`
+(Python 3.9는 routes/tools/notebooks.py f-string backslash로 부팅 실패 — 3.14 필수)
+
+### 매뉴얼 (docs/SCHOOL_SETUP_MANUAL.md)
+GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
+12개 섹션: 0(구조) → 1(GitHub) → 2(USB) → 3(Ubuntu 설치) → 4(B 셋업) → 5(D 셋업) → 6(학교 이동) → 7(A NFS) → 8(운영 명령어) → 9(트러블슈팅) → 10(다른 학교 배포) → 11(체크리스트) + §12 부록 (네트워크 기본 개념: 사설/공인 IP, NAT, Tailscale, 포트포워딩/클라우드 터널) + §13 자동 시작.
+
+다른 학교 배포 시: `data/schools/<en>/meta.json` 만들고 NODES 추가하면 같은 매뉴얼로 자동 작동.
+
+### 통계 (2026-05-29)
+- Commit 4개: `7608fa0` (setup fix) + `caa31bd` (매뉴얼) + `70cc284` (자동 업데이트) + (다음: 모듈화 + 최적화)
+- 신규 파일: `services/update_executor.py`, `docs/SCHOOL_SETUP_MANUAL.md`, cmd center `routes/schools.py` + `templates/schools.html` + `data/schools/suseong/{meta.json,manual.md}`
+- 글로벌 CLAUDE.md (사용자 `~/.claude/CLAUDE.md`) 클러스터 8대로 확장 (B, D 추가)
+- GitHub HEAD: `70cc284`
+- B 운영 상태: production, 5/9 services active, 첫 super_admin 미가입 (사용자 진행 대기)
+- B SSH 일시 끊김 (절전/와이파이 → 사용자 깨우면 git pull로 동기화)

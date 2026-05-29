@@ -400,3 +400,90 @@ systemctl is-enabled gs-backend gs-frontend gs-hocuspocus nginx postgresql tails
 systemctl is-active gs-backend gs-frontend gs-hocuspocus nginx postgresql tailscaled
 # 전부 "active"
 ```
+
+---
+
+## 14. GitHub 자동 업데이트 시스템 (운영)
+
+### 14-1. 활성화 (한 번만)
+`.env`에 한 줄 추가 + backend 재시작:
+```bash
+echo 'GITHUB_UPDATE_REPO=sinbc2003/general_school' >> ~/general_school/.env
+sudo systemctl restart gs-backend
+```
+→ 24시간마다 자동 polling. 새 commit 감지 시 super_admin에게 in-app 알림.
+
+### 14-2. UI 사용
+- `/system/updates` 페이지 진입 (super_admin 또는 `system.updates.view` 권한)
+- 현재 commit vs GitHub HEAD 비교 + 차이 commit 목록
+- "지금 확인" 버튼 → 즉시 polling
+- 새 commit 있으면 **"지금 업데이트 적용"** 빨간 버튼 (`system.updates.apply` 권한)
+- "Dry-run (백업만)" 옵션 — 백업만 만들고 변경 X (안전 테스트용)
+
+### 14-3. 자동 적용 9단계
+1. **백업** — pg_dump + storage tar.gz (`/tmp/gs-update-backups/`)
+2. **from_commit** — 현재 git HEAD 저장 (rollback용)
+3. **git pull origin main**
+4. **pip install** — backend 의존성 갱신
+5. **alembic upgrade head** — DB 스키마 마이그레이션
+6. **npm ci + build** — frontend 빌드
+7. **(선택) backend-hocuspocus build**
+8. **systemctl restart** — gs-backend/frontend/hocuspocus
+9. **health check** — `/api/health` 60초 polling
+
+### 14-4. 실패 시 자동 rollback
+어느 단계든 실패하면:
+- `git reset --hard <from_commit>`
+- `pg_restore <백업>`
+- `systemctl restart gs-backend gs-frontend gs-hocuspocus`
+- UI에 "Rollback 완료" 표시 + 실패 단계 + 에러 로그
+
+**= 데이터 손실 가능성 0**.
+
+### 14-5. 안전망
+| 항목 | 보장 |
+|---|---|
+| 동시 실행 차단 | `/tmp/gs-update.lock` (10분 stale 자동 회수) |
+| 진행 상황 polling | 2초마다 `SchoolConfig['system.update.progress']` |
+| 마지막 결과 보존 | `SchoolConfig['system.update.last_result']` |
+| 시작 전 백업 | 자동 |
+| 다운타임 | 1~5초 (Yjs/세션 자동 재연결) |
+| audit log | `system.update_apply_start` (is_sensitive=True) |
+
+### 14-6. 대규모 변경 시 데이터 보존
+
+| 변경 종류 | 데이터 영향 | 비고 |
+|---|---|---|
+| UI 개선 / 메뉴 추가/삭제 / 라우트 이름 변경 | ❌ 없음 | 코드만 변경, DB 그대로 |
+| 새 컬럼/테이블 추가 | ❌ 없음 | alembic이 nullable로 추가 |
+| 컬럼 이름 변경 | ⚠️ 마이그레이션이 처리 | 잘못 작성 시 위험 |
+| 컬럼/테이블 삭제 | ⚠️ 데이터 손실 | 의도된 거면 OK, 백업 복원 가능 |
+| 데이터 형식 변경 (JSON 스키마 등) | ⚠️ 변환 마이그레이션 필요 | 코드에서 처리 |
+| major version upgrade | ⚠️ 신중 검토 | dry-run 권장 |
+
+**핵심**:
+- 메뉴/UI = 코드, 데이터 = DB row → 별개. 메뉴 없어져도 DB 그대로.
+- 백업이 만능 안전망 — `/system/backup`에서 ZIP 다운로드/복원 가능.
+- 위험 변경은 dry-run으로 먼저 검증 권장.
+
+### 14-7. 권한 설정 (한 번만)
+- `system.updates.view` — 기본 super_admin 자동 부여
+- `system.updates.apply` — super_admin 자동, designated_admin은 매트릭스에서 부여 필요 (2FA + sensitive)
+
+### 14-8. 트러블슈팅
+| 증상 | 원인 | 해결 |
+|---|---|---|
+| `/system/updates`에서 "환경변수 안내" 표시 | `GITHUB_UPDATE_REPO` 미설정 | `.env`에 추가 + backend 재시작 |
+| "이미 진행 중" 409 | lock 파일 남아있음 | 10분 대기 (stale 자동 회수) 또는 `rm /tmp/gs-update.lock` |
+| backup 실패 (디스크 부족) | `/tmp` 용량 부족 | `BACKUP_DEST` 환경변수로 다른 경로 지정 |
+| alembic 실패 (relation does not exist 등) | 마이그레이션 의존성 | 자동 rollback됨. 수동으로 §4-8 우회 |
+| health check 실패 | backend 시작 시간 부족 | 재시작 3회까지 자동, 그래도 실패 시 rollback |
+| npm ci 실패 (peer dep) | tiptap 버전 충돌 등 | `--legacy-peer-deps` 자동 (commit 7608fa0 이후) |
+
+### 14-9. 권장 운영 흐름
+1. 코드 수정 시 GitHub `main` 직접 push (작은 변경) 또는 PR 머지 (큰 변경)
+2. 24시간 내 (또는 즉시 "지금 확인" 버튼) — 슈퍼관리자 알림
+3. `/system/updates` 진입 → 변경 commit 목록 + 메시지 검토
+4. 위험해 보이면 **"Dry-run"** 먼저 (3분)
+5. 문제 없으면 **"지금 업데이트 적용"** → 5~10분 후 완료
+6. 실패 시 자동 rollback → 원인 분석 후 코드 수정 + 다시
