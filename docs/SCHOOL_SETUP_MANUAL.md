@@ -241,9 +241,14 @@ sudo systemctl enable --now nfs-kernel-server
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 ```
 
-### A에서 — SSD에 백업 destination도 추가 (권장)
-A의 SSD에 OS 외 빈 공간 약 100GB → B의 매일 자동 백업 destination으로 활용.
-디스크 분산으로 안전성 ↑ (B 디스크 망가져도 백업은 A에).
+### A에서 — SSD에 DB 백업 destination 추가 (권장)
+A의 SSD에 OS 외 빈 공간 약 100GB → B의 매일 자동 **DB 백업** destination으로 활용.
+디스크 분산으로 안전성 ↑ (B 디스크 망가져도 DB 백업은 A에).
+
+> **참고**: 학생 파일(storage)은 이미 A HDD가 원본이라 따로 백업할 필요 없음.
+> `backup.sh`는 STORAGE_ROOT가 NFS 마운트인지 자동 감지 → 스토리지 백업 자동 건너뜀.
+> 따라서 A SSD에는 **DB 덤프(.sql.gz)만** 누적됨 — 사이즈 작음 (수십 MB ~ 수 GB).
+
 ```bash
 sudo mkdir -p /srv/backups
 sudo chown susung:susung /srv/backups
@@ -279,18 +284,22 @@ sudo systemctl restart gs-backend
 ### 백업 검증 (수동 실행)
 ```bash
 bash ~/general_school/production/scripts/backup.sh
+# 로그에 "Storage backup 건너뜀: NFS 마운트 자동 감지..." 떠야 정상
 ls -la /mnt/a-backups/
-# → gs-backup-YYYYMMDD-HHMMSS.tar.gz 등 보이면 OK
+# → db_YYYYMMDD_HHMMSS.sql.gz 만 보여야 OK (storage_*.tar.gz는 없어야 함)
 # 그 후 매일 새벽 2시 cron이 자동 실행
 ```
+
+> **명시적으로 storage 백업 끄고 싶으면**: `~/general_school/.env`에 `BACKUP_STORAGE=false` 추가.
+> NFS 자동 감지로 충분하지만, 로컬 storage라도 백업 안 받고 싶을 때 사용.
 
 ### A·B 디스크 활용 최종 정리
 | 디스크 | 역할 | 보관 |
 |---|---|---|
-| **A SSD** (119GB) | OS + B의 자동 백업 destination | OS 6GB + 백업 ZIP 누적 |
-| **A HDD** (465GB) | NFS export — 학생 파일 (실시간) | PDF·이미지·과제 등 |
+| **A SSD** (119GB) | OS + B의 자동 **DB 백업** destination | OS 6GB + DB 덤프 누적 (수 GB) |
+| **A HDD** (465GB) | NFS export — 학생 파일 (실시간, 원본) | PDF·이미지·과제 등 (백업 불필요 — 원본 = 안전 보관처) |
 | **B SSD** (119GB) | OS + general_school 코드 + PostgreSQL DB + venv + node_modules | 메인 운영 |
-| **B HDD** (465GB) | 현재 미사용 — 활용 옵션 ↓ | - |
+| **B HDD** (465GB) | 현재 미사용 (부하 최소화) | A HDD 80% 도달 시 활용 검토 |
 
 ### B HDD 활용 옵션 (선택)
 | 옵션 | 권장 | 비고 |

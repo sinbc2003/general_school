@@ -69,7 +69,23 @@ else
 fi
 
 # ── Storage 디렉터리 ──
-if [ -d "$STORAGE_DIR" ]; then
+# NFS/네트워크 마운트 자동 감지 — 같은 디스크/네트워크 안에서 옮겨봐야 의미 없음.
+# 또는 BACKUP_STORAGE=false 명시적 끄기.
+SKIP_STORAGE_REASON=""
+if [ "${BACKUP_STORAGE:-auto}" = "false" ]; then
+    SKIP_STORAGE_REASON="BACKUP_STORAGE=false 환경변수 — 명시적 건너뜀"
+elif [ -d "$STORAGE_DIR" ]; then
+    # STORAGE_DIR이 NFS 마운트인지 검사 (또는 그 안의 실제 경로가 NFS인지)
+    STORAGE_REAL="$(readlink -f "$STORAGE_DIR" 2>/dev/null || echo "$STORAGE_DIR")"
+    FS_TYPE="$(stat -f -c %T "$STORAGE_REAL" 2>/dev/null || echo unknown)"
+    if [[ "$FS_TYPE" == "nfs"* ]]; then
+        SKIP_STORAGE_REASON="NFS 마운트 자동 감지 ($STORAGE_REAL, fstype=$FS_TYPE) — 스토리지는 이미 원격 서버에 안전 보관 중"
+    fi
+fi
+
+if [ -n "$SKIP_STORAGE_REASON" ]; then
+    echo "[$(date '+%F %T')] Storage backup 건너뜀: $SKIP_STORAGE_REASON"
+elif [ -d "$STORAGE_DIR" ]; then
     STORAGE_FILE="$BACKUP_DEST/storage_${DATE}.tar.gz"
     echo "[$(date '+%F %T')] Storage backup → $STORAGE_FILE"
     tar czf "$STORAGE_FILE" -C "$INSTALL_DIR/backend" storage
