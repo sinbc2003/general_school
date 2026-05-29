@@ -8,6 +8,7 @@ class Settings(BaseSettings):
         env_file=("../.env", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # .env에 Settings 미정의 키 있어도 무시 (GITHUB_UPDATE_REPO 같은 서비스 env)
     )
 
     # ── Database ──
