@@ -450,21 +450,47 @@ sudo systemctl restart gs-backend
 | 다운타임 | 1~5초 (Yjs/세션 자동 재연결) |
 | audit log | `system.update_apply_start` (is_sensitive=True) |
 
-### 14-6. 대규모 변경 시 데이터 보존
+### 14-6. UI 변경 vs DB 변경 (절대 헷갈리지 말 것)
 
-| 변경 종류 | 데이터 영향 | 비고 |
+**둘은 완전히 별개**:
+
+| 변경 위치 | 어디서 | 데이터 영향 |
 |---|---|---|
-| UI 개선 / 메뉴 추가/삭제 / 라우트 이름 변경 | ❌ 없음 | 코드만 변경, DB 그대로 |
-| 새 컬럼/테이블 추가 | ❌ 없음 | alembic이 nullable로 추가 |
-| 컬럼 이름 변경 | ⚠️ 마이그레이션이 처리 | 잘못 작성 시 위험 |
-| 컬럼/테이블 삭제 | ⚠️ 데이터 손실 | 의도된 거면 OK, 백업 복원 가능 |
-| 데이터 형식 변경 (JSON 스키마 등) | ⚠️ 변환 마이그레이션 필요 | 코드에서 처리 |
-| major version upgrade | ⚠️ 신중 검토 | dry-run 권장 |
+| **UI 변경** | frontend 코드 (TypeScript/React) | ❌ 0 |
+| **DB 컬럼 변경** | alembic 마이그레이션 (PostgreSQL ALTER TABLE) | ⚠️ 종류에 따라 |
+
+#### UI만 변경 (데이터 100% 안전 ✅)
+- "메뉴에서 동아리 항목 삭제" → frontend 사이드바 코드만 변경 → DB의 `clubs` 테이블 그대로
+- "학생 정보 페이지에서 전화번호 안 보이게" → frontend 컴포넌트만 → DB의 `users.phone` 컬럼 그대로
+- "버튼 색, 레이아웃, 텍스트 변경" → CSS/JSX만 → DB 무관
+- "새 화면 추가" → 새 page.tsx만 → DB 무관
+
+#### DB 컬럼 변경 (alembic 마이그레이션 작성된 경우만)
+```python
+# alembic/versions/abc_remove_phone.py 같은 파일에
+def upgrade():
+    op.drop_column('users', 'phone')  # ← 진짜 phone 컬럼의 모든 데이터 영구 삭제
+```
+이런 마이그레이션 파일이 commit에 포함되면 자동 업데이트가 실행 → 데이터 영향.
+**자동 업데이트는 이런 위험 변경을 미리 검출하고 차단** (§14-10 참조).
+
+#### 변경 종류별 데이터 영향 매트릭스
+| 변경 종류 | 어디서 | 데이터 |
+|---|---|---|
+| UI 개선 / 메뉴 추가/삭제 / 라우트 이름 변경 / 페이지 디자인 | frontend | ❌ 없음 |
+| 새 컬럼 추가 (nullable) | alembic `add_column` | ❌ 없음 (기존 row는 NULL) |
+| 새 테이블 추가 | alembic `create_table` | ❌ 없음 |
+| 컬럼 이름 변경 | alembic `alter_column(new_column_name=)` | ✅ 보존 (이름만 변경) |
+| **컬럼 삭제** | alembic `drop_column` | ⚠️ 그 컬럼의 모든 row 데이터 영구 삭제 |
+| **테이블 삭제** | alembic `drop_table` | ⚠️ 그 테이블의 모든 row 영구 삭제 |
+| 데이터 변환 (JSON 스키마 등) | alembic `execute("UPDATE ...")` | ⚠️ 변환 정확해야 |
+| major version upgrade | requirements.txt | ⚠️ 신중 검토 |
 
 **핵심**:
-- 메뉴/UI = 코드, 데이터 = DB row → 별개. 메뉴 없어져도 DB 그대로.
-- 백업이 만능 안전망 — `/system/backup`에서 ZIP 다운로드/복원 가능.
-- 위험 변경은 dry-run으로 먼저 검증 권장.
+- **메뉴/UI = 코드, 데이터 = DB row** → 완전 별개
+- **메뉴 없어져도 DB row 그대로** (다른 코드가 다시 표시하면 보임)
+- **백업이 만능 안전망** — 자동 업데이트는 시작 전 자동 백업 → 언제든 복원 가능 (`/system/backup`)
+- **위험 변경은 dry-run + preflight로 미리 검증** (§14-10)
 
 ### 14-7. 권한 설정 (한 번만)
 - `system.updates.view` — 기본 super_admin 자동 부여
@@ -487,3 +513,79 @@ sudo systemctl restart gs-backend
 4. 위험해 보이면 **"Dry-run"** 먼저 (3분)
 5. 문제 없으면 **"지금 업데이트 적용"** → 5~10분 후 완료
 6. 실패 시 자동 rollback → 원인 분석 후 코드 수정 + 다시
+
+### 14-10. 충돌 처리 (학교 자체 수정 vs GitHub 본부 변경)
+
+학교는 ai_developer 모듈로 로컬 코드 수정 가능 → **학교 로컬 git과 GitHub `main`이 다이버지**.
+
+#### 자동 검출 (preflight 단계)
+자동 업데이트 시작 시 가장 먼저 실행:
+1. `git status` → 학교 로컬 미커밋 변경 검출
+2. `git log @{u}..HEAD` → 학교 로컬 commit (GitHub에 없는) 검출
+3. `git diff HEAD..origin/main alembic/versions/*.py` → 위험 마이그레이션 검출 (`op.drop_column`, `op.drop_table`, `op.execute("DELETE/UPDATE")`)
+
+#### UI에 노란 경고 표시
+충돌/위험 감지되면:
+- 학교 로컬 미커밋 변경 있음
+- 학교 로컬 commit N개 (목록 표시)
+- 위험 마이그레이션 N개 (파일명 + 종류)
+
+#### 운영자 결정 옵션
+1. **학교 변경 stash 후 강행** 체크박스 → `git stash` → `git pull` → `git stash pop`
+   - 성공: 학교 변경 다시 적용됨
+   - conflict: 자동 rollback + stash는 `git stash list`에 남아있음
+2. **위험 마이그레이션 허용** 체크박스 → `op.drop_column` 같은 변경 진행 (백업으로 복원 가능)
+3. **둘 다 미체크**: 차단됨. 운영자가 학교 변경을 본부 GitHub에 PR로 보내거나, dry-run으로 안전성 확인
+
+#### 권장 운영 패턴
+- **Phase 1 (~6개월)**: 학교 변경 = 본부 GitHub에 PR로 반영 → 그 후 자동 업데이트
+- **Phase 2 (~12개월)**: ai_developer 변경이 자동 PR 생성 (선택)
+- **Phase 3**: 학교별 fork 운영 (대규모 커스터마이징 시)
+
+#### 비상 시 학교 변경 보존하면서 GitHub 받기 (수동, SSH)
+```bash
+cd ~/general_school
+# 1. 학교 변경 stash
+git stash push -m "school-local-$(date +%Y%m%d)"
+# 2. GitHub 최신
+git pull origin main
+# 3. 학교 변경 다시 적용
+git stash pop
+# (conflict 발생하면 수동 해결, 또는 git stash list에서 그대로 두기)
+```
+
+---
+
+## 15. AI 개발자 운영 가이드 (학교 자체 코드 개선)
+
+학교 super_admin이 `/system/feedback`에서 "AI 개발 요청" → `/system/ai-developer`에서 작업.
+
+### 15-1. AI 개발자가 자동으로 지키는 규칙 (system prompt에 박힘)
+- ❌ `op.drop_column`, `op.drop_table` 사용 금지 — 데이터 손실
+- ❌ `op.execute("DELETE/UPDATE ...")` 금지
+- ✅ 새 컬럼은 nullable 또는 `server_default` 명시
+- ✅ 새 파일 추가 우선 (기존 파일 수정 최소화)
+- ❌ `CLAUDE.md`, `alembic/versions/`, `app/services/backup.py`, `scripts/setup-production.sh` 수정 금지
+- ⚠️ 새 마이그레이션 추가 시 응답 `notes`에 "본부 GitHub에 PR로 반영 권장" 명시
+
+### 15-2. 자동 검증 (변경 적용 전)
+- 백업 (in-memory)
+- 변경 적용
+- pytest 보안/회귀 invariant 검증
+- 실패 시 자동 rollback
+- 모든 적용/거부/실패는 audit_log (is_sensitive=True)
+
+### 15-3. 운영자 검토 흐름
+1. AI 개발자가 생성한 변경 diff 미리보기
+2. 변경 내용 + AI의 안내사항 (`notes`) 확인
+3. "본부에 PR 권장"이라면 → 본부에 요청 또는 학교에서 commit + push (별도 절차)
+4. 안전하면 → 승인 → apply → 자동 회귀 → 운영 시작
+
+### 15-4. AI 개발자 변경 후 GitHub 자동 업데이트와 충돌
+- 학교 로컬에만 변경 적용된 상태 → 본부가 GitHub 새 commit push 시 → 자동 업데이트 preflight가 검출 → 운영자 결정 단계 (§14-10)
+
+### 15-5. AI 개발자 미사용 권장 (운영 초기)
+운영 초기 (~3개월) 까지는:
+- AI 개발자 사용 X
+- 변경 필요 시 본부에 요청 → 본부가 GitHub에 push → 학교가 자동 업데이트
+- 그래야 충돌 없음, 운영 안정화 후 AI 개발자 활성화

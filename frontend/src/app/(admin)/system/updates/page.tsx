@@ -336,10 +336,11 @@ interface AutoUpdatePanelProps {
 
 const STEP_LABELS: Record<string, string> = {
   init: "초기화",
+  preflight: "0. 충돌 검출 (학교 로컬 변경/위험 마이그레이션)",
   backup: "1. 백업 (DB + storage)",
   from_commit: "2. 현재 commit 저장",
   dry_run_done: "✅ Dry-run 완료",
-  git_pull: "3. git pull",
+  git_pull: "3. git pull (+ stash pop)",
   to_commit: "git rev-parse HEAD",
   pip_install: "4. pip 의존성 갱신",
   alembic: "5. DB 마이그레이션 (alembic upgrade head)",
@@ -349,9 +350,18 @@ const STEP_LABELS: Record<string, string> = {
   restart: "9. systemctl restart",
   health: "10. health check (/api/health)",
   rollback_git: "🔄 Rollback: git reset",
+  rollback_stash_pop: "🔄 Rollback: stash 복원",
   rollback_db: "🔄 Rollback: DB 복원",
   rollback_restart: "🔄 Rollback: 재시작",
 };
+
+interface PreflightResult {
+  blocked: boolean;
+  reasons: string[];
+  local_dirty: boolean;
+  local_commits: string[];
+  risky_changes: { file: string; kind: string }[];
+}
 
 function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
@@ -359,6 +369,9 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState<null | "real" | "dry">(null);
   const [pollErr, setPollErr] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [forceLocal, setForceLocal] = useState(false);
+  const [allowDestructive, setAllowDestructive] = useState(false);
   const pollRef = useRef<any>(null);
 
   const fetchProgress = useCallback(async () => {
@@ -380,17 +393,35 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
     }
   }, [onAfterApply]);
 
+  const runPreflight = useCallback(async () => {
+    try {
+      const r = await api.get<PreflightResult>("/api/system/updates/preflight");
+      setPreflight(r);
+    } catch (e: any) {
+      setPreflight({
+        blocked: true,
+        reasons: ["preflight 호출 실패: " + (e?.message || "")],
+        local_dirty: false, local_commits: [], risky_changes: [],
+      });
+    }
+  }, []);
+
   useEffect(() => {
     fetchProgress();
-  }, [fetchProgress]);
+    runPreflight();
+  }, [fetchProgress, runPreflight]);
 
   const start = async (dryRun: boolean) => {
     setConfirmOpen(null);
     setBusy(true);
     setPollErr(null);
     try {
-      await api.post(`/api/system/updates/apply?dry_run=${dryRun}`, {});
-      // polling 시작
+      const params = new URLSearchParams({
+        dry_run: String(dryRun),
+        force_local_override: String(forceLocal),
+        allow_data_destructive: String(allowDestructive),
+      });
+      await api.post(`/api/system/updates/apply?${params}`, {});
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(fetchProgress, 2000);
       await fetchProgress();
@@ -414,10 +445,58 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
       </div>
 
       <p className="text-caption text-text-secondary mb-3">
-        한 번 클릭으로 <b>백업 → git pull → 의존성 → DB 마이그레이션 → 빌드 → 재시작 → health check</b> 자동 진행.
-        실패 시 자동 rollback (git reset + DB 복원 + 재시작) — <b>데이터 손실 없음 보장</b>.
+        한 번 클릭으로 <b>preflight → 백업 → git pull → 의존성 → DB 마이그레이션 → 빌드 → 재시작 → health check</b> 자동 진행.
+        실패 시 자동 rollback (git reset + stash 복원 + DB 복원 + 재시작) — <b>데이터 손실 없음 보장</b>.
         재시작 시 1~5초 다운타임 (Yjs/세션 자동 재연결).
       </p>
+
+      {/* preflight 결과 */}
+      {!running && preflight && (preflight.local_dirty || preflight.local_commits.length > 0 || preflight.risky_changes.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-3 text-[12px]">
+          <div className="flex items-center gap-1 mb-2 font-semibold text-amber-900">
+            <AlertCircle size={12} /> 충돌 또는 위험 변경 감지
+          </div>
+          {preflight.local_dirty && (
+            <div className="text-amber-800">⚠️ 학교 로컬 미커밋 변경 있음 (git status로 확인)</div>
+          )}
+          {preflight.local_commits.length > 0 && (
+            <div className="text-amber-800">
+              ⚠️ 학교 로컬 commit {preflight.local_commits.length}개 (GitHub에 없음):
+              <ul className="ml-4 mt-1 list-disc">
+                {preflight.local_commits.slice(0, 5).map((c, i) => (
+                  <li key={i} className="font-mono text-[11px]">{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {preflight.risky_changes.length > 0 && (
+            <div className="text-amber-800 mt-2">
+              ⚠️ 새 commit에 위험 마이그레이션 ({preflight.risky_changes.length}개):
+              <ul className="ml-4 mt-1 list-disc">
+                {preflight.risky_changes.map((r, i) => (
+                  <li key={i} className="font-mono text-[11px]">
+                    [{r.kind}] {r.file}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-3 space-y-1">
+            {(preflight.local_dirty || preflight.local_commits.length > 0) && (
+              <label className="flex items-start gap-2 text-amber-900">
+                <input type="checkbox" checked={forceLocal} onChange={(e) => setForceLocal(e.target.checked)} className="mt-1" />
+                <span>학교 로컬 변경을 stash 후 강행 (성공 시 다시 적용 시도, conflict 시 자동 rollback)</span>
+              </label>
+            )}
+            {preflight.risky_changes.length > 0 && (
+              <label className="flex items-start gap-2 text-amber-900">
+                <input type="checkbox" checked={allowDestructive} onChange={(e) => setAllowDestructive(e.target.checked)} className="mt-1" />
+                <span>위험 마이그레이션 허용 (drop_column 등 — 백업으로 복원 가능)</span>
+              </label>
+            )}
+          </div>
+        </div>
+      )}
 
       {!running && (
         <div className="flex items-center gap-2 mb-3">

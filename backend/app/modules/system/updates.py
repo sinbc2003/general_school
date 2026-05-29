@@ -113,11 +113,18 @@ async def force_check_updates(
 
 # ── 자동 적용 (apply) + 진행 상황 polling ──
 
-async def _run_update_in_background(user_id: int, dry_run: bool) -> None:
-    """백그라운드 task — 별도 DB 세션으로 실행 (요청 끝나도 계속)."""
+async def _run_update_in_background(
+    user_id: int, dry_run: bool,
+    force_local_override: bool, allow_data_destructive: bool,
+) -> None:
+    """백그라운드 task — 별도 DB 세션 (요청 끝나도 계속)."""
     async with async_session_factory() as session:
         try:
-            await apply_update(session, user_id=user_id, dry_run=dry_run)
+            await apply_update(
+                session, user_id=user_id, dry_run=dry_run,
+                force_local_override=force_local_override,
+                allow_data_destructive=allow_data_destructive,
+            )
         except Exception:
             import logging
             logging.getLogger(__name__).exception("apply_update crashed")
@@ -127,17 +134,21 @@ async def _run_update_in_background(user_id: int, dry_run: bool) -> None:
 async def trigger_apply(
     request: Request,
     dry_run: bool = False,
+    force_local_override: bool = False,
+    allow_data_destructive: bool = False,
     user: User = Depends(require_permission("system.updates.apply")),
     db: AsyncSession = Depends(get_db),
 ):
     """업데이트 자동 적용 시작 (백그라운드).
 
     Args:
-      - dry_run: True면 백업만 + 변경 미리보기 (실제 적용 X). 안전 테스트용.
+      - dry_run: True면 preflight + 백업까지만 (실제 변경 X). 안전 테스트용.
+      - force_local_override: True면 학교 로컬 변경 무시하고 강행 (stash 후 pull).
+        False면 preflight가 차단 — 사용자가 결정.
+      - allow_data_destructive: True면 위험 마이그레이션 (drop_column, drop_table, DELETE)
+        포함 commit도 진행. False면 차단.
 
-    응답: `{started: true, dry_run: bool}` — 진행 상황은 /updates/progress polling.
-
-    동시 실행 차단: 이미 진행 중이면 409 conflict.
+    응답: `{started: true, ...}` — 진행 상황은 /updates/progress polling.
     """
     if is_running():
         raise HTTPException(409, "이미 진행 중인 업데이트가 있습니다")
@@ -148,15 +159,47 @@ async def trigger_apply(
 
     await log_action(
         db, user, "system.update_apply_start",
-        detail=f"dry_run={dry_run}",
+        detail=(f"dry_run={dry_run} force={force_local_override} "
+                f"destructive_ok={allow_data_destructive}"),
         request=request,
         is_sensitive=True,
     )
     await db.commit()
 
-    # 백그라운드 시작 (요청 응답은 즉시)
-    asyncio.create_task(_run_update_in_background(user.id, dry_run))
-    return {"started": True, "dry_run": dry_run}
+    asyncio.create_task(_run_update_in_background(
+        user.id, dry_run, force_local_override, allow_data_destructive,
+    ))
+    return {
+        "started": True, "dry_run": dry_run,
+        "force_local_override": force_local_override,
+        "allow_data_destructive": allow_data_destructive,
+    }
+
+
+@router.get("/updates/preflight")
+async def preflight_check(
+    user: User = Depends(require_permission("system.updates.apply")),
+    db: AsyncSession = Depends(get_db),
+):
+    """preflight만 미리 실행 — 학교 로컬 변경/위험 변경 검출 후 UI 표시용.
+
+    실제 백업·pull X. 결과는 sync 반환 (백그라운드 X).
+    """
+    from app.services.updates import steps
+    from app.services.updates.shell import detect_install_dir
+    install_dir = detect_install_dir()
+    ctx: dict = {"force_local_override": True, "allow_data_destructive": True}
+    # preflight만 실행 (force=True로 차단 회피, stash는 안 함)
+    ctx["force_local_override"] = False  # 결과 받기 위해
+    ctx["allow_data_destructive"] = False
+    res = await steps.preflight(install_dir, ctx)
+    return {
+        "blocked": res.get("blocked", False),
+        "reasons": res.get("reasons", []),
+        "local_dirty": ctx.get("local_dirty", False),
+        "local_commits": ctx.get("local_commits", []),
+        "risky_changes": ctx.get("risky_changes", []),
+    }
 
 
 @router.get("/updates/progress")

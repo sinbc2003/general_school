@@ -17,8 +17,9 @@ from app.services.updates.shell import detect_install_dir
 log = logging.getLogger(__name__)
 
 
-# 9단계 정의 — (step_name, function, is_optional)
+# 10단계 정의 — (step_name, function, is_optional)
 STEPS = [
+    ("preflight", steps.preflight, False),  # 학교 로컬 변경 + 위험 변경 검출
     ("backup", steps.backup, False),
     ("from_commit", steps.from_commit, False),
     ("git_pull", steps.git_pull, False),
@@ -26,7 +27,7 @@ STEPS = [
     ("alembic", steps.alembic, False),
     ("npm_install", steps.npm_install, False),
     ("npm_build", steps.npm_build, False),
-    ("hocuspocus", steps.hocuspocus, True),  # 옵션 — 디렉터리 없으면 skip
+    ("hocuspocus", steps.hocuspocus, True),
     ("restart", steps.restart_services, False),
     ("health", steps.health, False),
 ]
@@ -37,6 +38,8 @@ async def apply_update(
     *,
     user_id: int,
     dry_run: bool = False,
+    force_local_override: bool = False,
+    allow_data_destructive: bool = False,
 ) -> dict:
     """업데이트 실행. 백그라운드 task로 호출.
 
@@ -55,7 +58,10 @@ async def apply_update(
     started_at = datetime.now(timezone.utc).isoformat()
 
     # 단계간 공유 컨텍스트 (steps가 채움)
-    ctx: dict[str, Any] = {}
+    ctx: dict[str, Any] = {
+        "force_local_override": force_local_override,
+        "allow_data_destructive": allow_data_destructive,
+    }
 
     progress_state: dict[str, Any] = {
         "running": True,
@@ -84,12 +90,12 @@ async def apply_update(
     try:
         # 단계별 실행
         for step_name, step_func, is_optional in STEPS:
-            # dry_run이면 backup + from_commit 까지만
-            if dry_run and step_name not in ("backup", "from_commit"):
+            # dry_run이면 preflight + backup + from_commit 까지만
+            if dry_run and step_name not in ("preflight", "backup", "from_commit"):
                 await push_step(
                     "dry_run_done",
                     {"ok": True,
-                     "stdout": "dry-run 완료. 백업까지만 진행. 실제 변경은 안 함."},
+                     "stdout": "dry-run 완료. preflight + 백업까지만 진행. 실제 변경은 안 함."},
                     is_last=True,
                 )
                 final = {
@@ -131,6 +137,7 @@ async def apply_update(
             install_dir,
             from_commit=ctx.get("from_commit"),
             db_backup_path=ctx.get("db_backup_path"),
+            stashed=ctx.get("stashed", False),
             push_step=push_step,
         )
         final = {

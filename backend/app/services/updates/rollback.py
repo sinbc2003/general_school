@@ -17,15 +17,16 @@ async def perform(
     *,
     from_commit: str | None,
     db_backup_path: str | None,
+    stashed: bool = False,
     push_step: Callable,  # async (step_name, result, is_last=False) → None
 ) -> dict:
-    """실패 시 복원: git reset + DB 복원 + 재시작.
+    """실패 시 복원: git reset + DB 복원 + (stash 복원) + 재시작.
 
-    push_step은 caller(executor)가 제공 — 진행 상황을 SchoolConfig에 갱신.
+    stashed=True면 preflight에서 학교 변경을 stash했음 → git reset 후 pop 시도.
     """
     result: dict[str, Any] = {"ok": True, "steps": []}
 
-    # 1. git reset
+    # 1. git reset (from_commit으로 되돌림)
     if from_commit:
         res = await run(
             "rollback_git", ["git", "reset", "--hard", from_commit],
@@ -34,6 +35,18 @@ async def perform(
         await push_step("rollback_git", res)
         result["steps"].append({"name": "git_reset", **res})
         if not res["ok"]:
+            result["ok"] = False
+
+    # 1b. stash pop — 학교 변경 복원
+    if stashed:
+        pop = await run(
+            "rollback_stash_pop", ["git", "stash", "pop"],
+            cwd=install_dir, timeout=15,
+        )
+        await push_step("rollback_stash_pop", pop)
+        result["steps"].append({"name": "stash_pop", **pop})
+        if not pop["ok"]:
+            # stash는 남아있음 (사용자가 git stash list로 확인 가능)
             result["ok"] = False
 
     # 2. DB 복원

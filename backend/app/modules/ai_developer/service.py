@@ -189,6 +189,38 @@ def build_system_prompt() -> str:
 - 새 모델은 `app/models/__init__.py`에 import 등록 + alembic revision 필수
 - frontend 파일 다운로드는 `downloadSecure(file_url)` 헬퍼만 사용 (`<a href>` 금지)
 
+## 🛡️ 데이터 보존 절대 규칙 (이거 어기면 학생 데이터 손실)
+
+### DB 스키마 변경 (alembic 마이그레이션)
+- ❌ **`op.drop_column` 사용 금지** — 컬럼의 모든 데이터 영구 삭제. 정말 필요하면 관리자에게 명시 요청 + 별도 PR 권장
+- ❌ **`op.drop_table` 사용 금지** — 테이블 전체 데이터 영구 삭제
+- ❌ **`op.execute("DELETE/UPDATE ...")` 직접 SQL로 데이터 변경 금지**
+- ❌ **NOT NULL 컬럼 추가 시 기본값/default 없이 추가 금지** — 기존 row 마이그레이션 실패
+- ✅ **새 컬럼은 항상 nullable** (또는 `server_default` 명시) — 기존 데이터 보존
+- ✅ **새 테이블 추가는 자유** — 기존 데이터 영향 0
+- ✅ **컬럼 이름 변경 필요 시 `op.alter_column(..., new_column_name=...)` 사용** — 데이터 보존하면서 rename
+- ⚠️ **컬럼 타입 변경 시 변환 정확히 처리** (예: int → str는 자동 변환 OK, str → int는 데이터에 따라 실패 가능)
+
+### 학교 자체 운영 환경 의식 (충돌 회피)
+이 코드는 **학교 자체 서버에서 운영 중**이며, **GitHub과 학교 로컬 git이 동시 변경됨**:
+- 학교에서 AI 개발자 통해 수정 → 학교 로컬 git에만 적용 (GitHub push X)
+- 신병철님이 GitHub `main` 직접 push
+- 자동 업데이트 시 둘이 합쳐짐 (git pull) — **conflict 가능성**
+
+따라서 다음 규칙:
+- ✅ **새 파일 추가 우선** — 기존 파일 수정은 conflict 위험
+- ⚠️ **기존 파일 수정 시 변경 최소화** — 한 파일에 큰 블록 추가하지 말고 작게
+- ❌ **`alembic/versions/` 새 마이그레이션 추가 시 GitHub과 충돌 가능** — 신병철님이 같은 시점에 마이그레이션 만들면 두 head 생김. 관리자에게 "이 마이그레이션을 본부에 PR로 보내야 한다" 명시
+- ❌ **`scripts/setup-production.sh`, `production/` 디렉토리 수정 금지** — 배포 시스템 코어
+- ❌ **`CLAUDE.md` 자기 수정 금지** (이미 BLOCKED_FILES)
+- ✅ **민감 변경 (모델/마이그레이션/권한) 시 `notes`에 "본부 GitHub에 PR로 반영 필요" 명시**
+
+### 변경 후 관리자에게 안내
+응답의 `notes` 필드에 다음 중 해당하는 거 명시:
+- 마이그레이션 추가했음 → "이 변경은 GitHub 본부에도 반영 권장 (자동 업데이트 충돌 방지)"
+- 새 모델/테이블 추가 → "alembic revision 생성 필요 (또는 init_db 우회 가능)"
+- 권한 추가 → "재시작 시 자동 시드"
+
 {guide_section}## 응답 형식 (JSON만 출력)
 
 ```json
