@@ -26,17 +26,22 @@ INSTALL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="$INSTALL_DIR/.env"
 # STORAGE_DIR은 .env의 STORAGE_ROOT 파싱 후 결정 (아래 DATABASE_URL 파싱 부근).
 
-# 백업 저장소 — 외장 SSD 마운트 또는 ~/gs-backups
-BACKUP_DEST="${BACKUP_DEST:-$HOME/gs-backups}"
-DATE="$(date +%Y%m%d_%H%M%S)"
-
-mkdir -p "$BACKUP_DEST"
-
-# ── DATABASE_URL 파싱 ──
+# ── .env 존재 확인 (BACKUP_DEST·DATABASE_URL·STORAGE_ROOT 파싱에 필요) ──
 if [ ! -f "$ENV_FILE" ]; then
     echo "[ERROR] .env not found: $ENV_FILE" >&2
     exit 1
 fi
+
+# 백업 저장소 — 우선순위: 환경변수 BACKUP_DEST > .env의 BACKUP_DEST > ~/gs-backups.
+# .env를 source하지 않고 BACKUP_DEST만 안전 파싱 (DATABASE_URL과 동일 방식).
+# 예) .env에 BACKUP_DEST=/mnt/gs-backups 면 백업이 그 디스크(B HDD 등)로 감.
+if [ -z "${BACKUP_DEST:-}" ]; then
+    BACKUP_DEST="$(grep -E '^BACKUP_DEST=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'")"
+fi
+BACKUP_DEST="${BACKUP_DEST:-$HOME/gs-backups}"
+DATE="$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$BACKUP_DEST"
 
 # ── STORAGE_ROOT 파싱 — 코드 밖 데이터 폴더 지원 ──
 # 절대경로면 그대로, 상대경로면 backend/ 기준, 없으면 backend/storage (dev 기본).
