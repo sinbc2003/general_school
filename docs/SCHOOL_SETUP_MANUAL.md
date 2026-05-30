@@ -208,13 +208,46 @@ npm install -g @anthropic-ai/claude-code
 ```
 
 ## 6. 학교 이동 후 B 적응
-```bash
-NEW_IP=$(hostname -I | awk '{print $1}')
-sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=http://${NEW_IP}|" ~/general_school/.env
-sed -i "s|BACKEND_URL=.*|BACKEND_URL=http://${NEW_IP}|" ~/general_school/.env
-sed -i "s|CORS_ALLOW_ORIGINS=.*|CORS_ALLOW_ORIGINS=http://localhost,http://${NEW_IP},http://<B Tailscale IP>|" ~/general_school/.env
-sudo systemctl restart gs-backend gs-frontend
-```
+
+### 6-1. 네트워크 — 랜선 꽂으면 IP 자동 (gs-autoip)
+B를 학교 망에 연결하고 켜면 **자동** 처리 — 수동 설정 불필요:
+- 부팅 시 `gs-autoip`이 현재 IP를 최대 30초 폴링으로 감지 → `.env`의 `FRONTEND_URL`/`BACKEND_URL`/`CORS_ALLOW_ORIGINS` 자동 갱신 → 그 IP로 서비스 시작.
+- **노트북 화면 상태판**(`gs-status`)에 현재 접속 IP 표시.
+- 고정 IP 권장: 학교 공유기에서 B MAC(`34:7d:f6:b5:68:eb`)에 DHCP 예약 → 학생이 늘 같은 주소.
+
+> 구버전 수동 방법 (gs-autoip 미설치 시):
+> ```bash
+> NEW_IP=$(hostname -I | awk '{print $1}')
+> sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=http://${NEW_IP}|" ~/general_school/.env
+> sed -i "s|BACKEND_URL=.*|BACKEND_URL=http://${NEW_IP}|" ~/general_school/.env
+> sudo systemctl restart gs-backend gs-frontend
+> ```
+
+### 6-2. ⚠️ 학생 접속 테스트 (학교 가서 제일 먼저!) — client isolation
+학교 망 정책으로 **학생이 B에 못 붙을 수 있음**. 안 되면 학생이 플랫폼을 못 쓰니 **최우선 확인**.
+
+수성고 망: 유선 LAN은 outbound 차단 + **와이파이→유선 isolation**(ARP 차단). 학생은 보통 와이파이(`susung_5g`).
+
+| 순서 | B 연결 | 테스트 | 비고 |
+|---|---|---|---|
+| 1 ⭐ | **susung_5g 와이파이** | 다른 폰(와이파이)에서 `http://<B IP>` | 와이파이끼리는 isolation 안 탈 가능성 + **outbound OK라 업뎃도 됨** |
+| 2 | **유선 LAN** | 교실 유선 PC에서 `http://<B IP>` | 유선끼리는 보통 통신됨 |
+| 3 | 1·2 실패 시 | 학교 IT에 **"학생 와이파이 → B IP 허용"**(isolation 예외) 요청 | B IP 화이트리스트 |
+
+- 와이파이는 유선보다 느림 → 학생 접속 우선이면 1, 안정성 우선이면 2(+IT 협의).
+- 현재 B IP는 상태판(`gs-status`)에서 확인.
+
+### 6-3. 외부 접근 (선택 — 신중)
+교직원 재택, 또는 isolation 우회용. **학생 민감정보(성적·생기부·상담) 노출 리스크**가 있어 우선순위대로:
+
+| 순위 | 방법 | 보안 | 비고 |
+|---|---|---|---|
+| 1 ⭐ | **Tailscale VPN** (교직원 기기에 설치) | 높음 | 학생은 내부망, 교직원만 외부. 공개 노출 0 |
+| 2 | **Cloudflare Tunnel + Access**(이메일 OTP) + HTTPS | 중상 | 공개되지만 인증벽. 학교 승인 권장 |
+| 3 | ngrok 등 단순 터널 | 낮음 | ⚠️ 인증벽 없이 공개 = 비권장 |
+
+- ⚠️ 학생 민감정보는 **공개 인터넷 노출 신중** — 내부망/VPN 우선.
+- 터널은 **outbound 되는 망에서만** (`susung_5g` OK, 유선 차단). 모든 외부 접근 **HTTPS 필수**.
 
 ## 7. 스토리지·백업 (B 로컬 storage + 2중 백업)
 
@@ -299,6 +332,23 @@ sudo systemctl status gs-backend gs-frontend gs-hocuspocus
 sudo journalctl -u gs-backend -f
 sudo systemctl restart gs-backend gs-frontend gs-hocuspocus
 ```
+
+### 서버 상태판 (노트북 화면)
+```bash
+gs-status     # 접속주소 + 서비스 상태 + 로그 (5초 갱신). Ctrl+C로 나옴 (서버는 안 죽음)
+```
+- B 켜면 화면에 **자동 표시** (tty1 자동로그인). 다른 PC에서 SSH로도 `gs-status` 실행 가능.
+- IP가 바뀌어도 이 화면에서 현재 접속 주소를 바로 확인.
+
+### 서버 끄기 / 재시작
+```bash
+sudo poweroff     # 노트북 끄기 (⚠️ 다시 켜려면 물리 전원버튼 — 원격 불가)
+sudo reboot       # 재시작 (서비스 자동 복구 + gs-autoip이 현재 IP 재감지)
+sudo systemctl stop  gs-backend gs-frontend gs-hocuspocus nginx   # 서버만 멈춤(노트북은 켜둠)
+sudo systemctl start gs-backend gs-frontend gs-hocuspocus nginx   # 서버만 다시 시작
+```
+> ⚠️ 상태판 화면의 `Ctrl+C`는 **상태판만 종료** (서버는 systemd라 안 죽음). `sudo shutdown`만 치면
+> 1분 후 종료됨(취소: `sudo shutdown -c`) — 헷갈리니 `poweroff`/`reboot`를 쓰는 게 안전.
 
 ### 코드 업데이트
 ```bash
