@@ -16,12 +16,19 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 0
 fi
 
-# 주 LAN IP — 192.168 / 10. / 172. 사설대역 중 첫 번째. (루프백·도커·tailscale 제외)
-LOCAL_IP="$(hostname -I | tr ' ' '\n' | grep -E '^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))' | head -1 || true)"
+# 주 LAN IP — 192.168 / 10. / 172.16-31 사설대역 중 첫 번째. (루프백·도커·tailscale 제외)
+# 부팅 시 network-online.target이 DHCP IP 할당 완료를 보장 못 하는 경우가 있어
+# (너무 일찍 실행되면 IP가 비어 옛 값이 그대로 남음) → IP가 잡힐 때까지 최대 30초 폴링.
+LOCAL_IP=""
+for _ in $(seq 1 15); do
+    LOCAL_IP="$(hostname -I | tr ' ' '\n' | grep -E '^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))' | head -1 || true)"
+    [ -n "$LOCAL_IP" ] && break
+    sleep 2
+done
 TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
 
 if [ -z "$LOCAL_IP" ]; then
-    echo "[gs-autoip] LAN IP를 못 찾음 (네트워크 미연결?) — .env 그대로 둠"
+    echo "[gs-autoip] LAN IP를 30초 대기 후에도 못 찾음 — .env 그대로 둠"
     exit 0
 fi
 
