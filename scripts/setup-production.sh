@@ -173,7 +173,10 @@ echo "  STORAGE_ROOT = $STORAGE_DIR"
 # ── 6. systemd 서비스 ──
 echo ""
 echo "[6/9] systemd 서비스 등록..."
-for svc in gs-backend gs-frontend gs-hocuspocus; do
+# 자동 IP 감지 스크립트 설치 (gs-autoip.service가 부팅 시 호출 → .env의 IP 자동 갱신)
+sudo cp "$INSTALL_DIR/production/scripts/gs-autoip.sh" /usr/local/bin/gs-autoip
+sudo chmod +x /usr/local/bin/gs-autoip
+for svc in gs-autoip gs-backend gs-frontend gs-hocuspocus; do
     src="$INSTALL_DIR/production/systemd/${svc}.service"
     dst="/etc/systemd/system/${svc}.service"
     if [ ! -f "$src" ]; then
@@ -186,9 +189,11 @@ for svc in gs-backend gs-frontend gs-hocuspocus; do
 done
 
 sudo systemctl daemon-reload
-sudo systemctl enable gs-backend gs-frontend gs-hocuspocus 2>&1 | grep -v 'Created symlink' || true
+sudo systemctl enable gs-autoip gs-backend gs-frontend gs-hocuspocus 2>&1 | grep -v 'Created symlink' || true
 
 echo "  서비스 (재)시작..."
+# 먼저 gs-autoip — 현재 IP로 .env 갱신 후 백엔드 시작 (백엔드가 갱신된 .env를 읽도록)
+sudo systemctl start gs-autoip
 sudo systemctl restart gs-backend
 sleep 2
 sudo systemctl restart gs-frontend

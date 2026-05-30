@@ -1,0 +1,17 @@
+[Unit]
+Description=General School - 부팅 시 현재 IP 감지 후 .env 자동 갱신
+# 네트워크가 올라온 뒤 실행 (IP 확보). tailscaled가 있으면 그 후에 (TS IP 확보).
+After=network-online.target tailscaled.service
+Wants=network-online.target
+# 백엔드/프론트가 갱신된 .env를 읽도록 그 전에 실행.
+Before=gs-backend.service gs-frontend.service gs-hocuspocus.service
+
+[Service]
+Type=oneshot
+User=__USER__
+Group=__USER__
+ExecStart=/usr/local/bin/gs-autoip __INSTALL_DIR__/.env
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
