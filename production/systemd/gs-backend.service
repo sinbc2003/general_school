@@ -2,6 +2,10 @@
 Description=General School Backend (FastAPI/Gunicorn)
 After=network.target postgresql.service
 Wants=postgresql.service
+# 무한 재시작 폭주 방지 — 60초 내 5회 죽으면 재시작 중단.
+# (StartLimit*는 반드시 [Unit] 섹션. [Service]에 두면 systemd가 무시함.)
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -25,9 +29,6 @@ ExecStart=__INSTALL_DIR__/backend/venv/bin/gunicorn app.main:app \
     --error-logfile -
 Restart=always
 RestartSec=5
-# 죽음 5회 이상이면 1분 대기 — 무한 재시작 폭주 방지
-StartLimitBurst=5
-StartLimitIntervalSec=60
 # 메모리 누수 보호 (장시간 운영 안전망)
 MemoryMax=4G
 

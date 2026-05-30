@@ -196,6 +196,49 @@ sudo systemctl restart gs-hocuspocus
 sleep 2
 sudo systemctl --no-pager status gs-backend gs-frontend gs-hocuspocus | grep -E '(●|Active:)' || true
 
+# ── 6b. 노트북 서버 운영 설정 (상태판 + 절전 방지) ──
+# 노트북을 24/7 서버로 쓰기 위한 필수 설정:
+#   (1) 물리 콘솔(tty1)에 서버 상태판 자동 표시 — 화면 보고 접속주소·상태 확인
+#   (2) 절전/최대절전 비활성 + 덮개 닫아도 안 꺼짐 — 잠들면 서버가 중단됨
+echo ""
+echo "[6b] 노트북 서버 운영 설정 (상태판 + 절전 방지)..."
+
+# (1) 상태판 — /usr/local/bin/gs-status + tty1 자동로그인 + .profile hook
+sudo cp "$INSTALL_DIR/production/scripts/gs-status.sh" /usr/local/bin/gs-status
+sudo chmod +x /usr/local/bin/gs-status
+sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null <<GETTY_EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin ${USER_NAME} --noclear %I \$TERM
+GETTY_EOF
+PROFILE="$USER_HOME/.profile"
+if ! grep -q 'gs-status' "$PROFILE" 2>/dev/null; then
+    cat >> "$PROFILE" <<'PROFILE_EOF'
+
+# General School status dashboard on physical console (tty1)
+if [ "$(tty)" = "/dev/tty1" ]; then
+  gs-status
+fi
+PROFILE_EOF
+fi
+
+# (2) 절전 방지 — sleep/suspend/hibernate mask + 덮개(lid) 이벤트 무시
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1 || true
+for key in HandleLidSwitch HandleLidSwitchExternalPower HandleLidSwitchDocked; do
+    if grep -qE "^#?${key}=" /etc/systemd/logind.conf; then
+        sudo sed -i "s|^#\?${key}=.*|${key}=ignore|" /etc/systemd/logind.conf
+    else
+        echo "${key}=ignore" | sudo tee -a /etc/systemd/logind.conf >/dev/null
+    fi
+done
+
+sudo systemctl daemon-reload
+sudo systemctl restart getty@tty1 2>/dev/null || true
+sudo systemctl restart systemd-logind 2>/dev/null || true
+echo "  → 상태판: 노트북 화면에 자동 표시 (수동 실행: gs-status)"
+echo "  → 절전 방지: sleep mask + 덮개 닫아도 서버 유지"
+
 # ── 7. nginx config ──
 echo ""
 echo "[7/9] nginx reverse proxy..."

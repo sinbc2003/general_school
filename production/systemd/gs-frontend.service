@@ -2,6 +2,9 @@
 Description=General School Frontend (Next.js standalone)
 After=network.target gs-backend.service
 Wants=gs-backend.service
+# 무한 재시작 폭주 방지 — 60초 내 5회 죽으면 중단. (StartLimit*는 [Unit] 섹션 필수)
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 Type=simple
@@ -16,8 +19,6 @@ Environment=HOSTNAME=127.0.0.1
 ExecStart=/usr/bin/node __INSTALL_DIR__/frontend/.next/standalone/server.js
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 MemoryMax=2G
 
 [Install]
