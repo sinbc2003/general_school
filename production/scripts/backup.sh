@@ -3,7 +3,8 @@
 #
 # 백업 대상:
 #   - PostgreSQL DB (pg_dump)
-#   - backend/storage/ 디렉터리 (사용자 업로드 파일)
+#   - STORAGE_ROOT 디렉터리 (사용자 업로드 파일) — .env의 STORAGE_ROOT를 따라감.
+#     단 STORAGE_ROOT이 NFS 마운트면 자동 skip (원본이 이미 원격 서버에 보관 중).
 #
 # 보관 정책: 30일 이상 된 백업 자동 삭제.
 #
@@ -23,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="$INSTALL_DIR/.env"
-STORAGE_DIR="$INSTALL_DIR/backend/storage"
+# STORAGE_DIR은 .env의 STORAGE_ROOT 파싱 후 결정 (아래 DATABASE_URL 파싱 부근).
 
 # 백업 저장소 — 외장 SSD 마운트 또는 ~/gs-backups
 BACKUP_DEST="${BACKUP_DEST:-$HOME/gs-backups}"
@@ -35,6 +36,17 @@ mkdir -p "$BACKUP_DEST"
 if [ ! -f "$ENV_FILE" ]; then
     echo "[ERROR] .env not found: $ENV_FILE" >&2
     exit 1
+fi
+
+# ── STORAGE_ROOT 파싱 — 코드 밖 데이터 폴더 지원 ──
+# 절대경로면 그대로, 상대경로면 backend/ 기준, 없으면 backend/storage (dev 기본).
+STORAGE_ROOT_VAL="$(grep -E '^STORAGE_ROOT=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'")"
+if [ -z "$STORAGE_ROOT_VAL" ]; then
+    STORAGE_DIR="$INSTALL_DIR/backend/storage"
+elif [ "${STORAGE_ROOT_VAL:0:1}" = "/" ]; then
+    STORAGE_DIR="$STORAGE_ROOT_VAL"
+else
+    STORAGE_DIR="$INSTALL_DIR/backend/$STORAGE_ROOT_VAL"
 fi
 
 DB_URL="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'")"
@@ -88,7 +100,7 @@ if [ -n "$SKIP_STORAGE_REASON" ]; then
 elif [ -d "$STORAGE_DIR" ]; then
     STORAGE_FILE="$BACKUP_DEST/storage_${DATE}.tar.gz"
     echo "[$(date '+%F %T')] Storage backup → $STORAGE_FILE"
-    tar czf "$STORAGE_FILE" -C "$INSTALL_DIR/backend" storage
+    tar czf "$STORAGE_FILE" -C "$(dirname "$STORAGE_DIR")" "$(basename "$STORAGE_DIR")"
     echo "  → $(du -h "$STORAGE_FILE" | cut -f1)"
 fi
 

@@ -7,17 +7,17 @@
 
 | 태그 | 역할 | OS | 위치 | 인터넷 |
 |---|---|---|---|---|
-| **A** | NFS 스토리지 | Ubuntu Server | 학교 상주 (유선) | 학교 망에 따라 outbound 차단 |
+| **A** | 백업 보관 (2차, 원격) | Ubuntu Server | 학교 상주 (유선) | 학교 망에 따라 outbound 차단 |
 | **B** | general_school 운영 (메인) | Ubuntu Server | 학교 상주 (유선/와이파이) | 필수 (LLM API/GitHub) |
 | **C** | 사용자(관리자) 작업용 | 사용자 노트북 | 휴대 | 외부 |
 | **D** | Jump Host | Windows | 학교 상주 (유선) | 필요 (Tailscale·Chrome RD) |
 
 ```
 [외부/집]                       [학교 LAN]
-   C ──Tailscale SSH──> B (메인서버)
+   C ──Tailscale SSH──> B (메인서버 + storage)
    |  Chrome RD                   |
-   v                          NFS |
-   D (윈도우 Jump) ──SSH──> A (NFS 스토리지)
+   v                     rsync 백업 |
+   D (윈도우 Jump) ──SSH──> A (백업 보관)
 ```
 
 ## 1. GitHub 코드 위치
@@ -105,7 +105,7 @@ ENV=production
 DATABASE_URL=<위에서 받은 DATABASE_URL>
 SCHOOL_NAME=수성고등학교
 SCHOOL_SHORT=SUSEONG
-STORAGE_ROOT=/home/susung/general_school/backend/storage
+STORAGE_ROOT=/home/susung/gs-data/storage
 FRONTEND_URL=http://<B IP>
 BACKEND_URL=http://<B IP>
 CORS_ALLOW_ORIGINS=http://localhost,http://<B IP>,http://<B Tailscale IP>
@@ -216,100 +216,80 @@ sed -i "s|CORS_ALLOW_ORIGINS=.*|CORS_ALLOW_ORIGINS=http://localhost,http://${NEW
 sudo systemctl restart gs-backend gs-frontend
 ```
 
-## 7. A NFS 스토리지 (학교에서 D 거쳐 A로)
+## 7. 스토리지·백업 (B 로컬 storage + 2중 백업)
 
-### 접속
+### 구조 개요
+- **학생 업로드 파일** = B 로컬 SSD (`STORAGE_ROOT`) — NFS 안 타서 빠름 (~500MB/s)
+- **1차 백업** = B HDD (같은 노트북, 다른 물리 디스크 — 빠른 복구)
+- **2차 백업** = A 노트북 (물리 분리 — B 도난·화재·고장 대비) ※ 학교 이동 후
+- DB·storage **둘 다** 백업 (DB는 작고, storage는 학생 파일)
+
+> **왜 storage를 B 로컬에?** 학생 파일을 A에 NFS로 두면 매 업로드/다운로드가 네트워크를
+> 건너 느리고(GbE 110MB/s 천장), NFS 끊기면 파일 먹통. B 로컬 SSD면 빠르고(500MB/s) 단순.
+> A는 백업만 — 하루 1회라 느려도 무관. (A HDD를 NFS storage로 쓰던 이전 구조는 폐기.)
+
+### 7-1. STORAGE_ROOT (학생 파일) — B 로컬 SSD
+`setup-production.sh`가 자동으로 `$HOME/gs-data/storage` 생성 + `.env` 설정.
+수동 설정 시:
 ```bash
-ssh user@<D Tailscale IP>
-ssh susung@<A 학교 IP>
-```
-
-### A에서 NFS 셋업
-```bash
-sudo apt install -y nfs-kernel-server
-lsblk
-sudo umount /dev/sda1 2>/dev/null || true
-sudo mkfs.ext4 -F /dev/sda1
-sudo mkdir -p /srv/gs-storage
-sudo mount /dev/sda1 /srv/gs-storage
-echo "/dev/sda1 /srv/gs-storage ext4 defaults 0 2" | sudo tee -a /etc/fstab
-sudo chown -R nobody:nogroup /srv/gs-storage
-sudo chmod 777 /srv/gs-storage
-echo "/srv/gs-storage 192.168.0.0/24(rw,sync,no_subtree_check,no_root_squash)" | sudo tee /etc/exports
-sudo exportfs -ra
-sudo systemctl enable --now nfs-kernel-server
-sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
-```
-
-### A에서 — SSD에 DB 백업 destination 추가 (권장)
-A의 SSD에 OS 외 빈 공간 약 100GB → B의 매일 자동 **DB 백업** destination으로 활용.
-디스크 분산으로 안전성 ↑ (B 디스크 망가져도 DB 백업은 A에).
-
-> **참고**: 학생 파일(storage)은 이미 A HDD가 원본이라 따로 백업할 필요 없음.
-> `backup.sh`는 STORAGE_ROOT가 NFS 마운트인지 자동 감지 → 스토리지 백업 자동 건너뜀.
-> 따라서 A SSD에는 **DB 덤프(.sql.gz)만** 누적됨 — 사이즈 작음 (수십 MB ~ 수 GB).
-
-```bash
-sudo mkdir -p /srv/backups
-sudo chown susung:susung /srv/backups
-sudo chmod 755 /srv/backups
-# NFS export 추가 (학교 LAN 안만)
-echo "/srv/backups 192.168.0.0/24(rw,sync,no_subtree_check)" | sudo tee -a /etc/exports
-sudo exportfs -ra
-```
-
-### B에서 A NFS 마운트 (스토리지 + 백업 destination 둘 다)
-```bash
-sudo apt install -y nfs-common
-
-# 1) 학생 파일 NFS (A HDD)
-sudo mkdir -p /mnt/gs-storage
-sudo mount -t nfs <A IP>:/srv/gs-storage /mnt/gs-storage
-echo "<A IP>:/srv/gs-storage /mnt/gs-storage nfs defaults,nofail,_netdev,soft,timeo=30 0 0" | sudo tee -a /etc/fstab
-
-# 2) 백업 destination NFS (A SSD)
-sudo mkdir -p /mnt/a-backups
-sudo mount -t nfs <A IP>:/srv/backups /mnt/a-backups
-echo "<A IP>:/srv/backups /mnt/a-backups nfs defaults,nofail,_netdev,soft,timeo=30 0 0" | sudo tee -a /etc/fstab
-
-# 3) .env 설정 — STORAGE_ROOT + BACKUP_DEST
-sed -i 's|STORAGE_ROOT=.*|STORAGE_ROOT=/mnt/gs-storage|' ~/general_school/.env
-grep -q '^BACKUP_DEST=' ~/general_school/.env \
-  && sed -i 's|BACKUP_DEST=.*|BACKUP_DEST=/mnt/a-backups|' ~/general_school/.env \
-  || echo 'BACKUP_DEST=/mnt/a-backups' >> ~/general_school/.env
-
+mkdir -p ~/gs-data/storage
+grep -q '^STORAGE_ROOT=' ~/general_school/.env \
+  && sed -i "s|STORAGE_ROOT=.*|STORAGE_ROOT=$HOME/gs-data/storage|" ~/general_school/.env \
+  || echo "STORAGE_ROOT=$HOME/gs-data/storage" >> ~/general_school/.env
 sudo systemctl restart gs-backend
 ```
+> 코드 폴더(`backend/storage`) 밖이라 `git pull`에 안 엮이고 백업 대상이 명확.
 
-### 백업 검증 (수동 실행)
+### 7-2. B HDD를 1차 백업 디스크로 (ext4 포맷 + 마운트)
+HDD가 지금 ntfs(윈도우 포맷)라 ext4로 다시 포맷 (빈 디스크 = 안전).
 ```bash
-bash ~/general_school/production/scripts/backup.sh
-# 로그에 "Storage backup 건너뜀: NFS 마운트 자동 감지..." 떠야 정상
-ls -la /mnt/a-backups/
-# → db_YYYYMMDD_HHMMSS.sql.gz 만 보여야 OK (storage_*.tar.gz는 없어야 함)
-# 그 후 매일 새벽 2시 cron이 자동 실행
+lsblk    # HDD 식별 (예: sda 465GB TOSHIBA)
+sudo umount /dev/sda1 2>/dev/null || true
+sudo mkfs.ext4 -F /dev/sda1
+sudo mkdir -p /mnt/gs-backup
+sudo mount /dev/sda1 /mnt/gs-backup
+echo "/dev/sda1 /mnt/gs-backup ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+sudo chown "$USER":"$USER" /mnt/gs-backup
+# .env에 백업 위치 지정
+grep -q '^BACKUP_DEST=' ~/general_school/.env \
+  && sed -i 's|BACKUP_DEST=.*|BACKUP_DEST=/mnt/gs-backup|' ~/general_school/.env \
+  || echo 'BACKUP_DEST=/mnt/gs-backup' >> ~/general_school/.env
 ```
 
-> **명시적으로 storage 백업 끄고 싶으면**: `~/general_school/.env`에 `BACKUP_STORAGE=false` 추가.
-> NFS 자동 감지로 충분하지만, 로컬 storage라도 백업 안 받고 싶을 때 사용.
+### 7-3. 백업 검증 (수동 실행)
+```bash
+bash ~/general_school/production/scripts/backup.sh
+ls -la /mnt/gs-backup/
+# → db_YYYYMMDD_HHMMSS.sql.gz + storage_YYYYMMDD_HHMMSS.tar.gz 둘 다 보이면 OK
+# 이후 매일 새벽 2시 cron 자동 실행 (setup-production.sh가 등록)
+```
+> storage가 NFS면 자동 skip (로그에 "Storage backup 건너뜀"). B 로컬이면 정상 백업.
+> 로컬이라도 storage 백업 끄려면 `.env`에 `BACKUP_STORAGE=false`.
 
-### A·B 디스크 활용 최종 정리
+### 7-4. A 노트북 — 2차 원격 백업 (학교 이동 후, 권장)
+B HDD 백업을 A로 한 번 더 복제 → B 노트북 자체 사고(도난·화재·디스크 동시 고장) 대비.
+```bash
+# A에서 (D 거쳐 접속): 받기용 폴더
+ssh user@<D Tailscale IP>
+ssh susung@<A 학교 IP>
+mkdir -p ~/gs-remote-backup
+exit; exit
+
+# B에서: 매일 백업 후 A로 rsync (B→A 키 인증 필요). cron 또는 backup.sh 끝에:
+rsync -az --delete /mnt/gs-backup/ susung@<A 학교 IP>:~/gs-remote-backup/
+```
+
+### 디스크 활용 최종 정리
 | 디스크 | 역할 | 보관 |
 |---|---|---|
-| **A SSD** (119GB) | OS + B의 자동 **DB 백업** destination | OS 6GB + DB 덤프 누적 (수 GB) |
-| **A HDD** (465GB) | NFS export — 학생 파일 (실시간, 원본) | PDF·이미지·과제 등 (백업 불필요 — 원본 = 안전 보관처) |
-| **B SSD** (119GB) | OS + general_school 코드 + PostgreSQL DB + venv + node_modules | 메인 운영 |
-| **B HDD** (465GB) | 현재 미사용 (부하 최소화) | A HDD 80% 도달 시 활용 검토 |
+| **B SSD** (119GB) | OS + 코드 + PostgreSQL DB + **학생 파일(storage)** | 메인 운영 — 전부 빠른 SSD |
+| **B HDD** (465GB) | **1차 백업** (DB 덤프 + storage tar) | 매일 새벽, 30일 보관 |
+| **A 노트북** | **2차 원격 백업** (B HDD 사본) | 물리 분리 — 재해 복구용 ※ 이동 후 |
 
-### B HDD 활용 옵션 (선택)
-| 옵션 | 권장 | 비고 |
-|---|---|---|
-| 그대로 미사용 + 미래 확장 | ⭐ | A HDD 80% 차면 그때 추가 마운트 |
-| 2차 백업 사본 (3중) | △ | A 노트북 자체 도난/화재 시 안전 |
-| 외부 학교 데이터 임시 보관 | - | 클러스터 공유 스토리지 |
-| postgres WAL 핫 스탠바이 | X | 전문 운영 영역, 100교 도달 시 |
+= 원본(B SSD) + 1차(B HDD) + 2차(A) = **3중 안전망**.
 
-권장: **운영 초기엔 그대로 미사용**. A HDD가 차기 시작하면 그때 결정.
+> 학생 파일이 늘어 B SSD가 80% 차면 → B HDD 일부를 storage로 추가(`StorageVolume` 등록)
+> 하거나 SSD 1TB 교체(5만 원). 80명 × 5년 = 약 40GB라 당분간 여유.
 
 ## 8. 운영 명령어
 
@@ -363,8 +343,9 @@ sudo systemctl restart gs-backend gs-frontend gs-hocuspocus
 ## 11. 운영 시작 체크리스트
 - [ ] B 학교 망 연결 + IP 업데이트
 - [ ] D OpenSSH 설치 + 24/7
-- [ ] A NFS 설치 + HDD 마운트 + export
-- [ ] B에서 A NFS 마운트 + STORAGE_ROOT 변경
+- [ ] B HDD 백업 디스크 ext4 포맷 + /mnt/gs-backup 마운트
+- [ ] STORAGE_ROOT=$HOME/gs-data/storage (setup-production.sh 자동 설정)
+- [ ] (학교 이동 후) A 2차 원격 백업 rsync 설정
 - [ ] 학교 IT 부탁 (outbound + isolation 예외)
 - [ ] 첫 super_admin 가입 (`/auth/register`)
 - [ ] CSV 학생/교사 일괄 등록 (`/users` 페이지)

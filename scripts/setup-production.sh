@@ -142,6 +142,34 @@ echo ""
 echo "[5/9] .env 강한 키 검증/생성..."
 bash production/scripts/generate-prod-keys.sh
 
+# ── 5b. 데이터 디렉터리 (storage) — OS·코드와 분리 ──
+# 사용자 업로드 파일을 코드 폴더(backend/storage) 밖 전용 데이터 폴더로.
+# git pull에 안 엮이고 백업 대상도 명확. 기본 $HOME/gs-data/storage.
+echo ""
+echo "[5b] 데이터 디렉터리 (사용자 업로드 storage)..."
+GS_DATA_DIR="${GS_DATA_DIR:-$USER_HOME/gs-data}"
+STORAGE_DIR="$GS_DATA_DIR/storage"
+mkdir -p "$STORAGE_DIR"
+chmod 750 "$GS_DATA_DIR" "$STORAGE_DIR"
+if [ -f "$INSTALL_DIR/.env" ]; then
+    if ! grep -q '^STORAGE_ROOT=' "$INSTALL_DIR/.env"; then
+        echo "STORAGE_ROOT=$STORAGE_DIR" >> "$INSTALL_DIR/.env"
+        echo "  .env에 STORAGE_ROOT=$STORAGE_DIR 추가"
+    else
+        echo "  .env에 STORAGE_ROOT 이미 있음 — 유지"
+    fi
+else
+    echo "  [WARN] .env 없음 — STORAGE_ROOT 미설정. .env 생성 후 STORAGE_ROOT=$STORAGE_DIR 추가 必"
+fi
+# 기존 backend/storage에 파일 있으면 새 위치로 복사 (멱등, 덮어쓰지 않음). 원본 보존.
+OLD_STORAGE="$INSTALL_DIR/backend/storage"
+if [ -d "$OLD_STORAGE" ] && [ -n "$(ls -A "$OLD_STORAGE" 2>/dev/null)" ]; then
+    echo "  기존 backend/storage 발견 → $STORAGE_DIR 로 복사 (덮어쓰지 않음)..."
+    cp -rn "$OLD_STORAGE/." "$STORAGE_DIR/" 2>/dev/null || true
+    echo "  복사 완료. 원본(backend/storage)은 보존 — 확인 후 수동 삭제 권장"
+fi
+echo "  STORAGE_ROOT = $STORAGE_DIR"
+
 # ── 6. systemd 서비스 ──
 echo ""
 echo "[6/9] systemd 서비스 등록..."
