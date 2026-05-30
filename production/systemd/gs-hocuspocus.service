@@ -11,7 +11,7 @@ WorkingDirectory=__INSTALL_DIR__/backend-hocuspocus
 EnvironmentFile=__INSTALL_DIR__/.env
 Environment=NODE_ENV=production
 Environment=HOCUSPOCUS_PORT=1234
-ExecStart=/usr/bin/node __INSTALL_DIR__/backend-hocuspocus/dist/index.js
+ExecStart=/usr/bin/node __INSTALL_DIR__/backend-hocuspocus/dist/server.js
 Restart=always
 RestartSec=5
 StartLimitBurst=5
