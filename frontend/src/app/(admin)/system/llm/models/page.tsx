@@ -23,6 +23,7 @@ const PROVIDERS = ["openai", "anthropic", "google"];
 export default function LLMModelsPage() {
   const [items, setItems] = useState<ModelRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newRow, setNewRow] = useState<Partial<ModelRow>>({
     provider: "anthropic", model_id: "", display_name: "",
@@ -32,9 +33,15 @@ export default function LLMModelsPage() {
 
   const load = async () => {
     setLoading(true);
-    const data = await api.get("/api/chatbot/models/all");
-    setItems(data.items);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await api.get("/api/chatbot/models/all");
+      setItems(data.items);
+    } catch (e: any) {
+      setError(e?.detail?.message || e?.detail || e?.message || "모델 목록을 불러오지 못했습니다");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -46,7 +53,11 @@ export default function LLMModelsPage() {
 
   const create = async () => {
     if (!newRow.model_id) return alert("model_id 필수");
-    await api.post("/api/chatbot/models", newRow);
+    try {
+      await api.post("/api/chatbot/models", newRow);
+    } catch (e: any) {
+      return alert(e?.detail || e?.message || "모델 생성 실패 (중복 등)");
+    }
     setShowCreate(false);
     setNewRow({ provider: "anthropic", model_id: "", display_name: "",
                 input_per_1m_usd: 0, output_per_1m_usd: 0, context_window: 200000,
@@ -105,6 +116,8 @@ export default function LLMModelsPage() {
 
       {loading ? (
         <div>로딩 중...</div>
+      ) : error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}<button onClick={load} className="ml-3 underline">다시 시도</button></div>
       ) : (
         <div className="bg-bg-primary border border-border-default rounded-lg overflow-hidden">
           <table className="w-full text-body">

@@ -17,24 +17,35 @@ interface Prompt {
 export default function LLMPromptsPage() {
   const [items, setItems] = useState<Prompt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Prompt | null>(null);
   const [filter, setFilter] = useState<string>("all");
 
   const load = async () => {
     setLoading(true);
-    const data = await api.get("/api/chatbot/prompts");
-    setItems(data.items);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await api.get("/api/chatbot/prompts");
+      setItems(data.items);
+    } catch (e: any) {
+      setError(e?.detail?.message || e?.detail || e?.message || "프롬프트를 불러오지 못했습니다");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
 
   const save = async () => {
     if (!editing) return;
-    if (editing.id < 0) {
-      await api.post("/api/chatbot/prompts", editing);
-    } else {
-      await api.put(`/api/chatbot/prompts/${editing.id}`, editing);
+    try {
+      if (editing.id < 0) {
+        await api.post("/api/chatbot/prompts", editing);
+      } else {
+        await api.put(`/api/chatbot/prompts/${editing.id}`, editing);
+      }
+    } catch (e: any) {
+      return alert(e?.detail || e?.message || "저장 실패");
     }
     setEditing(null);
     await load();
@@ -77,6 +88,8 @@ export default function LLMPromptsPage() {
 
         {loading ? (
           <div>로딩 중...</div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}<button onClick={load} className="ml-3 underline">다시 시도</button></div>
         ) : (
           <div className="space-y-2">
             {filtered.map((p) => (

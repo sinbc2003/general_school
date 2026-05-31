@@ -34,6 +34,8 @@ export default function LLMConfigPage() {
       setModels(m.items.filter((x: any) => x.is_active));
       setProviders(["openai", "anthropic", "google"]);
       setToolAiStudent(!!t.student_allowed);
+    }).catch((e: any) => {
+      console.error("LLM 설정 로드 실패", e);
     });
   }, []);
 

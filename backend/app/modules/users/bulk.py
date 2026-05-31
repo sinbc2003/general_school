@@ -167,7 +167,8 @@ async def import_users_from_csv(
     """
     if role not in USER_CSV_TEMPLATES:
         raise HTTPException(400, f"valid roles: {list(USER_CSV_TEMPLATES.keys())}")
-    raw = await file.read()
+    from app.core.upload import validate_upload, POLICY_CSV
+    raw = await validate_upload(file, POLICY_CSV)
     result = await import_users_csv(db, role, raw, granted_by_user_id=user.id, dry_run=dry_run)
     if not dry_run:
         await log_action(

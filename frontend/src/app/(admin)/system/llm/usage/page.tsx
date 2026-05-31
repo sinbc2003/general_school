@@ -15,11 +15,15 @@ interface UsageData {
 export default function LLMUsagePage() {
   const [data, setData] = useState<UsageData | null>(null);
   const [days, setDays] = useState(30);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get(`/api/chatbot/usage/all?days=${days}`).then(setData);
+    setError(null);
+    api.get(`/api/chatbot/usage/all?days=${days}`).then(setData).catch((e: any) =>
+      setError(e?.detail?.message || e?.detail || e?.message || "사용량을 불러오지 못했습니다 (권한/2차 인증 확인)"));
   }, [days]);
 
+  if (error) return <div className="m-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   if (!data) return <div>로딩 중...</div>;
 
   const maxDailyCost = Math.max(...data.by_day.map((d) => d.cost_usd), 0.001);

@@ -147,9 +147,9 @@ export const adminMenu: MenuItem[] = [
   { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"], feature: "admissions" },
   { key: "student-artifacts", label: "학생 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   { key: "past-research", label: "선배 연구 보고서", icon: FileArchive, path: "/past-research", permission: "past_research.view", excludeRoles: ["student"] },
-  { key: "research-review", label: "승인 대기함", icon: ClipboardList, path: "/research-review", permission: "past_research.review", excludeRoles: ["student"] },
+  { key: "research-review", label: "승인 대기함", icon: ClipboardList, path: "/research-review", permission: "past_research.review", excludeRoles: ["student", "staff"] },
   { key: "my-groups", label: "내 그룹", icon: Users2, path: "/my-groups", permission: "teacher_group.view", excludeRoles: ["student"] },
-  { key: "research-supervisors", label: "연구 담당교사 매핑", icon: UserPlus, path: "/system/research-supervisors", permission: "past_research.supervise", excludeRoles: ["student"] },
+  { key: "research-supervisors", label: "연구 담당교사 매핑", icon: UserPlus, path: "/system/research-supervisors", permission: "past_research.supervise", excludeRoles: ["student", "staff"] },
   {
     key: "archive",
     label: "수업 자료실",
