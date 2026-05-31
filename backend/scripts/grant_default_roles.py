@@ -59,7 +59,6 @@ TEACHER_INCLUDE_KEYS = {
 
 STAFF_KEYS = {
     "user.manage.view",
-    "meeting.view",
     "timetable.view",
     "chatbot.use", "chatbot.session.view_own", "chatbot.session.delete_own",
     "portfolio.artifact.view",
@@ -92,10 +91,10 @@ STUDENT_KEYS = {
     "contest.participate.view", "contest.participate.submit",
     "assignment.submit.view", "assignment.submit.upload",
     "club.submission.upload", "club.activity.write",
-    "challenge.solve",
-    "portfolio.career.write_own",
-    "admissions.record.view_own",
-    "student_self.artifact.upload", "student_self.career.edit",
+    "challenge.participate.view",
+    # 학생 자기 영역 — 실제 키 (default_roles로도 부여되지만 명시)
+    "student.artifact.manage", "student.artifact.view_public",
+    "student.career.manage", "student.research.browse",
     # 본인 데이터 조회 (visibility가 본인 sid로 자동 lock)
     "portfolio.grade.view",
     "portfolio.mockexam.view",
@@ -107,6 +106,8 @@ STUDENT_KEYS = {
     "portfolio.career.view",
     "admissions.record.view",
     "research.project.view",
+    # 학생: 본인 연구 프로젝트 일지 조회/작성 (/s/research "내 연구 일지")
+    "research.journal.view", "research.journal.write",
     # 학생도 공지사항 열람 가능 (라우터에서 audience=all만 노출)
     "announcement.post.view",
     # 학생: 본인 수강 강좌 조회 + 클래스룸 글 읽기
@@ -123,6 +124,8 @@ STUDENT_KEYS = {
     # 학생: HWP 문서 view/edit + 본인 단독 생성/공유 (rhwp 기반, 협업 X)
     "classroom.hwp.view", "classroom.hwp.edit",
     "classroom.hwp.create", "classroom.hwp.share",
+    # 학생: 스프레드시트 view/edit + 본인 단독 생성 (doc/deck/hwp와 동일 — 강좌 멤버 자동)
+    "classroom.sheet.view", "classroom.sheet.edit", "classroom.sheet.create",
     # 학생: 설문 응답 (활성·access_mode 통과 시 가능)
     "classroom.survey.respond",
     # 학생: 문제 세트 조회 + 답안 제출 (자동채점). create/edit/grade는 교사 전용.

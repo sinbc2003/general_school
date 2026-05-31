@@ -45,7 +45,7 @@ async def list_models(
     from app.core.config import settings
     api_key = settings.ANTHROPIC_API_KEY
     if not api_key:
-        raise HTTPException(500, "ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        raise HTTPException(503, "ANTHROPIC_API_KEY가 설정되지 않았습니다.")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
@@ -135,7 +135,7 @@ async def generate_code(
     from app.core.config import settings
     api_key = settings.ANTHROPIC_API_KEY
     if not api_key:
-        raise HTTPException(500, "ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        raise HTTPException(503, "ANTHROPIC_API_KEY가 설정되지 않았습니다.")
 
     model = (body.model if body and body.model else None) or "claude-sonnet-4-20250514"
     req.status = "generating"

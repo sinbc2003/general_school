@@ -44,6 +44,9 @@ SUPER_ADMIN_ONLY_KEYS = {
     "permission.manage.view",
     "permission.manage.edit",
     "user.manage.delete",
+    # RCE-equivalent — 코드 생성/적용·자가 업데이트(git pull+pip+재시작)는 최고관리자 전용
+    "system.ai_developer.use",
+    "system.updates.apply",
 }
 
 # 지정관리자 모드 — Setting 키 'permissions.designated_admin_mode'

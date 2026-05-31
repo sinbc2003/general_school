@@ -20,6 +20,7 @@ from app.core.audit import log_action
 from app.core.auth import verify_2fa_session
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.http import content_disposition
 from app.core.permissions import require_super_admin
 from app.models.user import User
 from app.modules.system.schemas import BackupScheduleUpdate
@@ -52,7 +53,7 @@ async def export_backup(
     return FastResponse(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )
 
 
@@ -223,5 +224,5 @@ async def download_backup_file(
     return FastResponse(
         content=data,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

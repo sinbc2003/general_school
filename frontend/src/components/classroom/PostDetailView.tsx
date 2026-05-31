@@ -161,7 +161,7 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
           </div>
           <div className="space-y-2">
             {post.attachments.map((a, i) => (
-              <AttachmentRow key={i} a={a} postId={post.id} attIdx={i} />
+              <AttachmentRow key={i} a={a} postId={post.id} attIdx={i} courseId={post.course_id} />
             ))}
           </div>
         </div>
@@ -474,7 +474,7 @@ function ShareModeBadge({ mode }: { mode: ShareMode }) {
 }
 
 
-function AttachmentRow({ a, postId, attIdx }: { a: Attachment; postId: number; attIdx: number }) {
+function AttachmentRow({ a, postId, attIdx, courseId }: { a: Attachment; postId: number; attIdx: number; courseId: number }) {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
   const [busy, setBusy] = useState(false);
@@ -530,7 +530,7 @@ function AttachmentRow({ a, postId, attIdx }: { a: Attachment; postId: number; a
   if (a.type === "chatbot" && a.chatbot_id) {
     return <ChatbotAttachmentRow a={a} isStudent={isStudent} />;
   }
-  return AttachmentRowImpl({ a });
+  return AttachmentRowImpl({ a, isStudent, courseId });
 }
 
 
@@ -571,7 +571,7 @@ function ChatbotAttachmentRow({ a, isStudent }: { a: Attachment; isStudent: bool
 }
 
 
-function AttachmentRowImpl({ a }: { a: Attachment }) {
+function AttachmentRowImpl({ a, isStudent = false, courseId }: { a: Attachment; isStudent?: boolean; courseId?: number }) {
   if (a.type === "file" && a.file_url) {
     return (
       <button
@@ -592,14 +592,23 @@ function AttachmentRowImpl({ a }: { a: Attachment }) {
       </button>
     );
   }
-  // 드라이브 자료 첨부 (doc/sheet/deck/survey/hwp)
-  const driveTypeMap: Record<string, { href: (id: number) => string; label: string; emoji: string }> = {
-    doc: { href: (id) => `/docs/${id}`, label: "문서", emoji: "📄" },
-    sheet: { href: (id) => `/sheets/${id}`, label: "스프레드시트", emoji: "📊" },
-    deck: { href: (id) => `/docs/decks/${id}`, label: "프리젠테이션", emoji: "🖼️" },
-    survey: { href: (id) => `/docs/forms/${id}`, label: "설문지", emoji: "📋" },
-    hwp: { href: (id) => `/hwps/${id}`, label: "한컴 문서", emoji: "📝" },
-  };
+  // 드라이브 자료 첨부 (doc/sheet/deck/survey/hwp) — 학생은 /s 경로로 분기.
+  // 학생 standalone 뷰어가 있는 doc/sheet/hwp는 /s/* 로, deck/survey는 강좌 스코프(/s/classroom/{cid}/*)로.
+  const driveTypeMap: Record<string, { href: (id: number) => string; label: string; emoji: string }> = isStudent
+    ? {
+        doc: { href: (id) => `/s/classroom/${courseId}/docs/${id}`, label: "문서", emoji: "📄" },
+        sheet: { href: (id) => `/s/sheets/${id}`, label: "스프레드시트", emoji: "📊" },
+        deck: { href: (id) => `/s/classroom/${courseId}/decks/${id}`, label: "프리젠테이션", emoji: "🖼️" },
+        survey: { href: (id) => `/s/classroom/${courseId}/surveys/${id}`, label: "설문지", emoji: "📋" },
+        hwp: { href: (id) => `/s/hwps/${id}`, label: "한컴 문서", emoji: "📝" },
+      }
+    : {
+        doc: { href: (id) => `/docs/${id}`, label: "문서", emoji: "📄" },
+        sheet: { href: (id) => `/sheets/${id}`, label: "스프레드시트", emoji: "📊" },
+        deck: { href: (id) => `/docs/decks/${id}`, label: "프리젠테이션", emoji: "🖼️" },
+        survey: { href: (id) => `/docs/forms/${id}`, label: "설문지", emoji: "📋" },
+        hwp: { href: (id) => `/hwps/${id}`, label: "한컴 문서", emoji: "📝" },
+      };
   if (a.type in driveTypeMap) {
     const meta = driveTypeMap[a.type];
     const id = a.doc_id ?? a.sheet_id ?? a.deck_id ?? a.survey_id ?? a.hwp_id;

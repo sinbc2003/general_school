@@ -371,6 +371,30 @@ async def get_portfolio(
 
 # ── 일반 CRUD UPDATE/DELETE 팩토리 (각 entity) ──
 
+def _coerce_column_value(model_cls, key, v):
+    """body의 ISO 날짜 문자열을 컬럼 타입(Date/DateTime)에 맞게 파싱.
+    문자열을 Date/DateTime 컬럼에 그대로 바인딩하면 드라이버 레벨에서 500.
+    """
+    if not isinstance(v, str) or not v:
+        return v
+    col = model_cls.__table__.columns.get(key)
+    if col is None:
+        return v
+    import sqlalchemy as sa
+    from datetime import date, datetime
+    if isinstance(col.type, sa.DateTime):
+        try:
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return v
+    if isinstance(col.type, sa.Date):
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return v
+    return v
+
+
 def _generic_update(model_cls, sensitive: bool, perm: str):
     async def _handler(
         sid: int, oid: int, body: dict, request: Request,
@@ -382,7 +406,7 @@ def _generic_update(model_cls, sensitive: bool, perm: str):
             raise HTTPException(404)
         for k, v in body.items():
             if hasattr(obj, k):
-                setattr(obj, k, v)
+                setattr(obj, k, _coerce_column_value(model_cls, k, v))
         await log_action(db, user, f"{model_cls.__tablename__}.update", f"id:{oid}", request=request, is_sensitive=sensitive)
         return {"ok": True}
     return _handler

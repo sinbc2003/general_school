@@ -44,7 +44,7 @@ async def my_drive_activity(
     q = select(AuditLog).where(
         AuditLog.user_id == user.id,
         or_(*conds),
-    ).order_by(AuditLog.created_at.desc()).limit(limit)
+    ).order_by(AuditLog.timestamp.desc()).limit(limit)
 
     rows = (await db.execute(q)).scalars().all()
     items = [
@@ -53,7 +53,7 @@ async def my_drive_activity(
             "action": r.action,
             "target": r.target,
             "detail": r.detail,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at": r.timestamp.isoformat() if r.timestamp else None,
         }
         for r in rows
     ]

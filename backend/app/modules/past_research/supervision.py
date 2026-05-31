@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.database import get_db
+from app.core.http import content_disposition
 from app.core.permissions import require_permission
 from app.core.upload import POLICY_CSV, validate_upload
 from app.models.research_supervision import ResearchSupervision
@@ -204,7 +205,7 @@ async def supervisions_csv_template(
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="연구담당교사_매핑_템플릿.csv"'},
+        headers={"Content-Disposition": content_disposition("연구담당교사_매핑_템플릿.csv")},
     )
 
 

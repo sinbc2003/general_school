@@ -255,6 +255,15 @@ async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
         raise HTTPException(404)
     if course.teacher_id == user.id:
         return
+    from app.models import CourseTeacher
+    ct = (await db.execute(
+        select(CourseTeacher).where(
+            CourseTeacher.course_id == course.id,
+            CourseTeacher.user_id == user.id,
+        )
+    )).scalar_one_or_none()
+    if ct:
+        return
     cs = (await db.execute(
         select(CourseStudent).where(
             CourseStudent.course_id == course.id,

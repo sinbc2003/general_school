@@ -330,7 +330,7 @@ async def list_post_copies(
         raise HTTPException(404)
 
     is_admin = user.role in ("super_admin", "designated_admin")
-    if not is_admin and not await is_course_editor(db, user, course):
+    if not is_admin and not await is_course_editor(db, course, user):
         raise HTTPException(403, "강좌 교사만 볼 수 있습니다")
 
     rows = (await db.execute(

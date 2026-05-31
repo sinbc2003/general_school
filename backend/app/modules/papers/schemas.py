@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-PaperStatusStr = Literal["pending", "approved", "rejected", "published"]
+PaperStatusStr = Literal["pending", "approved", "excluded", "draft", "published"]
 
 
 class PaperStatusUpdate(BaseModel):

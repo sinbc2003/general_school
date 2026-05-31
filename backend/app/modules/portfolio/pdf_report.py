@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_action
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.http import content_disposition
 from app.core.permissions import require_permission
 from app.core.visibility import assert_can_view_student
 from app.models.portfolio import (
@@ -85,5 +86,5 @@ async def student_report_pdf(
 
     return Response(
         content=pdf_bytes, media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{student.name}_portfolio.pdf"'},
+        headers={"Content-Disposition": content_disposition(f"{student.name}_portfolio.pdf", inline=True)},
     )

@@ -81,6 +81,11 @@ async def create_model(
 ):
     if body.provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(400, "지원하지 않는 provider")
+    dup = (await db.execute(
+        select(LLMModel).where(LLMModel.provider == body.provider, LLMModel.model_id == body.model_id)
+    )).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, f"이미 등록된 모델입니다: {body.provider}/{body.model_id}")
     m = LLMModel(
         provider=body.provider, model_id=body.model_id,
         display_name=body.display_name or body.model_id,

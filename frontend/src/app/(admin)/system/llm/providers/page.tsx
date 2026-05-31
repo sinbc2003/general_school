@@ -33,12 +33,19 @@ export default function LLMProvidersPage() {
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    const data = await api.get("/api/chatbot/providers");
-    setItems(data.items);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await api.get("/api/chatbot/providers");
+      setItems(data.items);
+    } catch (e: any) {
+      setError(e?.detail?.message || e?.detail || e?.message || "불러오지 못했습니다 (권한 또는 2차 인증이 필요할 수 있습니다)");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -78,6 +85,11 @@ export default function LLMProvidersPage() {
 
       {loading ? (
         <div className="text-text-tertiary">로딩 중...</div>
+      ) : error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+          <button onClick={load} className="ml-3 underline">다시 시도</button>
+        </div>
       ) : (
         <div className="space-y-4">
           {items.map((p) => (
