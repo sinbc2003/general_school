@@ -35,6 +35,7 @@ import {
   Github,
   FileQuestion,
   Flag,
+  Mail,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -319,6 +320,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-logs", label: "감사 로그", icon: FileText, path: "/system/logs", permission: "system.audit.view" },
       { key: "sys-menu", label: "메뉴 관리", icon: LayoutList, path: "/system/menu", permission: "system.settings.edit" },
       { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
+      { key: "sys-email", label: "이메일(SMTP)", icon: Mail, path: "/system/email", permission: "system.settings.edit" },
       { key: "sys-google", label: "Google 연동", icon: Globe, path: "/system/integrations/google", permission: "google.integration.configure" },
       { key: "sys-storage", label: "스토리지", icon: HardDrive, path: "/system/storage", permission: "storage.volume.view" },
       { key: "sys-updates", label: "코드 업데이트", icon: Github, path: "/system/updates", permission: "system.updates.view" },

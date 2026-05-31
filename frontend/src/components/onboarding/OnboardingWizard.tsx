@@ -31,6 +31,7 @@ import { Step6Homerooms } from "./steps/Step6Homerooms";
 import { Step7Courses } from "./steps/Step7Courses";
 import { Step8Supervisors } from "./steps/Step8Supervisors";
 import { Step8Done } from "./steps/Step8Done";
+import { StepEmail } from "./steps/StepEmail";
 
 const STEPS = [
   { key: 1, label: "환영", required: true },
@@ -41,7 +42,8 @@ const STEPS = [
   { key: 6, label: "담임", required: false },
   { key: 7, label: "강좌", required: false },
   { key: 8, label: "연구담당", required: false },
-  { key: 9, label: "완료", required: true },
+  { key: 9, label: "이메일", required: false },
+  { key: 10, label: "완료", required: true },
 ];
 
 const REQUIRED_STEPS_MAX = 5;  // Step 5까지가 super_admin 필수
@@ -68,7 +70,7 @@ export function OnboardingWizard({
       const s = await api.get<OnboardingStatus>("/api/system/onboarding/status");
       setStatus(s);
       if (s.last_step && s.last_step > 0 && !forceShow) {
-        setStep(Math.min(s.last_step, 9));
+        setStep(Math.min(s.last_step, 10));
       }
     } catch (e) {
       console.error(e);
@@ -84,7 +86,7 @@ export function OnboardingWizard({
   };
 
   const goNext = async () => {
-    if (step >= 9) return;
+    if (step >= 10) return;
     const next = step + 1;
     setStep(next);
     await saveStep(next);
@@ -129,7 +131,7 @@ export function OnboardingWizard({
                 <span>{step} / {STEPS.length} — {STEPS[step - 1]?.label}</span>
                 {step <= REQUIRED_STEPS_MAX ? (
                   <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium">필수</span>
-                ) : step < 9 ? (
+                ) : step < 10 ? (
                   <span className="px-1.5 py-0.5 bg-bg-secondary text-text-tertiary rounded text-[10px]">선택 (개별 사용자가 직접 등록 가능)</span>
                 ) : null}
               </div>
@@ -184,7 +186,8 @@ export function OnboardingWizard({
           {step === 6 && <Step6Homerooms />}
           {step === 7 && <Step7Courses />}
           {step === 8 && <Step8Supervisors />}
-          {step === 9 && <Step8Done />}
+          {step === 9 && <StepEmail />}
+          {step === 10 && <Step8Done />}
         </div>
 
         {/* 푸터 (이전/다음) */}
@@ -198,7 +201,7 @@ export function OnboardingWizard({
             <ChevronLeft size={14} /> 이전
           </button>
           <div className="flex items-center gap-2">
-            {step < 9 && step > REQUIRED_STEPS_MAX && (
+            {step < 10 && step > REQUIRED_STEPS_MAX && (
               <button
                 type="button"
                 onClick={skip}
@@ -207,7 +210,7 @@ export function OnboardingWizard({
                 건너뛰기 (개별 등록)
               </button>
             )}
-            {step < 9 ? (
+            {step < 10 ? (
               <button
                 type="button"
                 onClick={goNext}
