@@ -99,14 +99,16 @@ async def verify_2fa_session(
     client_ip = request.client.host if request.client else None
     now = datetime.now(timezone.utc)
 
+    # 2FA를 여러 번 인증하면 세션 행이 누적될 수 있으므로 최신 유효 세션 1건만 조회
+    # (scalar_one_or_none()은 다중 행에서 MultipleResultsFound → 민감데이터 접근 500)
     result = await db.execute(
         select(TOTPSession).where(
             TOTPSession.user_id == user.id,
             TOTPSession.expires_at > now,
             TOTPSession.ip_address == client_ip,
-        )
+        ).order_by(TOTPSession.expires_at.desc()).limit(1)
     )
-    session = result.scalar_one_or_none()
+    session = result.scalars().first()
 
     if not session:
         raise HTTPException(

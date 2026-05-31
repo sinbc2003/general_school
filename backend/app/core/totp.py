@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pyotp
 import qrcode
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -48,6 +49,8 @@ async def create_totp_session(
     ip_address: str | None,
 ) -> TOTPSession:
     now = datetime.now(timezone.utc)
+    # 이전 세션 정리 — 누적 방지 (사용자당 활성 세션 1개 유지, MultipleResultsFound 원천 차단)
+    await db.execute(delete(TOTPSession).where(TOTPSession.user_id == user_id))
     session = TOTPSession(
         user_id=user_id,
         verified_at=now,
