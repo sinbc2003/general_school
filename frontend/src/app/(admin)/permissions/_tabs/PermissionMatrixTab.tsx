@@ -40,6 +40,9 @@ export function PermissionMatrixTab() {
   // admin 2FA 강제 정책
   const [admin2faRequired, setAdmin2faRequired] = useState(false);
   const [admin2faChanging, setAdmin2faChanging] = useState(false);
+  // 민감데이터 이메일 2FA 강제 정책 (인증앱 불필요)
+  const [sensitive2faRequired, setSensitive2faRequired] = useState(false);
+  const [sensitive2faChanging, setSensitive2faChanging] = useState(false);
   // 검색/필터
   const [matrixSearch, setMatrixSearch] = useState("");
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
@@ -66,6 +69,8 @@ export function PermissionMatrixTab() {
         try {
           const policy = await api.get<{ required: boolean }>("/api/permissions/policy/admin-2fa-required");
           setAdmin2faRequired(policy.required);
+          const sens = await api.get<{ required: boolean }>("/api/permissions/policy/sensitive-2fa-required");
+          setSensitive2faRequired(sens.required);
         } catch {
           // ignore
         }
@@ -98,6 +103,23 @@ export function PermissionMatrixTab() {
       alert(err?.detail || "정책 변경 실패");
     } finally {
       setAdmin2faChanging(false);
+    }
+  };
+
+  const toggleSensitive2fa = async () => {
+    const newVal = !sensitive2faRequired;
+    const msg = newVal
+      ? "민감정보(성적·상담·생기부 등) 접근 시 이메일 2차 인증을 강제합니다.\n교직원/관리자는 이메일로 받은 코드로 인증합니다 (인증앱 불필요).\n※ 이메일 발송용 SMTP가 설정되어 있어야 합니다.\n계속하시겠습니까?"
+      : "민감정보 이메일 2차 인증 강제를 끕니다.\n계속하시겠습니까?";
+    if (!confirm(msg)) return;
+    setSensitive2faChanging(true);
+    try {
+      await api.put("/api/permissions/policy/sensitive-2fa-required", { required: newVal });
+      setSensitive2faRequired(newVal);
+    } catch (err: any) {
+      alert(err?.detail || "정책 변경 실패");
+    } finally {
+      setSensitive2faChanging(false);
     }
   };
 
@@ -258,6 +280,39 @@ export function PermissionMatrixTab() {
                 <span
                   className={`block w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
                     admin2faRequired ? "left-5" : "left-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* 민감데이터 이메일 2FA 강제 (인증앱 불필요) */}
+          <div className="p-3 bg-cream-100 border border-cream-300 rounded-lg">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <div className="text-caption text-text-secondary mb-1">
+                  <b>민감정보 2차 인증 (이메일)</b>
+                </div>
+                <div className="text-text-tertiary text-caption">
+                  {sensitive2faRequired
+                    ? "ON — 성적·상담 등 접근 시 이메일 코드 인증 필요 (학생 본인 데이터 면제)"
+                    : "OFF — 민감정보도 추가 인증 없이 접근 (보안상 ON 권장)"}
+                </div>
+                <div className="text-text-tertiary text-caption mt-1">
+                  ※ 인증앱 불필요 — 이메일로 코드 수신. SMTP 설정 선행 필요.
+                </div>
+              </div>
+              <button
+                onClick={toggleSensitive2fa}
+                disabled={sensitive2faChanging}
+                className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                  sensitive2faRequired ? "bg-accent" : "bg-gray-300"
+                } disabled:opacity-50`}
+                title={sensitive2faRequired ? "끄기" : "켜기"}
+              >
+                <span
+                  className={`block w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
+                    sensitive2faRequired ? "left-5" : "left-1"
                   }`}
                 />
               </button>

@@ -92,15 +92,18 @@ async def verify_2fa_session(
     request: Request,
     db: AsyncSession,
 ) -> bool:
-    """2FA가 활성화된 사용자의 유효한 세션이 있는지 확인"""
-    if not user.totp_enabled:
-        return True  # 2FA 미설정 사용자는 통과
+    """민감데이터 접근용 2FA 세션 확인.
 
+    유효한 세션(이메일 코드 또는 TOTP 인증앱으로 발급)이 있으면 통과.
+    세션이 없을 때:
+      - security.admin_2fa_required ON: 교직원/관리자는 403(2FA_REQUIRED) — 이메일/TOTP 재인증 필요.
+        학생은 본인 데이터만 접근하므로 면제.
+      - OFF(기본): TOTP 등록자만 강제, 미등록자는 통과(기존 옵트인 동작 유지).
+    """
     client_ip = request.client.host if request.client else None
     now = datetime.now(timezone.utc)
 
-    # 2FA를 여러 번 인증하면 세션 행이 누적될 수 있으므로 최신 유효 세션 1건만 조회
-    # (scalar_one_or_none()은 다중 행에서 MultipleResultsFound → 민감데이터 접근 500)
+    # 누적 세션 중 최신 유효 1건만 조회 (MultipleResultsFound 방지)
     result = await db.execute(
         select(TOTPSession).where(
             TOTPSession.user_id == user.id,
@@ -108,14 +111,23 @@ async def verify_2fa_session(
             TOTPSession.ip_address == client_ip,
         ).order_by(TOTPSession.expires_at.desc()).limit(1)
     )
-    session = result.scalars().first()
+    if result.scalars().first():
+        return True
 
-    if not session:
+    # 유효 세션 없음 — 정책에 따라 분기
+    try:
+        from app.core.permissions import get_sensitive_data_2fa_required
+        required = await get_sensitive_data_2fa_required(db)
+    except Exception:
+        required = False
+
+    staff_roles = ("super_admin", "designated_admin", "teacher", "staff")
+    if (required and user.role in staff_roles) or user.totp_enabled:
         raise HTTPException(
             status_code=403,
             detail={
                 "code": "2FA_REQUIRED",
-                "message": "2차 인증이 필요합니다",
+                "message": "민감정보 접근에는 2차 인증이 필요합니다",
             },
         )
     return True

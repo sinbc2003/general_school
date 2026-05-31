@@ -85,6 +85,36 @@ async def set_admin_2fa_required(db: AsyncSession, required: bool) -> None:
         db.add(Setting(key=ADMIN_2FA_REQUIRED_KEY, value=val))
 
 
+# 민감데이터 이메일 2FA 강제 — Setting 키 'security.sensitive_data_2fa_required'
+# True면 교직원/관리자는 성적/상담/생기부 등 민감데이터 접근 시 유효한 2FA 세션
+# (이메일 코드 또는 TOTP)이 필요하다. admin_2fa_required와 달리 **TOTP 등록을 강제하지 않음**
+# — 이메일 코드로 인증하므로 인증앱 설치가 필요 없다. 학생은 본인 데이터만 보므로 면제.
+SENSITIVE_2FA_REQUIRED_KEY = "security.sensitive_data_2fa_required"
+DEFAULT_SENSITIVE_2FA_REQUIRED = False
+
+
+async def get_sensitive_data_2fa_required(db: AsyncSession) -> bool:
+    from app.models.setting import Setting
+    row = (await db.execute(
+        select(Setting).where(Setting.key == SENSITIVE_2FA_REQUIRED_KEY)
+    )).scalar_one_or_none()
+    if not row or not row.value:
+        return DEFAULT_SENSITIVE_2FA_REQUIRED
+    return row.value.lower() in ("true", "1", "yes")
+
+
+async def set_sensitive_data_2fa_required(db: AsyncSession, required: bool) -> None:
+    from app.models.setting import Setting
+    val = "true" if required else "false"
+    row = (await db.execute(
+        select(Setting).where(Setting.key == SENSITIVE_2FA_REQUIRED_KEY)
+    )).scalar_one_or_none()
+    if row:
+        row.value = val
+    else:
+        db.add(Setting(key=SENSITIVE_2FA_REQUIRED_KEY, value=val))
+
+
 async def get_designated_admin_mode(db: AsyncSession) -> str:
     """지정관리자 모드 조회. 디폴트 'full'.
     Setting 테이블에서 읽음 — 없으면 디폴트 반환.

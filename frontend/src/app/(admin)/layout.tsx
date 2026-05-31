@@ -3,6 +3,7 @@
 import { useAuth } from "@/lib/auth-context";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { FeedbackPanel } from "@/components/feedback-panel";
+import Email2FAModal from "@/components/Email2FAModal";
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
 import { AIAssistantProvider, useAIAssistant } from "@/lib/ai-assistant-context";
 
@@ -48,6 +49,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       <FeedbackPanel />
+      <Email2FAModal />
     </div>
   );
 }

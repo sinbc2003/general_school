@@ -101,6 +101,14 @@ class ApiClient {
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ detail: res.statusText }));
+      // 민감데이터 접근에 2차 인증 필요 — 전역 이메일 2FA 모달 트리거
+      if (
+        res.status === 403 &&
+        typeof window !== "undefined" &&
+        (error?.detail?.code === "2FA_REQUIRED" || error?.code === "2FA_REQUIRED")
+      ) {
+        window.dispatchEvent(new CustomEvent("gs:2fa-required"));
+      }
       throw { status: res.status, ...error };
     }
 

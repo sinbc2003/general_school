@@ -260,6 +260,11 @@ async def verify_email_code(
 
     token_resp = await _issue_tokens(db, user, request)
 
+    # 이메일 인증 성공 = 2차 인증 완료 → 민감데이터 세션도 함께 발급(인증앱 불필요).
+    # 30분 내 성적/상담 등 접근 시 추가 인증 없이 통과. 만료 후엔 /2fa/email/* step-up.
+    from app.core.totp import create_totp_session
+    await create_totp_session(db, user.id, request.client.host if request.client else None)
+
     # 신뢰 장치 등록 옵션
     if body.remember_device:
         device_token_plain = generate_device_token()

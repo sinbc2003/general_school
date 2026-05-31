@@ -111,19 +111,31 @@ async def _is_google_configured(db: AsyncSession) -> bool:
     return (enabled == "true") and bool(cid)
 
 
+async def _google_http(method: str, url: str, *, timeout: float = 15, **kwargs):
+    """Google API 호출 래퍼 — 네트워크/타임아웃/연결 오류를 502로 변환.
+
+    학교망 outbound 차단·Google 장애 시 uncaught 500 대신 깔끔한 502를 반환한다.
+    HTTP 상태 오류(4xx/5xx 응답)는 변환하지 않음 — caller가 r.status_code로 처리.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.request(method, url, **kwargs)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Google 서비스에 연결할 수 없습니다 (네트워크/방화벽 확인): {type(e).__name__}")
+
+
 async def _exchange_refresh_for_access(db: AsyncSession, refresh_token: str) -> str | None:
     """refresh_token으로 access_token 즉시 재발급. 메모리 캐시 X (caller 책임)."""
     cid = await _get_config(db, "oauth.google.client_id")
     cs = await _get_config(db, "oauth.google.client_secret")
     if not cid or not cs:
         raise HTTPException(503, "Google OAuth가 설정되지 않았습니다")
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(GOOGLE_TOKEN_URL, data={
-            "client_id": cid,
-            "client_secret": cs,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        })
+    r = await _google_http("POST", GOOGLE_TOKEN_URL, timeout=10, data={
+        "client_id": cid,
+        "client_secret": cs,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    })
     if r.status_code != 200:
         return None
     return r.json().get("access_token")
@@ -281,14 +293,13 @@ async def callback(
             "redirect_uri가 변경되었습니다 — 관리자에게 문의 후 OAuth를 다시 시작하세요",
         )
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(GOOGLE_TOKEN_URL, data={
-            "client_id": cid,
-            "client_secret": cs,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        })
+    r = await _google_http("POST", GOOGLE_TOKEN_URL, timeout=10, data={
+        "client_id": cid,
+        "client_secret": cs,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    })
     if r.status_code != 200:
         raise HTTPException(400, f"토큰 교환 실패: {r.text[:200]}")
     tok = r.json()
@@ -298,8 +309,7 @@ async def callback(
         raise HTTPException(400, "refresh_token 미수신 — Google 계정 권한 페이지에서 기존 권한 제거 후 재시도하세요")
 
     # 사용자 이메일 조회
-    async with httpx.AsyncClient(timeout=10) as client:
-        ui = await client.get(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+    ui = await _google_http("GET", GOOGLE_USERINFO_URL, timeout=10, headers={"Authorization": f"Bearer {access_token}"})
     google_email = ui.json().get("email", "") if ui.status_code == 200 else ""
 
     # 기존 연결 upsert
@@ -415,8 +425,7 @@ async def list_drive_files(
         params["q"] = q
     if page_token:
         params["pageToken"] = page_token
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(GOOGLE_DRIVE_FILES_URL, params=params, headers={"Authorization": f"Bearer {access}"})
+    r = await _google_http("GET", GOOGLE_DRIVE_FILES_URL, timeout=15, params=params, headers={"Authorization": f"Bearer {access}"})
     if r.status_code != 200:
         raise HTTPException(502, f"Drive API 호출 실패: {r.status_code}")
     return r.json()

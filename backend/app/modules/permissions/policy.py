@@ -129,6 +129,43 @@ async def set_admin_2fa_required_endpoint(
     return {"ok": True, "required": required}
 
 
+@router.get("/policy/sensitive-2fa-required")
+async def get_sensitive_2fa_required_endpoint(
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """민감데이터 이메일 2FA 강제 여부 조회."""
+    from app.core.permissions import get_sensitive_data_2fa_required
+    return {
+        "required": await get_sensitive_data_2fa_required(db),
+        "description": (
+            "True면 교직원/관리자는 성적·상담 등 민감데이터 접근 시 2차 인증(이메일 코드 또는 TOTP) 필요. "
+            "인증앱 설치 불필요 — 이메일 로그인 시 자동 발급되고 만료 시 이메일 코드로 재인증. 학생은 면제. "
+            "이메일 발송용 SMTP 설정이 선행되어야 함."
+        ),
+    }
+
+
+@router.put("/policy/sensitive-2fa-required")
+async def set_sensitive_2fa_required_endpoint(
+    body: AdminTwoFaRequiredUpdate, request: Request,
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """민감데이터 이메일 2FA 강제 여부 변경. (켜기 전 SMTP 설정 필수)"""
+    from app.core.permissions import set_sensitive_data_2fa_required
+    await verify_2fa_session(user, request, db)
+    required = body.required
+    await set_sensitive_data_2fa_required(db, required)
+    await db.flush()
+    await log_action(
+        db, user, "policy.sensitive_data_2fa_required",
+        target=f"required:{required}",
+        request=request, is_sensitive=True,
+    )
+    return {"ok": True, "required": required}
+
+
 # ── 비밀번호 정책 ──
 
 @router.get("/policy/password")

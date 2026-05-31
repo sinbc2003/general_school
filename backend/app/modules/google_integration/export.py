@@ -27,7 +27,7 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models import ClassroomDocument, ClassroomSheet, User
-from app.modules.google_integration.router import get_access_token_for_user, router
+from app.modules.google_integration.router import _google_http, get_access_token_for_user, router
 
 DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
 
@@ -76,15 +76,14 @@ async def export_doc_to_drive(
     }
     boundary, body = _build_multipart(meta, "text/html; charset=UTF-8", html.encode("utf-8"))
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            DRIVE_UPLOAD_URL,
-            headers={
-                "Authorization": f"Bearer {access}",
-                "Content-Type": f"multipart/related; boundary={boundary}",
-            },
-            content=body,
-        )
+    r = await _google_http(
+        "POST", DRIVE_UPLOAD_URL, timeout=30,
+        headers={
+            "Authorization": f"Bearer {access}",
+            "Content-Type": f"multipart/related; boundary={boundary}",
+        },
+        content=body,
+    )
     if r.status_code not in (200, 201):
         raise HTTPException(502, f"Drive upload 실패: {r.status_code} {r.text[:200]}")
 
@@ -167,15 +166,14 @@ async def export_sheet_to_drive(
         xlsx_bytes,
     )
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(
-            DRIVE_UPLOAD_URL,
-            headers={
-                "Authorization": f"Bearer {access}",
-                "Content-Type": f"multipart/related; boundary={boundary}",
-            },
-            content=body,
-        )
+    r = await _google_http(
+        "POST", DRIVE_UPLOAD_URL, timeout=60,
+        headers={
+            "Authorization": f"Bearer {access}",
+            "Content-Type": f"multipart/related; boundary={boundary}",
+        },
+        content=body,
+    )
     if r.status_code not in (200, 201):
         raise HTTPException(502, f"Drive upload 실패: {r.status_code} {r.text[:200]}")
 

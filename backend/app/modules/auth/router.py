@@ -21,4 +21,5 @@ from app.modules.auth import registration  # noqa: E402, F401
 from app.modules.auth import login_flow  # noqa: E402, F401
 from app.modules.auth import session  # noqa: E402, F401
 from app.modules.auth import two_factor  # noqa: E402, F401
+from app.modules.auth import two_factor_email  # noqa: E402, F401
 from app.modules.auth import devices  # noqa: E402, F401
