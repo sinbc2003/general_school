@@ -32,7 +32,11 @@ from app.core.database import Base
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-STORAGE_DIR = BACKEND_DIR / "storage"
+# storage 경로 — settings.STORAGE_ROOT 따름 (코드 밖 분리 지원).
+# 절대경로면 그대로(예: /home/susung/gs-data/storage), 상대면 backend 기준(dev 기본).
+from app.core.config import settings as _settings
+_sr = Path(_settings.STORAGE_ROOT)
+STORAGE_DIR = _sr if _sr.is_absolute() else (BACKEND_DIR / _settings.STORAGE_ROOT)
 
 
 # ── JSON 직렬화 ──
@@ -285,3 +289,64 @@ async def restore_all(
     result["applied"] = True
     result["row_counts"] = applied_counts
     return result
+
+
+# ── FACTORY RESET (전체 초기화) ──
+
+def _clear_storage_sync(storage_dir: str) -> bool:
+    """storage 디렉터리 내용 비우기 (디렉터리 자체는 유지). 동기 — to_thread로 호출."""
+    import shutil
+    root = Path(storage_dir)
+    if not root.exists():
+        return False
+    for child in root.iterdir():
+        try:
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink()
+        except Exception:
+            pass
+    return True
+
+
+async def factory_reset(db: AsyncSession, wipe_storage: bool = True) -> dict:
+    """공장 초기화 — 모든 테이블 데이터 wipe + storage 비우기 + 기본 시드 재생성.
+
+    super_admin 포함 모든 계정·데이터가 삭제되고, 권한/메뉴/기본설정만 재시드됨.
+    BOOTSTRAP_MODE=first_signup이면 복원 후 첫 회원가입자가 다시 super_admin.
+    **돌이킬 수 없음** — endpoint에서 super_admin + 2FA + 확인문구 필수.
+    """
+    # 1. 모든 테이블 wipe (FK 역순, alembic_version만 보존)
+    tables = list(Base.metadata.sorted_tables)
+    wiped = 0
+    for table in reversed(tables):
+        if table.name == "alembic_version":
+            continue
+        await db.execute(delete(table))
+        wiped += 1
+    await db.flush()
+
+    # 2. storage 비우기 (settings.STORAGE_ROOT 기준)
+    storage_cleared = False
+    if wipe_storage:
+        storage_cleared = await asyncio.to_thread(_clear_storage_sync, str(STORAGE_DIR))
+
+    # 3. 기본 시드 재실행 (main.py lifespan과 동일 — 권한/메뉴/기본설정/feature)
+    from app.core.permission_registry import collect_defined_permissions
+    from scripts.seed import seed_super_admin, seed_permissions, seed_default_semester
+    from scripts.seed_chatbot import seed_chatbot_defaults
+    from scripts.seed_positions import seed_default_position_templates
+    defined = collect_defined_permissions()
+    await seed_super_admin(db)
+    await seed_permissions(db, defined)
+    await seed_chatbot_defaults(db)
+    await seed_default_semester(db)
+    await seed_default_position_templates(db)
+    try:
+        from app.core.features import seed_known_features
+        await seed_known_features(db)
+    except Exception:
+        pass
+    await db.flush()
+    return {"wiped_tables": wiped, "storage_cleared": storage_cleared}

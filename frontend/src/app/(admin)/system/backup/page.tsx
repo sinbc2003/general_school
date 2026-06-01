@@ -43,6 +43,8 @@ export default function BackupPage() {
   const [preview, setPreview] = useState<RestoreResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState<RestoreResult | null>(null);
+  const [resetText, setResetText] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   const downloadBackup = async () => {
     setDownloading(true);
@@ -129,6 +131,39 @@ export default function BackupPage() {
       alert("복원 실패: " + err.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runFactoryReset = async () => {
+    if (resetText !== "전체 초기화") return;
+    const ok = confirm(
+      "⚠️ 모든 데이터·계정(최고관리자 포함)을 삭제하고 빈 상태로 되돌립니다.\n돌이킬 수 없습니다. 계속할까요?",
+    );
+    if (!ok) return;
+    setResetting(true);
+    try {
+      const token = localStorage.getItem("access_token");
+      const res = await fetch(`${API_URL}/api/system/backup/factory-reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ confirm: "전체 초기화" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "초기화 실패");
+      alert(
+        "전체 초기화 완료. 모든 데이터·파일이 삭제됐습니다.\n" +
+        "첫 회원가입자가 다시 최고관리자가 됩니다.\n로그인 페이지로 이동합니다.",
+      );
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      window.location.href = "/auth/login";
+    } catch (err: any) {
+      alert("초기화 실패: " + err.message);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -266,6 +301,37 @@ export default function BackupPage() {
           <li>호환성 경고가 있으면 새 장비에서 <code>alembic upgrade head</code> + 재시작</li>
           <li>로그인 후 데이터·UI 확인</li>
         </ol>
+      </div>
+
+      {/* Danger Zone — 전체 초기화 */}
+      <div className="mt-8 border-2 border-red-500/50 rounded-lg p-5 bg-red-500/5">
+        <h2 className="text-body font-bold text-red-500 flex items-center gap-2 mb-2">
+          ⚠️ 위험 구역 (Danger Zone)
+        </h2>
+        <p className="text-caption text-text-secondary mb-1">
+          <b className="text-text-primary">전체 초기화</b> — 모든 데이터·계정(최고관리자 포함)과 업로드 파일을
+          삭제하고 빈 상태로 되돌립니다. 권한·메뉴 기본값만 남으며, <b className="text-text-primary">첫 회원가입자가
+          다시 최고관리자</b>가 됩니다.
+        </p>
+        <p className="text-caption text-red-400 mb-3">
+          ❗ 돌이킬 수 없습니다. 먼저 위에서 <b>전체 백업 다운로드</b>로 스냅샷을 받아두세요. (2FA 인증 필요)
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            value={resetText}
+            onChange={(e) => setResetText(e.target.value)}
+            placeholder={'확인하려면 "전체 초기화" 입력'}
+            className="px-3 py-2 rounded border border-border-default bg-bg-primary text-text-primary text-caption w-64"
+          />
+          <button
+            onClick={runFactoryReset}
+            disabled={resetText !== "전체 초기화" || resetting}
+            className="px-4 py-2 rounded bg-red-600 text-white text-caption font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-700"
+          >
+            {resetting ? "초기화 중..." : "전체 초기화 실행"}
+          </button>
+        </div>
       </div>
     </div>
   );

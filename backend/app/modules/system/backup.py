@@ -12,7 +12,7 @@ router 객체는 router.py에서 공유. router.py 끝의 'from . import backup'
 import os
 from pathlib import Path
 
-from fastapi import Depends, File, HTTPException, Request, UploadFile
+from fastapi import Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response as FastResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,6 +95,31 @@ async def restore_apply(
     await log_action(
         db, user, "backup.restore",
         f"rows:{sum(result.get('row_counts', {}).values())}",
+        request=request, is_sensitive=True,
+    )
+    return result
+
+
+@router.post("/backup/factory-reset")
+async def factory_reset_apply(
+    request: Request,
+    payload: dict = Body(default={}),
+    user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
+):
+    """전체 초기화 — 모든 데이터+계정(super_admin 포함) 삭제 후 기본 시드만 남김.
+
+    복원 후 첫 회원가입자가 다시 super_admin (BOOTSTRAP_MODE=first_signup).
+    **돌이킬 수 없음** — super_admin + 2FA + 확인문구('전체 초기화') 필수.
+    """
+    await verify_2fa_session(user, request, db)
+    if (payload or {}).get("confirm") != "전체 초기화":
+        raise HTTPException(400, "확인 문구가 일치하지 않습니다. '전체 초기화'를 정확히 입력하세요.")
+    from app.services.backup import factory_reset
+    result = await factory_reset(db)
+    await log_action(
+        db, user, "backup.factory_reset",
+        f"wiped_tables:{result.get('wiped_tables')} storage:{result.get('storage_cleared')}",
         request=request, is_sensitive=True,
     )
     return result
