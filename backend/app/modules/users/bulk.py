@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission, require_super_admin
 from app.core.quota import assign_default_quota
+from app.models.department import Department
 from app.models.user import User
 from app.modules.users.schemas import BulkImportResult, BulkValidationResult
 from app.services.excel_service import (
@@ -24,8 +25,10 @@ from app.services.excel_service import (
 )
 from app.services.user_csv_io import (
     CSV_TEMPLATES as USER_CSV_TEMPLATES,
+    FIXED_DEPARTMENTS,
     import_users_csv,
     template_csv as user_template_csv,
+    template_xlsx,
 )
 
 from app.modules.users.router import router
@@ -141,14 +144,27 @@ async def export_users(
 async def download_user_csv_template(
     role: str,
     user: User = Depends(require_super_admin()),
+    db: AsyncSession = Depends(get_db),
 ):
-    """역할별 CSV 템플릿 다운로드 (최고관리자 전용)"""
+    """역할별 xlsx 템플릿 다운로드 (최고관리자 전용).
+
+    teacher는 '부서' 열에 드롭다운 — DB 등록 부서 + 교장/교감/행정실/기타.
+    업로드는 xlsx·csv 둘 다 가능 (POLICY_CSV가 xlsx 허용 + _read_rows 자동 인식).
+    """
     if role not in USER_CSV_TEMPLATES:
         raise HTTPException(400, f"valid roles: {list(USER_CSV_TEMPLATES.keys())}")
-    content = user_template_csv(role)
+    dept_names = None
+    if role == "teacher":
+        db_depts = (await db.execute(
+            select(Department.name).order_by(Department.sort_order, Department.name)
+        )).scalars().all()
+        # DB 등록 부서 먼저 + 고정(교장/교감/행정실/기타), 중복 제거·순서 유지
+        dept_names = list(dict.fromkeys(list(db_depts) + FIXED_DEPARTMENTS))
+    content = template_xlsx(role, dept_names)
     return Response(
-        content=content, media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="users_{role}_template.csv"'},
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="users_{role}_template.xlsx"'},
     )
 
 

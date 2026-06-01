@@ -111,6 +111,93 @@ def template_csv(role: str) -> str:
     return BOM + header + "\n" + example + "\n" + desc_row + "\n"
 
 
+# 부서 드롭다운에 항상 포함되는 기본 항목 (직책/부서 무관 케이스)
+FIXED_DEPARTMENTS: list[str] = ["교장", "교감", "행정실", "기타"]
+
+
+def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
+    """역할별 xlsx 템플릿. teacher면 '부서' 열에 드롭다운(DataValidation).
+
+    dept_names: 드롭다운 목록 (DB 등록 부서 + 고정 항목). None이면 드롭다운 없음.
+    목록은 숨김 시트(_부서목록)에 넣어 255자 제한을 회피.
+    """
+    from openpyxl import Workbook
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, PatternFill
+
+    if role not in CSV_TEMPLATES:
+        raise ValueError(f"unknown role: {role}")
+    cols = CSV_TEMPLATES[role]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "등록"
+    ws.append(cols)
+    for c in range(1, len(cols) + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="4A4A6E")
+
+    examples = {
+        "teacher": ["김선생", "kim@school.local", "kimss", "", "수학과"],
+        "student": ["홍길동", "gildong@school.local", "10101", "", "1", "1", "1"],
+        "designated_admin": ["지정관리자", "da@school.local", "da01", ""],
+    }
+    ws.append(examples.get(role, []))
+    for c in range(1, len(cols) + 1):
+        ws.column_dimensions[get_column_letter(c)].width = 16
+
+    if role == "teacher" and "부서" in cols and dept_names:
+        ws_list = wb.create_sheet("_부서목록")
+        for i, d in enumerate(dept_names, 1):
+            ws_list.cell(row=i, column=1, value=d)
+        ws_list.sheet_state = "hidden"
+        col_idx = cols.index("부서") + 1
+        letter = get_column_letter(col_idx)
+        dv = DataValidation(
+            type="list",
+            formula1=f"_부서목록!$A$1:$A${len(dept_names)}",
+            allow_blank=True,
+        )
+        dv.prompt = "목록에서 부서/직책을 선택하세요"
+        dv.promptTitle = "부서 선택"
+        ws.add_data_validation(dv)
+        dv.add(f"{letter}2:{letter}1000")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _read_rows(file_bytes: bytes) -> tuple[list[str], list[dict]]:
+    """업로드 파일 파싱 → (헤더, row dict 목록). xlsx(PK 매직) 또는 CSV 자동 인식."""
+    if file_bytes[:2] == b"PK":  # xlsx (zip) 매직바이트
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not rows:
+            return [], []
+        header = [str(c).strip() if c is not None else "" for c in rows[0]]
+        out: list[dict] = []
+        for r in rows[1:]:
+            d: dict = {}
+            for idx, h in enumerate(header):
+                if not h:
+                    continue
+                val = r[idx] if idx < len(r) else None
+                d[h] = str(val).strip() if val is not None else ""
+            out.append(d)
+        return header, out
+    # CSV (UTF-8 BOM 허용)
+    text = file_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    header = [f.strip() for f in (reader.fieldnames or [])]
+    return header, [dict(r) for r in reader]
+
+
 def _to_int(v: str) -> int | None:
     v = (v or "").strip()
     return int(v) if v else None
@@ -126,10 +213,9 @@ async def import_users_csv(
     if role not in CSV_TEMPLATES:
         raise ValueError(f"unknown role: {role}")
 
-    text = file_bytes.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
+    header, rows = _read_rows(file_bytes)
     # 헤더를 표준 영문 키로 변환 (한글 헤더 지원)
-    raw_fields = [f.strip() for f in (reader.fieldnames or [])]
+    raw_fields = [f.strip() for f in header]
     normalized_fields = {COLUMN_ALIASES.get(f, f) for f in raw_fields}
     missing = REQUIRED[role] - normalized_fields
     if missing:
@@ -156,7 +242,7 @@ async def import_users_csv(
         u for u in (await db.execute(select(User.username))).scalars().all() if u
     )
 
-    for i, row in enumerate(reader, start=2):
+    for i, row in enumerate(rows, start=2):
         # 한글 헤더 row를 영문 키로 변환
         row = _normalize_row(row)
 
