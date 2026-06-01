@@ -54,7 +54,7 @@ from app.services.updates import (
 
 @router.get("/updates/status")
 async def get_updates_status(
-    user: User = Depends(require_super_admin),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     """현재 commit + GitHub HEAD + 차이 commit list 조회 (호출 시 알림 발송 X).
@@ -92,7 +92,7 @@ async def get_updates_status(
 @router.post("/updates/check-now")
 async def force_check_updates(
     request: Request,
-    user: User = Depends(require_super_admin),
+    user: User = Depends(require_super_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     """즉시 polling 실행 + (새 commit이면) 알림 발송. cron 안 기다림.
