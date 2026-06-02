@@ -120,11 +120,24 @@ export default function UsersPage() {
     }
   };
 
-  const handleResetPassword = async (userId: number) => {
-    if (!confirm("비밀번호를 초기화하시겠습니까?")) return;
+  const handleResetPassword = async (u: UserItem) => {
+    // 전화번호(숫자만) 있으면 그것으로 초기화, 없으면 관리자가 임시 비번 입력.
+    const phoneDigits = (u.phone || "").replace(/\D/g, "");
+    let body: { password?: string } = {};
+    if (phoneDigits) {
+      if (!confirm(`${u.name}님의 비밀번호를 전화번호(${phoneDigits})로 초기화할까요?`)) return;
+    } else {
+      const input = window.prompt(`${u.name}님은 전화번호가 없습니다.\n초기화할 임시 비밀번호를 입력하세요:`);
+      if (input === null) return; // 취소
+      const pw = input.trim();
+      if (!pw) { alert("비밀번호를 입력해야 합니다."); return; }
+      body = { password: pw };
+    }
     try {
-      const result = await api.post(`/api/users/${userId}/reset-password`);
-      alert(`초기화 완료. 기본 비밀번호: ${result.default_password}`);
+      const result = await api.post<{ password: string; source: string }>(
+        `/api/users/${u.id}/reset-password`, body,
+      );
+      alert(`초기화 완료 — ${result.source === "phone" ? "전화번호" : "지정"} 비밀번호: ${result.password}\n사용자는 첫 로그인 시 변경하게 됩니다.`);
     } catch (err: any) {
       alert(err?.detail || "실패");
     }
@@ -369,8 +382,8 @@ export default function UsersPage() {
             render: (u) => (
               <div className="flex items-center justify-center gap-1">
                 <button
-                  onClick={() => handleResetPassword(u.id)}
-                  title="비밀번호 초기화"
+                  onClick={() => handleResetPassword(u)}
+                  title="비밀번호 초기화 (전화번호 있으면 전화번호로)"
                   className="p-1 hover:bg-bg-tertiary rounded text-text-tertiary hover:text-status-warning"
                 >
                   <RotateCcw size={14} />

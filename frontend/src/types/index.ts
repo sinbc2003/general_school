@@ -44,6 +44,7 @@ export interface UserItem {
   class_number: number | null;
   student_number: number | null;
   department: string | null;
+  phone?: string | null;
   /** 드라이브 quota — bytes. 0 = 무제한 sentinel (super_admin 또는 명시적 무제한). */
   quota_bytes?: number;
   /** 누적 사용량 — bytes. quota_bytes 초과해도 음수 안 됨. */

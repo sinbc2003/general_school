@@ -7,18 +7,23 @@ router 객체는 router.py에서 공유. router.py 끝의 'from . import session
 """
 
 from fastapi import Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
 from app.core.auth import hash_password
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.user import User
 
 from app.modules.users.router import router
-from app.modules.users._helpers import ADMIN_ROLES, _is_admin
+from app.modules.users._helpers import ADMIN_ROLES, _is_admin, phone_to_initial_password
+
+
+class ResetPasswordRequest(BaseModel):
+    # 전화번호 없는 계정 초기화 시 관리자가 지정하는 비번 (전화번호 있으면 무시됨)
+    password: str | None = None
 
 
 @router.get("/{user_id}/sessions")
@@ -99,9 +104,15 @@ async def force_logout_user(
 async def reset_password(
     user_id: int,
     request: Request,
+    body: ResetPasswordRequest | None = None,
     user: User = Depends(require_permission("user.manage.edit")),
     db: AsyncSession = Depends(get_db),
 ):
+    """비밀번호 초기화 — 전화번호(숫자만)가 있으면 그것으로, 없으면 관리자가 지정한 비번으로.
+
+    전화번호 없는 계정인데 body.password도 안 주면 400 (관리자가 비번 입력 필요).
+    초기화 후 must_change_password=True → 첫 로그인 시 변경 강제.
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
@@ -114,8 +125,22 @@ async def reset_password(
     if user.role == "designated_admin" and target.role in ADMIN_ROLES:
         raise HTTPException(403, "상위 관리자의 비밀번호를 리셋할 수 없습니다")
 
-    target.password_hash = hash_password(settings.DEFAULT_USER_PASSWORD)
+    # 초기화 비번: 전화번호(숫자만) 우선, 없으면 관리자가 지정한 비번.
+    phone_pw = phone_to_initial_password(target.phone)
+    manual_pw = ((body.password if body else None) or "").strip() or None
+    new_pw = phone_pw or manual_pw
+    if not new_pw:
+        raise HTTPException(
+            400,
+            "이 계정은 전화번호가 없습니다. 초기화할 비밀번호를 입력하세요.",
+        )
+
+    target.password_hash = hash_password(new_pw)
     target.must_change_password = True
     await db.flush()
-    await log_action(db, user, "password_reset", target=target.email, request=request)
-    return {"ok": True, "default_password": settings.DEFAULT_USER_PASSWORD}
+    await log_action(
+        db, user, "password_reset",
+        target=f"{target.email} via:{'phone' if phone_pw else 'manual'}",
+        request=request,
+    )
+    return {"ok": True, "password": new_pw, "source": "phone" if phone_pw else "manual"}
