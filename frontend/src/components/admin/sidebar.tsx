@@ -308,6 +308,19 @@ export function AdminSidebar() {
         {baseCategories.map((cat) => {
           if (!categoryHasVisibleItems(cat)) return null;
 
+          // flat 카테고리 — 헤더/토글 없이 항목을 최상위 단독 링크로 렌더 (분류 없는 단독 메뉴).
+          if (cat.flat || !cat.name.trim()) {
+            return (
+              <div key={cat.id} className="space-y-0.5">
+                {cat.items.map((key) => {
+                  const item = menuByKey.get(key);
+                  if (!item) return null;
+                  return renderMenuItem(item);
+                })}
+              </div>
+            );
+          }
+
           const CatIcon = iconMap[cat.icon] || MoreHorizontal;
           const isOpen = openCategories.has(cat.id);
 

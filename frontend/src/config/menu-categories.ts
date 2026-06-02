@@ -22,6 +22,7 @@ export interface MenuCategory {
   name: string;
   icon: string;        // lucide icon name (serializable)
   items: string[];     // menu item keys
+  flat?: boolean;      // true면 카테고리 헤더/토글 없이 항목을 최상위 단독 링크로 렌더
 }
 
 export interface MenuCategoriesConfig {
@@ -51,16 +52,13 @@ export const iconMap: Record<string, LucideIcon> = {
 export const defaultCategories: MenuCategoriesConfig = {
   admin: [
     {
-      id: "notice",
-      name: "알림",
+      // 헤더 없이 최상위 단독 링크로 렌더(flat). 공지사항·대시보드를 분류 없이 노출.
+      // 상단의 알림 종(NotificationBell)과는 별개 — 종은 개인 알림함, 여기는 공지/대시보드 메뉴.
+      id: "top",
+      name: "",
       icon: "Bell",
-      items: ["announcements"],
-    },
-    {
-      id: "home",
-      name: "대시보드",
-      icon: "Home",
-      items: ["dashboard"],
+      items: ["announcements", "dashboard"],
+      flat: true,
     },
     {
       id: "drive",
