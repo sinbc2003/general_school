@@ -62,6 +62,12 @@
 - `StudentPickerModal`에 **single 모드** 추가(한 명 클릭 즉시 선택, `onPick(student)`로 전체 row 전달).
 - `(admin)/me/setup` 4번 섹션 + `(admin)/system/research-supervisors` CreateSupervisionModal: 학번/이름 typeahead → **명단 단일선택 모달**로 교체. 직접입력 제거.
 
+### ✅ F. 초기 비밀번호 = 전화번호(숫자만) — 완료 (commit 4bec709)
+- `_helpers.phone_to_initial_password()`: 전화번호에서 비숫자 제거 → 초기 비번.
+- `create_user`: 비번 우선순위 = **명시비번(임시) → 전화번호숫자 → DEFAULT_USER_PASSWORD(폴백)**. 교사·학생 공통, `must_change_password=True` 유지.
+- 마법사 `Step4Teachers`/`Step5Students`: '임시 비번' 칸 추가 — 연락처 없을 때 입력. password는 임시비번만 전송(없으면 백엔드가 phone derive). 연락처·임시 둘 다 없으면 공통기본비번 경고.
+- 검증: 헬퍼 단위테스트 + 해시 라운드트립(연락처로 만든 비번 로그인) B에서 통과. CSV import(`user_csv_io`)는 phone 컬럼 없음 → 그대로(명시 password 칸 사용). 관리자 비번초기화(`sessions.py`)는 여전히 DEFAULT — 필요 시 phone으로 바꿀 수 있음.
+
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
 - **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
