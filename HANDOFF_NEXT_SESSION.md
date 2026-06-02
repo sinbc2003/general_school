@@ -58,9 +58,14 @@
 - `frontend/src/config/menu-categories.ts` `defaultCategories.admin`: **알림(공지) → 대시보드 → 드라이브 → 업무(내정보·시간표) → 이하 동일.** 알림·대시보드를 단일항목 카테고리로 승격, `Bell` 아이콘 추가.
 - ⚠️ **시드(기본값)만 변경** — DB에 `menu_categories` 오버라이드가 저장돼 있으면 미적용 → `/system/menu`에서 조정. **B는 현재 오버라이드 없음(null) → 즉시 반영 확인됨.**
 
-### 선택적 후속 (비필수)
-- **연구담당 학생 등록**: `system/research-supervisors`의 CreateSupervisionModal + `me/setup` 4번 섹션은 이미 typeahead 검색-선택(명단 기반)이라 직접입력 문제 없음. 전교생 브라우징이 필요하면 StudentPickerModal에 단일선택 모드 추가해 통일 가능.
+### ✅ E. 연구 담당학생 선택 모달 — 완료 (commit 94c0d58)
+- `StudentPickerModal`에 **single 모드** 추가(한 명 클릭 즉시 선택, `onPick(student)`로 전체 row 전달).
+- `(admin)/me/setup` 4번 섹션 + `(admin)/system/research-supervisors` CreateSupervisionModal: 학번/이름 typeahead → **명단 단일선택 모달**로 교체. 직접입력 제거.
+
+### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
+- **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
+- ⚠️ **B는 factory_reset됨**(2026-06-02): users 0, 학생/학교구조 없음 → StudentPicker/me/setup 화면 기능검증은 데이터 시드 후 가능. 첫 `/auth/register` = super_admin.
 
 ---
 
