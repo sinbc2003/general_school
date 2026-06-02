@@ -9,7 +9,7 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import enrollments'로 등록.
 """
 
-from fastapi import Depends, HTTPException, Query, Request
+from fastapi import Body, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -233,6 +233,44 @@ async def list_enrollments(
         "page": page,
         "per_page": per_page,
     }
+
+
+@router.post("/enrollments/_set-homeroom")
+async def set_homeroom(
+    body: dict = Body(...),
+    user: User = Depends(require_permission("system.enrollment.manage")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """학급 담임 매핑 — 교사의 현재학기 enrollment.homeroom_class 설정.
+
+    body: {semester_id, user_id, grade, class_number}
+    enrollment가 없으면 생성(학기 명단에 자동 등록). 온보딩 Step6에서 호출.
+    학급 강좌 자동생성(course_seed)이 이 homeroom_class를 읽어 담임·학생을 연결한다.
+    """
+    sid = body.get("semester_id")
+    uid = body.get("user_id")
+    grade = body.get("grade")
+    cls = body.get("class_number")
+    if not all([sid, uid, grade, cls]):
+        raise HTTPException(400, "semester_id/user_id/grade/class_number 모두 필요")
+    homeroom = f"{int(grade)}-{int(cls)}"
+    e = (await db.execute(select(SemesterEnrollment).where(
+        SemesterEnrollment.semester_id == sid,
+        SemesterEnrollment.user_id == uid,
+    ))).scalar_one_or_none()
+    if e:
+        e.homeroom_class = homeroom
+    else:
+        target = await db.get(User, uid)
+        db.add(SemesterEnrollment(
+            semester_id=sid, user_id=uid,
+            role=(target.role if target else "teacher"),
+            status="active", homeroom_class=homeroom,
+        ))
+    await db.flush()
+    await log_action(db, user, "enrollment.set_homeroom", f"sem:{sid}/user:{uid}/{homeroom}", request=request)
+    return {"ok": True, "homeroom_class": homeroom}
 
 
 @router.post("/semesters/{sid}/enrollments")

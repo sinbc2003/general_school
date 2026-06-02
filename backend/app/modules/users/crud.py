@@ -250,6 +250,30 @@ async def create_user(
     db.add(new_user)
     await db.flush()
 
+    # 현재 학기 명단(enrollment) 자동 등록 — 담임/학급강좌/시간표 등 enrollment 기반 기능 연동.
+    # 마법사가 계정만 만들고 학기 명단에 안 넣어 클래스룸 학생이 비던 문제를 근본 해결.
+    try:
+        from app.models.timetable import Semester, SemesterEnrollment
+        cur = (await db.execute(
+            select(Semester).where(Semester.is_current == True)
+        )).scalar_one_or_none()
+        if cur:
+            dup = (await db.execute(select(SemesterEnrollment).where(
+                SemesterEnrollment.semester_id == cur.id,
+                SemesterEnrollment.user_id == new_user.id,
+            ))).scalar_one_or_none()
+            if not dup:
+                db.add(SemesterEnrollment(
+                    semester_id=cur.id, user_id=new_user.id, role=new_user.role,
+                    status="active", grade=new_user.grade,
+                    class_number=new_user.class_number, student_number=new_user.student_number,
+                    department=new_user.department, phone=new_user.phone,
+                ))
+                await db.flush()
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning("enrollment auto-create fail: %s", _e)
+
     # 자동 폴더 동기화 (현재 학기 기준). 실패해도 사용자 생성은 막지 않음.
     try:
         from app.services.folder_seed import sync_user_folders
