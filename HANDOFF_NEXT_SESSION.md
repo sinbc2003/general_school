@@ -83,7 +83,7 @@
 - **마법사 Step3Semesters**: '개설 과목' 등록 UI 추가 → 현재 학기 `subjects`를 `PUT /api/timetable/semesters/{id}/structure`로 저장. me/setup 담당과목 드롭다운의 표준 소스. 자유입력 X, 추가/수정·시스템→학기관리에서도 가능.
 - **me/setup**: 담임/수업 학급 = **등록 학생 명단(학년+반)에서 도출**(+classes_per_grade 합집합), 수업 학년 = 학생 학년. 담당과목 = `semester.subjects`. → 마법사가 classes_per_grade를 안 채우던 문제 해결.
 - **배경**: 마법사 Step1은 grade_count만, classes_per_grade·subjects는 마법사 미수집(확인: B에서 None). 그래서 학급=학생도출, 과목=마법사등록으로 전환.
-- **⏳ 미완(요청 일부)**: 교사 CSV/xlsx 템플릿에 '담당과목 드롭다운'은 보류 — teaching_subjects가 enrollment(학기별·복수값)에 있고 CSV import가 enrollment를 안 만들어 설계 결정 필요. 교사 본인은 me/setup에서 드롭다운으로 선택 가능(자유입력 아님).
+- **✅ 교사 템플릿 담당과목 드롭다운 — 완료 (commit c791be1)**: 교사 CSV/xlsx 템플릿에 '담당과목' 컬럼+xlsx 드롭다운(현재학기 개설과목). CSV import가 **모든 임포트 사용자에 현재학기 enrollment 자동생성**(기존엔 미생성=명단누락 버그였음)하고, 교사는 `teaching_subjects` 저장. 미등록 과목은 행 오류로 거부(자유입력 차단). B 검증 통과(수학→OK+enrollment, 체육→거부).
 
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
