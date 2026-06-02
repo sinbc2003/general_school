@@ -4,7 +4,7 @@
 
 역할별 컬럼 (필수/선택):
   designated_admin: 이름*, 이메일*, 아이디*, 연락처
-  teacher:           이름*, 이메일*, 아이디*, 연락처, 부서
+  teacher:           이름*, 이메일*, 아이디*, 연락처, 부서, 담당과목(개설과목 드롭다운)
   student:           이름*, 이메일*, 아이디*, 연락처, 학년, 반, 번호
 
 초기 비밀번호 = 연락처(숫자만, '-' 없이). 연락처 없으면 settings.DEFAULT_USER_PASSWORD. must_change_password=True.
@@ -34,6 +34,7 @@ COLUMN_ALIASES: dict[str, str] = {
     "연락처": "phone", "전화번호": "phone", "휴대폰": "phone", "핸드폰": "phone", "전화": "phone", "phone": "phone",
     # 교사
     "부서": "department", "department": "department", "소속": "department",
+    "담당과목": "teaching_subject", "과목": "teaching_subject", "subject": "teaching_subject", "teaching_subject": "teaching_subject",
     # 학생
     "학년": "grade", "grade": "grade",
     "반": "class_number", "학급": "class_number", "class_number": "class_number", "class": "class_number",
@@ -43,7 +44,7 @@ COLUMN_ALIASES: dict[str, str] = {
 
 CSV_TEMPLATES: dict[str, list[str]] = {
     "designated_admin": ["이름", "이메일", "아이디", "연락처"],
-    "teacher":          ["이름", "이메일", "아이디", "연락처", "부서"],
+    "teacher":          ["이름", "이메일", "아이디", "연락처", "부서", "담당과목"],
     "student":          ["이름", "이메일", "아이디", "연락처",
                          "학년", "반", "번호"],
 }
@@ -101,13 +102,14 @@ def template_csv(role: str) -> str:
             "# 번호 출석번호",
         ]
     elif role == "teacher":
-        example = "김선생,kim@school.local,kimss,01012345678,수학과"
+        example = "김선생,kim@school.local,kimss,01012345678,수학과,수학"
         descs = [
             "# 이름 필수 (실명)",
             "# 이메일 필수 (학교 메일)",
             "# 아이디 필수 (영문+숫자 8자 이상 권장)",
             "# 연락처 = 초기 비밀번호 ('-' 없이 숫자만 입력). 첫 로그인 시 강제 변경",
             "# 부서명 (마법사 2단계에서 등록한 부서명과 정확히 일치)",
+            "# 담당 과목 — 개설 과목 목록에서 선택(드롭다운). 복수 과목은 등록 후 '내 정보'에서 추가",
         ]
     else:
         example = "지정관리자,da@school.local,da01,01012345678"
@@ -128,11 +130,13 @@ def template_csv(role: str) -> str:
 FIXED_DEPARTMENTS: list[str] = ["교장", "교감", "행정실", "기타"]
 
 
-def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
-    """역할별 xlsx 템플릿. teacher면 '부서' 열에 드롭다운(DataValidation).
+def template_xlsx(role: str, dept_names: list[str] | None = None,
+                  subject_names: list[str] | None = None) -> bytes:
+    """역할별 xlsx 템플릿. teacher면 '부서'·'담당과목' 열에 드롭다운(DataValidation).
 
-    dept_names: 드롭다운 목록 (DB 등록 부서 + 고정 항목). None이면 드롭다운 없음.
-    목록은 숨김 시트(_부서목록)에 넣어 255자 제한을 회피.
+    dept_names: 부서 드롭다운 목록 (DB 등록 부서 + 고정 항목). None이면 드롭다운 없음.
+    subject_names: 담당과목 드롭다운 목록 (현재 학기 개설 과목). None이면 드롭다운 없음.
+    목록은 숨김 시트에 넣어 255자 제한을 회피.
     """
     from openpyxl import Workbook
     from openpyxl.worksheet.datavalidation import DataValidation
@@ -153,7 +157,7 @@ def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
         cell.fill = PatternFill("solid", fgColor="4A4A6E")
 
     examples = {
-        "teacher": ["김선생", "kim@school.local", "kimss", "01012345678", "수학과"],
+        "teacher": ["김선생", "kim@school.local", "kimss", "01012345678", "수학과", "수학"],
         "student": ["홍길동", "gildong@school.local", "10101", "01012345678", "1", "1", "1"],
         "designated_admin": ["지정관리자", "da@school.local", "da01", "01012345678"],
     }
@@ -175,6 +179,23 @@ def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
         )
         dv.prompt = "목록에서 부서/직책을 선택하세요"
         dv.promptTitle = "부서 선택"
+        ws.add_data_validation(dv)
+        dv.add(f"{letter}2:{letter}1000")
+
+    if role == "teacher" and "담당과목" in cols and subject_names:
+        ws_subj = wb.create_sheet("_과목목록")
+        for i, s in enumerate(subject_names, 1):
+            ws_subj.cell(row=i, column=1, value=s)
+        ws_subj.sheet_state = "hidden"
+        col_idx = cols.index("담당과목") + 1
+        letter = get_column_letter(col_idx)
+        dv = DataValidation(
+            type="list",
+            formula1=f"_과목목록!$A$1:$A${len(subject_names)}",
+            allow_blank=True,
+        )
+        dv.prompt = "개설 과목 목록에서 선택하세요"
+        dv.promptTitle = "담당 과목 선택"
         ws.add_data_validation(dv)
         dv.add(f"{letter}2:{letter}1000")
 
@@ -241,9 +262,21 @@ async def import_users_csv(
             "dry_run": dry_run,
         }
 
+    # 현재 학기 + 개설 과목 (담당과목 검증·enrollment 생성용)
+    import json as _json
+    from app.models.timetable import Semester, SemesterEnrollment
+    cur_sem = (await db.execute(select(Semester).where(Semester.is_current == True))).scalar_one_or_none()
+    valid_subjects: set[str] = set()
+    if cur_sem and cur_sem.subjects:
+        try:
+            valid_subjects = {str(x).strip() for x in _json.loads(cur_sem.subjects) if str(x).strip()}
+        except Exception:
+            valid_subjects = set()
+
     ok_count = 0
     errors: list[dict] = []
     new_users: list[User] = []
+    teaching_subject_by_user: dict[int, str] = {}  # id(User) → 담당과목 (교사)
     seen_emails: set[str] = set()
     seen_usernames: set[str] = set()
 
@@ -291,14 +324,21 @@ async def import_users_csv(
                 phone=phone,
                 must_change_password=True,
             )
+            tsub = None
             if role == "teacher":
                 kwargs["department"] = (row.get("department") or "").strip() or None
+                tsub = (row.get("teaching_subject") or "").strip() or None
+                if tsub and valid_subjects and tsub not in valid_subjects:
+                    raise ValueError(f"등록되지 않은 과목: {tsub} (개설 과목 목록에서 선택)")
             elif role == "student":
                 kwargs["grade"] = _to_int(row.get("grade") or "")
                 kwargs["class_number"] = _to_int(row.get("class_number") or "")
                 kwargs["student_number"] = _to_int(row.get("student_number") or "")
 
-            new_users.append(User(**kwargs))
+            u = User(**kwargs)
+            new_users.append(u)
+            if tsub:
+                teaching_subject_by_user[id(u)] = tsub
             ok_count += 1
         except Exception as e:
             errors.append({"row": i, "error": str(e)})
@@ -308,5 +348,24 @@ async def import_users_csv(
             assign_default_quota(u)
             db.add(u)
         await db.flush()
+        # 현재 학기 명단(enrollment) 자동 등록 — create_user와 동일 정책(CSV도 명단에 들어가야
+        # 클래스룸/시간표 매칭됨). 교사는 담당과목(teaching_subjects)도 함께 저장.
+        if cur_sem:
+            try:
+                for u in new_users:
+                    dup = (await db.execute(select(SemesterEnrollment).where(
+                        SemesterEnrollment.semester_id == cur_sem.id,
+                        SemesterEnrollment.user_id == u.id,
+                    ))).scalar_one_or_none()
+                    if not dup:
+                        db.add(SemesterEnrollment(
+                            semester_id=cur_sem.id, user_id=u.id, role=u.role, status="active",
+                            grade=u.grade, class_number=u.class_number, student_number=u.student_number,
+                            department=u.department, phone=u.phone,
+                            teaching_subjects=teaching_subject_by_user.get(id(u)),
+                        ))
+                await db.flush()
+            except Exception:
+                pass
 
     return {"ok_count": ok_count, "errors": errors, "dry_run": dry_run}

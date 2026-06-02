@@ -154,13 +154,23 @@ async def download_user_csv_template(
     if role not in USER_CSV_TEMPLATES:
         raise HTTPException(400, f"valid roles: {list(USER_CSV_TEMPLATES.keys())}")
     dept_names = None
+    subject_names = None
     if role == "teacher":
         db_depts = (await db.execute(
             select(Department.name).order_by(Department.sort_order, Department.name)
         )).scalars().all()
         # DB 등록 부서 먼저 + 고정(교장/교감/행정실/기타), 중복 제거·순서 유지
         dept_names = list(dict.fromkeys(list(db_depts) + FIXED_DEPARTMENTS))
-    content = template_xlsx(role, dept_names)
+        # 현재 학기 개설 과목 → '담당과목' 드롭다운
+        import json as _json
+        from app.models.timetable import Semester
+        s = (await db.execute(select(Semester).where(Semester.is_current == True))).scalar_one_or_none()
+        if s and s.subjects:
+            try:
+                subject_names = [str(x).strip() for x in _json.loads(s.subjects) if str(x).strip()]
+            except Exception:
+                subject_names = None
+    content = template_xlsx(role, dept_names, subject_names)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
