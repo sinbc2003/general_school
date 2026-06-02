@@ -23,7 +23,10 @@ export async function generateMetadata(): Promise<Metadata> {
     if (res.ok) {
       const data = await res.json();
       if (data.title) title = data.title;
-      if (data.favicon_url) faviconUrl = `${BACKEND_URL}${data.favicon_url}`;
+      // favicon_url은 "/api/system/branding/favicon?v=..." 상대경로 — 브라우저가 현재 origin
+      // 기준으로 로드(nginx가 /api를 백엔드로 프록시). SSR fetch용 내부주소(BACKEND_URL)를
+      // 붙이면 브라우저가 못 읽으므로 상대경로 그대로 사용.
+      if (data.favicon_url) faviconUrl = data.favicon_url;
     }
   } catch {}
 

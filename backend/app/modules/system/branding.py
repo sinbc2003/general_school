@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from fastapi import Depends, File, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +45,22 @@ async def _set_setting(db: AsyncSession, key: str, value: str | None) -> None:
         db.add(Setting(key=key, value=value))
 
 
+_FAVICON_MEDIA = {
+    ".ico": "image/x-icon", ".png": "image/png", ".svg": "image/svg+xml",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+}
+
+
+def _find_favicon_file() -> Path | None:
+    """업로드 디렉토리에서 favicon.* 파일 1개 탐색 (없으면 None)."""
+    if not BRANDING_DIR.exists():
+        return None
+    for p in sorted(BRANDING_DIR.glob("favicon.*")):
+        if p.suffix.lower() in ALLOWED_FAVICON_EXTS:
+            return p
+    return None
+
+
 @router.get("/branding")
 async def get_branding(db: AsyncSession = Depends(get_db)):
     """사이트 브랜딩 조회 — 인증 불필요 (layout metadata에서 SSR 시 호출)"""
@@ -52,6 +69,23 @@ async def get_branding(db: AsyncSession = Depends(get_db)):
         "school_name": await _get_setting(db, "site.school_name", settings.SCHOOL_NAME or "학교"),
         "favicon_url": await _get_setting(db, "site.favicon_url", "") or None,
     }
+
+
+@router.get("/branding/favicon")
+async def serve_favicon():
+    """파비콘 파일 서빙 — 익명(SSR·브라우저 탭 아이콘).
+
+    /storage가 아닌 /api 경로로 서빙 → nginx가 이미 /api를 백엔드로 프록시하므로
+    별도 정적 라우트·경로 매핑 없이 동작. 업로드 디렉토리(DEFAULT_STORAGE_ROOT/branding)에서 직접 읽음.
+    """
+    p = _find_favicon_file()
+    if not p:
+        return Response(status_code=404)
+    media = _FAVICON_MEDIA.get(p.suffix.lower(), "application/octet-stream")
+    return FileResponse(
+        str(p), media_type=media,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.put("/branding")
@@ -98,9 +132,9 @@ async def upload_favicon(
     target = BRANDING_DIR / f"favicon{ext}"
     await write_bytes_async(target, data)
 
-    # cache-busting을 위한 timestamp 쿼리
+    # cache-busting을 위한 timestamp 쿼리. /api 경로로 서빙(nginx가 /api 프록시).
     import time
-    url = f"/storage/branding/favicon{ext}?v={int(time.time())}"
+    url = f"/api/system/branding/favicon?v={int(time.time())}"
     await _set_setting(db, "site.favicon_url", url)
     await db.flush()
     return {"ok": True, "favicon_url": url}
