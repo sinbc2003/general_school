@@ -66,7 +66,12 @@
 - `_helpers.phone_to_initial_password()`: 전화번호에서 비숫자 제거 → 초기 비번.
 - `create_user`: 비번 우선순위 = **명시비번(임시) → 전화번호숫자 → DEFAULT_USER_PASSWORD(폴백)**. 교사·학생 공통, `must_change_password=True` 유지.
 - 마법사 `Step4Teachers`/`Step5Students`: '임시 비번' 칸 추가 — 연락처 없을 때 입력. password는 임시비번만 전송(없으면 백엔드가 phone derive). 연락처·임시 둘 다 없으면 공통기본비번 경고.
-- 검증: 헬퍼 단위테스트 + 해시 라운드트립(연락처로 만든 비번 로그인) B에서 통과. CSV import(`user_csv_io`)는 phone 컬럼 없음 → 그대로(명시 password 칸 사용). 관리자 비번초기화(`sessions.py`)는 여전히 DEFAULT — 필요 시 phone으로 바꿀 수 있음.
+- 검증: 헬퍼 단위테스트 + 해시 라운드트립(연락처로 만든 비번 로그인) B에서 통과. CSV import(`user_csv_io`)는 phone 컬럼 없음 → 그대로(명시 password 칸 사용).
+
+### ✅ G. 비밀번호 초기화 = 전화번호 우선 — 완료 (commit 0ea97bb)
+- `sessions.py reset_password`: **전화번호(숫자만) 있으면 그것으로, 없으면 관리자 지정 비번(body.password)**으로 초기화. 둘 다 없으면 400. `must_change_password=True`. 응답 `{password, source}`(기존 공통 default_password 노출 대체).
+- `/users` 초기화 버튼: 전화번호 있으면 확인→폰번호, 없으면 `prompt`로 임시비번 입력. `UserItem`에 phone 추가.
+- 검증: 3경우(phone/manual/400) B에서 통과. reset 경로의 DEFAULT_USER_PASSWORD 의존 제거.
 
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
