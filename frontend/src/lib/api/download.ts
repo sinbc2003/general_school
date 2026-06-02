@@ -71,3 +71,35 @@ export async function downloadSecure(
   // 약간의 지연 후 revoke (Safari 대응)
   setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
+
+
+/**
+ * 인증 파일을 받아 PDF Blob URL 반환 — 브라우저 내장 뷰어 미리보기(iframe src)용.
+ *
+ * 렌더링은 클라이언트 브라우저가 수행하므로 서버 CPU/RAM 추가 부담 없음
+ * (서버는 다운로드와 동일하게 바이트만 전송). 호출 측은 사용 후 revokeObjectURL().
+ */
+export async function fetchPdfBlobUrl(storagePath: string): Promise<string | null> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+  let fullUrl: string;
+  if (storagePath.startsWith("http")) fullUrl = storagePath;
+  else if (storagePath.startsWith("/api/")) fullUrl = `${API_URL}${storagePath}`;
+  else if (storagePath.startsWith("/storage/")) fullUrl = `${API_URL}/api/files${storagePath}`;
+  else fullUrl = `${API_URL}/${storagePath.replace(/^\/+/, "")}`;
+  try {
+    const res = await fetch(fullUrl, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { const d = await res.json(); detail = d?.detail || detail; } catch {}
+      alert(`미리보기 실패: ${detail}`);
+      return null;
+    }
+    const buf = await res.arrayBuffer();
+    return URL.createObjectURL(new Blob([buf], { type: "application/pdf" }));
+  } catch (err: any) {
+    alert(`미리보기 실패: ${err.message}`);
+    return null;
+  }
+}

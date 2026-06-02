@@ -13,9 +13,12 @@ import {
   XCircle,
   Loader2,
   Filter,
+  Eye,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
-import { downloadSecure } from "@/lib/api/download";
+import { downloadSecure, fetchPdfBlobUrl } from "@/lib/api/download";
+import { useAuth } from "@/lib/auth-context";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -48,10 +51,16 @@ interface UploadResult {
 }
 
 export default function PastResearchAdminPage() {
+  const { isAdmin } = useAuth();  // super_admin | designated_admin — ZIP 업로드/삭제는 이들만
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+
+  // PDF 미리보기 (브라우저 내장 뷰어 — 서버 렌더링 X, 부담 없음)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState("");
+  const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
 
   const [keyword, setKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -177,6 +186,18 @@ export default function PastResearchAdminPage() {
     }
   };
 
+  const openPreview = async (it: Item) => {
+    setPreviewLoadingId(it.id);
+    const url = await fetchPdfBlobUrl(it.file_url);
+    setPreviewLoadingId(null);
+    if (url) { setPreviewTitle(it.title); setPreviewUrl(url); }
+  };
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewTitle("");
+  };
+
   const totalPages = Math.ceil(total / pageSize);
   const fmtSize = (n: number) =>
     n < 1024 ? `${n}B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)}KB` : `${(n / 1024 / 1024).toFixed(1)}MB`;
@@ -193,12 +214,15 @@ export default function PastResearchAdminPage() {
         <div>
           <h1 className="text-title text-text-primary">과거 연구 보고서 아카이브</h1>
           <p className="text-caption text-text-tertiary mt-1">
-            ZIP 파일로 한 번에 등록 · 파일명 자동 파싱 · 학생/교사 검색 제공
+            {isAdmin
+              ? "ZIP 파일로 한 번에 등록 · 파일명 자동 파싱 · 학생/교사 검색 제공"
+              : "선배들의 연구 보고서 — 검색 · 미리보기 · 다운로드"}
           </p>
         </div>
       </div>
 
-      {/* 업로드 영역 */}
+      {/* 업로드 영역 — 최고관리자/지정관리자만 */}
+      {isAdmin && (<>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -286,6 +310,7 @@ export default function PastResearchAdminPage() {
           )}
         </div>
       )}
+      </>)}
 
       {/* 검색·필터 */}
       <form onSubmit={onSubmitSearch} className="flex flex-wrap items-center gap-2 mb-3">
@@ -383,19 +408,29 @@ export default function PastResearchAdminPage() {
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <button
+                      onClick={() => openPreview(it)}
+                      title="미리보기"
+                      disabled={previewLoadingId === it.id}
+                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary disabled:opacity-50"
+                    >
+                      {previewLoadingId === it.id ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                    </button>
+                    <button
                       onClick={() => downloadSecure(it.file_url, it.original_filename)}
                       title="다운로드"
-                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary"
+                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary ml-1"
                     >
                       <Download size={14} />
                     </button>
-                    <button
-                      onClick={() => onDelete(it.id, it.title)}
-                      title="삭제"
-                      className="p-1.5 hover:bg-red-50 rounded text-red-600 ml-1"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => onDelete(it.id, it.title)}
+                        title="삭제"
+                        className="p-1.5 hover:bg-red-50 rounded text-red-600 ml-1"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -416,6 +451,21 @@ export default function PastResearchAdminPage() {
                   className="px-3 py-1 rounded border border-border-default text-caption disabled:opacity-40">
             다음
           </button>
+        </div>
+      )}
+
+      {/* PDF 미리보기 모달 — 브라우저 내장 뷰어(iframe). 서버 렌더링 X */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={closePreview}>
+          <div className="bg-bg-primary rounded-lg w-full max-w-4xl h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border-default">
+              <span className="text-body font-medium text-text-primary truncate pr-2">{previewTitle}</span>
+              <button onClick={closePreview} title="닫기" className="text-text-tertiary hover:text-text-primary flex-shrink-0">
+                <X size={18} />
+              </button>
+            </div>
+            <iframe src={previewUrl} title={previewTitle} className="flex-1 w-full rounded-b-lg" />
+          </div>
         </div>
       )}
     </div>

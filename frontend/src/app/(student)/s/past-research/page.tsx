@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Search, FileText, Download, Award, Loader2 } from "lucide-react";
+import { Search, FileText, Download, Award, Loader2, Eye, X } from "lucide-react";
 import { api } from "@/lib/api/client";
-import { downloadSecure } from "@/lib/api/download";
+import { downloadSecure, fetchPdfBlobUrl } from "@/lib/api/download";
 
 interface Item {
   id: number;
@@ -31,6 +31,10 @@ export default function PastResearchStudentPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState("");
+  const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
 
   const [keyword, setKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -78,6 +82,18 @@ export default function PastResearchStudentPage() {
     e.preventDefault();
     setPage(1);
     setKeyword(searchInput);
+  };
+
+  const openPreview = async (it: Item) => {
+    setPreviewLoadingId(it.id);
+    const url = await fetchPdfBlobUrl(it.file_url);
+    setPreviewLoadingId(null);
+    if (url) { setPreviewTitle(it.title); setPreviewUrl(url); }
+  };
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewTitle("");
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -170,12 +186,22 @@ export default function PastResearchStudentPage() {
               </div>
               <div className="flex items-center justify-between text-caption">
                 <span className="text-text-tertiary">{fmtSize(it.file_size)}</span>
-                <button
-                  onClick={() => downloadSecure(it.file_url, it.original_filename)}
-                  className="inline-flex items-center gap-1 px-2 py-1 bg-accent text-white rounded hover:bg-accent-hover"
-                >
-                  <Download size={12} /> PDF 보기
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => openPreview(it)}
+                    disabled={previewLoadingId === it.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    {previewLoadingId === it.id ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} 미리보기
+                  </button>
+                  <button
+                    onClick={() => downloadSecure(it.file_url, it.original_filename)}
+                    title="다운로드"
+                    className="p-1.5 border border-border-default rounded text-text-secondary hover:bg-bg-secondary"
+                  >
+                    <Download size={12} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -200,6 +226,21 @@ export default function PastResearchStudentPage() {
       <div className="mt-6 text-caption text-text-tertiary text-center">
         ※ 진로 탐색·연구 주제 참고용으로 제공됩니다. 무단 복제·표절은 금지됩니다.
       </div>
+
+      {/* PDF 미리보기 모달 — 브라우저 내장 뷰어(iframe). 서버 렌더링 X */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={closePreview}>
+          <div className="bg-bg-primary rounded-lg w-full max-w-4xl h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border-default">
+              <span className="text-body font-medium text-text-primary truncate pr-2">{previewTitle}</span>
+              <button onClick={closePreview} title="닫기" className="text-text-tertiary hover:text-text-primary flex-shrink-0">
+                <X size={18} />
+              </button>
+            </div>
+            <iframe src={previewUrl} title={previewTitle} className="flex-1 w-full rounded-b-lg" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
