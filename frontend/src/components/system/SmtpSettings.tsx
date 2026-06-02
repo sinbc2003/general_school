@@ -18,7 +18,7 @@ interface Props {
 
 export default function SmtpSettings({ onSaved, compact }: Props) {
   const [form, setForm] = useState({
-    host: "", port: 587, user: "", password: "", from_addr: "", use_tls: true,
+    host: "", port: 587, user: "", password: "", from_addr: "", from_name: "", use_tls: true,
   });
   const [passwordSet, setPasswordSet] = useState(false);
   const [source, setSource] = useState<"db" | "env" | "none">("none");
@@ -34,7 +34,7 @@ export default function SmtpSettings({ onSaved, compact }: Props) {
       const c: any = await api.get("/api/system/email/config");
       setForm({
         host: c.host || "", port: c.port || 587, user: c.user || "",
-        password: "", from_addr: c.from_addr || "", use_tls: !!c.use_tls,
+        password: "", from_addr: c.from_addr || "", from_name: c.from_name || "", use_tls: !!c.use_tls,
       });
       setPasswordSet(!!c.password_set);
       setSource(c.source || "none");
@@ -161,9 +161,14 @@ export default function SmtpSettings({ onSaved, compact }: Props) {
             onChange={(e) => setForm({ ...form, user: e.target.value })} />
         </div>
         <div>
-          <label className={labelCls}>발신자 표시(From) — 비우면 아이디</label>
-          <input className={inputCls} placeholder="school@gmail.com" value={form.from_addr}
+          <label className={labelCls}>발신자 주소 — 비우면 아이디와 동일</label>
+          <input className={inputCls} placeholder="it@gmail.com" value={form.from_addr}
             onChange={(e) => setForm({ ...form, from_addr: e.target.value })} />
+        </div>
+        <div>
+          <label className={labelCls}>발신자 표시 이름 (예: ○○고등학교)</label>
+          <input className={inputCls} placeholder="○○고등학교" value={form.from_name}
+            onChange={(e) => setForm({ ...form, from_name: e.target.value })} />
         </div>
         <div className="sm:col-span-2">
           <label className={labelCls}>

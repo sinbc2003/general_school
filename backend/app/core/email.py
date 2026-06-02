@@ -29,6 +29,7 @@ async def get_effective_smtp() -> dict:
         "user": settings.SMTP_USER,
         "password": settings.SMTP_PASSWORD,
         "from": settings.SMTP_FROM,
+        "from_name": getattr(settings, "SMTP_FROM_NAME", ""),
         "use_tls": settings.SMTP_USE_TLS,
         "source": "env" if settings.SMTP_HOST else "none",
     }
@@ -66,6 +67,7 @@ async def get_effective_smtp() -> dict:
                 "user": user,
                 "password": pw if pw is not None else "",
                 "from": _v("email.smtp_from") or user,
+                "from_name": _v("email.smtp_from_name") or "",
                 "use_tls": (tls is None) or (tls.lower() in ("true", "1", "yes")),
                 "source": "db",
             })
@@ -93,8 +95,12 @@ async def send_email(
         return
 
     def _send():
+        from email.utils import formataddr
         msg = EmailMessage()
-        msg["From"] = cfg["from"] or cfg["user"]
+        _from_addr = cfg["from"] or cfg["user"]
+        _from_name = cfg.get("from_name") or ""
+        # 표시 이름 있으면 "○○고등학교 <it@gmail.com>" 형식 (개인메일도 학교로 보임)
+        msg["From"] = formataddr((_from_name, _from_addr)) if _from_name else _from_addr
         msg["To"] = to
         msg["Subject"] = subject
         msg.set_content(body_text)

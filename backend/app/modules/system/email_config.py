@@ -44,6 +44,7 @@ class SmtpConfigBody(BaseModel):
     user: str = ""
     password: str | None = None   # None/빈값이면 기존 비밀번호 유지
     from_addr: str = ""
+    from_name: str = ""
     use_tls: bool = True
 
 
@@ -63,6 +64,7 @@ async def get_email_config(
         "port": cfg["port"],
         "user": cfg["user"] or "",
         "from_addr": cfg["from"] or "",
+        "from_name": cfg.get("from_name") or "",
         "use_tls": cfg["use_tls"],
         "password_set": bool(cfg["password"]),
         "source": cfg["source"],   # db | env | none
@@ -80,6 +82,7 @@ async def set_email_config(
     await _set_cfg(db, "email.smtp_port", str(body.port))
     await _set_cfg(db, "email.smtp_user", body.user.strip())
     await _set_cfg(db, "email.smtp_from", (body.from_addr or "").strip())
+    await _set_cfg(db, "email.smtp_from_name", (body.from_name or "").strip())
     await _set_cfg(db, "email.smtp_use_tls", "true" if body.use_tls else "false")
     if body.password:
         await _set_cfg(db, "email.smtp_password", body.password, encrypt_it=True)
