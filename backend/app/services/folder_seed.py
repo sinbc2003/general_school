@@ -496,6 +496,26 @@ async def sync_all_users(
     }
 
 
+async def sync_all_users_background(semester_id: int | None = None) -> None:
+    """백그라운드 태스크용 — 자체 세션으로 전체 사용자 폴더 동기화 + commit.
+
+    학기/학년 전환(set-current, promote) 직후 FastAPI BackgroundTasks로 호출.
+    요청 응답을 막지 않음. 예외는 로깅만. sort_order는 기존 max+1 누적이라 충돌 없음
+    (새 학기 폴더는 항상 기존 최대값 다음 번호, 이전 학기 폴더는 보존).
+    """
+    import logging
+    from app.core.database import async_session_factory
+    log = logging.getLogger(__name__)
+    async with async_session_factory() as db:
+        try:
+            res = await sync_all_users(db, semester_id)
+            await db.commit()
+            log.info("[folder_seed] 학기전환 bg-sync 완료: %s", res)
+        except Exception:
+            await db.rollback()
+            log.exception("[folder_seed] 학기전환 bg-sync 실패")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 단일 source 핀포인트 동기화 (hook용)
 # ─────────────────────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ router 객체는 router.py에서 공유. router.py 끝의 'from . import semeste
 
 from datetime import date, datetime, timezone
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -219,12 +219,16 @@ async def update_semester_structure(
 @router.post("/semesters/{sid}/set-current")
 async def set_current_semester(
     sid: int,
+    background: BackgroundTasks,
     user: User = Depends(require_permission("system.semester.manage")),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
     """이 학기를 현재 학기로 지정 (다른 모든 학기는 is_current=False).
     archived 학기는 현재 학기로 지정 불가.
+
+    학기 전환 직후 전체 사용자 '내 드라이브' 자동 폴더를 새 학기 기준으로
+    백그라운드 동기화한다(이전 학기 폴더는 보존·누적, sort_order 충돌 없음).
     """
     s = await get_semester_by_id_or_404(db, sid)
     if s.is_archived:
@@ -233,6 +237,9 @@ async def set_current_semester(
     s.is_current = True
     await db.flush()
     await log_action(db, user, "semester.set_current", f"semester:{sid}", request=request)
+    # 새 학기 기준 전체 드라이브 폴더 자동 생성 (백그라운드 — 응답 막지 않음)
+    from app.services.folder_seed import sync_all_users_background
+    background.add_task(sync_all_users_background, sid)
     return _semester_to_dict(s)
 
 

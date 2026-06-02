@@ -3,7 +3,7 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import enrollment_csv'로 등록.
 """
 
-from fastapi import Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,6 +82,7 @@ async def import_enrollments_endpoint(
 @router.post("/semesters/{from_sid}/promote-to/{to_sid}")
 async def promote_enrollments(
     from_sid: int, to_sid: int,
+    background: BackgroundTasks,
     body: PromoteRequest = PromoteRequest(),
     user: User = Depends(require_permission("system.enrollment.manage")),
     db: AsyncSession = Depends(get_db),
@@ -175,6 +176,9 @@ async def promote_enrollments(
             f"from:{from_sid}->to:{to_sid} promoted={promoted} graduated={graduated} copied={copied}",
             request=request,
         )
+        # 진급(학년 변경)·명단 복제 직후 대상 학기 기준 전체 드라이브 폴더 자동 동기화 (백그라운드)
+        from app.services.folder_seed import sync_all_users_background
+        background.add_task(sync_all_users_background, to_sid)
 
     return {
         "dry_run": dry_run,
