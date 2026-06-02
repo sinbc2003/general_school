@@ -85,6 +85,13 @@
 - **배경**: 마법사 Step1은 grade_count만, classes_per_grade·subjects는 마법사 미수집(확인: B에서 None). 그래서 학급=학생도출, 과목=마법사등록으로 전환.
 - **✅ 교사 템플릿 담당과목 드롭다운 — 완료 (commit c791be1)**: 교사 CSV/xlsx 템플릿에 '담당과목' 컬럼+xlsx 드롭다운(현재학기 개설과목). CSV import가 **모든 임포트 사용자에 현재학기 enrollment 자동생성**(기존엔 미생성=명단누락 버그였음)하고, 교사는 `teaching_subjects` 저장. 미등록 과목은 행 오류로 거부(자유입력 차단). B 검증 통과(수학→OK+enrollment, 체육→거부).
 
+### ✅ J. 과제 마감 1일 전 알림 + 멀티워커 단일실행 가드 — 완료 (commit 31ba0a4, 130147c)
+- **마감 reminder**: `core/notification_scheduler._send_due_reminders` — 마감 **23~25h 전** + is_visible·ACTIVE 과제의 **미제출 학생**에게 종 알림(`assignment.due_reminder`, 링크 `/s/assignment`, 본문 시각 **KST**). 대상 = 같은 학기 active 학생(SemesterEnrollment), `target_grades` 지정 시 해당 학년만. `due_reminder_sent_at` 마크로 과제당 1회.
+  - **고친 버그**: 기존 코드가 대상을 Course/subject 매칭으로 찾았으나 과제(list_assignments)는 강좌 수강 여부로 안 거르고 학기 전체 학생에게 노출 → 매칭 강좌 없으면 **0건 발송(죽은 코드)**. 링크도 `/s/assignments/{id}`(존재X 404) → `/s/assignment`.
+- **멀티워커 가드(중요)**: gunicorn `--workers 9` → lifespan이 워커마다 스케줄러 기동 → reminder **9중복 발송** + github_update_check 동시 INSERT로 `school_config_key_key` unique 충돌(로그 스팸). **Postgres advisory lock(`pg_try_advisory_lock`, key `0x47534E4F54494659`)으로 워커 1개만 cron 실행**. SQLite(dev)는 그대로. → 모든 cron(휴지통 purge·볼륨체크 등)도 9×→1× 정상화. 확인: `SELECT count(*) FROM pg_locks WHERE locktype='advisory'` = 1.
+- **검증 B 통과**: 24h후 마감 테스트과제 → active 고1 5명에 5건 발송, 제목/본문/KST(`06/04 00:21`)/링크/dedup 정확, 정리 후 잔여 0.
+- **범위**: 과제 = **dedicated Assignment 모듈(`/s/assignment`)** 기준. classroom 글(assignment_ref)은 작성 시 이미 알림 발송 + 제출추적 없음 → 별도 reminder 미적용(원하면 CoursePost에 due_reminder_sent_at 컬럼 추가 필요).
+
 ### 🟢 운영 배포 상태 (2026-06-02) — 교감 시연용 임시 공개
 - **공개 URL: https://pubedu.com** — Cloudflare named 터널 `gs` (sinbc2023 계정 도메인). `cloudflared` systemd 자동시작, 재부팅 유지.
   - config `~susung/.cloudflared/config.yml`: `edge-ip-version: "4"` (B의 **IPv6 아웃바운드가 깨져 있어** IPv4 고정 필수 — login cert fetch도 IPv6 끄고 해야 됐음). cert `~susung/.cloudflared/cert.pem`.
