@@ -85,6 +85,14 @@
 - **배경**: 마법사 Step1은 grade_count만, classes_per_grade·subjects는 마법사 미수집(확인: B에서 None). 그래서 학급=학생도출, 과목=마법사등록으로 전환.
 - **✅ 교사 템플릿 담당과목 드롭다운 — 완료 (commit c791be1)**: 교사 CSV/xlsx 템플릿에 '담당과목' 컬럼+xlsx 드롭다운(현재학기 개설과목). CSV import가 **모든 임포트 사용자에 현재학기 enrollment 자동생성**(기존엔 미생성=명단누락 버그였음)하고, 교사는 `teaching_subjects` 저장. 미등록 과목은 행 오류로 거부(자유입력 차단). B 검증 통과(수학→OK+enrollment, 체육→거부).
 
+### 🟢 운영 배포 상태 (2026-06-02) — 교감 시연용 임시 공개
+- **공개 URL: https://pubedu.com** — Cloudflare named 터널 `gs` (sinbc2023 계정 도메인). `cloudflared` systemd 자동시작, 재부팅 유지.
+  - config `~susung/.cloudflared/config.yml`: `edge-ip-version: "4"` (B의 **IPv6 아웃바운드가 깨져 있어** IPv4 고정 필수 — login cert fetch도 IPv6 끄고 해야 됐음). cert `~susung/.cloudflared/cert.pem`.
+  - `.env`: `GS_PUBLIC_URL=https://pubedu.com` → gs-autoip 도메인모드가 FRONTEND/CORS를 도메인으로 유지(재부팅 안전).
+- **⚠️ `.env SHOW_LOGIN_CODE=true` (임시 데모)** — 로그인 2FA 코드를 화면에 노출(교감 이메일 확인 불필요). **시연 후 반드시 `false` + `gs-backend` 재시작.** 공개 URL + 이 토글 = 2FA 사실상 무력화.
+- **선배연구(past_research)에 학생연구보고서 75건 업로드 완료** (2024~2026, `/_bulk-upload` ZIP, 파일명 자동파싱).
+- 학교 이동 시: 유선 outbound 차단되면 터널 끊김(내부 LAN 접속만 가능). B MAC 화이트리스트 요청하면 터널 유지 + 직접 SSH 복구.
+
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
 - **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
