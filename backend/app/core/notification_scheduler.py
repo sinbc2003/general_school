@@ -52,6 +52,13 @@ SCHEDULER_LOCK_KEY = 0x47534E4F54494659
 # _acquire_scheduler_lock가 "다른 워커가 이미 보유" 를 알리는 sentinel.
 _LOCK_SKIP = object()
 
+# 알림 본문의 마감 시각 표기용 — 서버 TZ가 UTC여도 한국 학생 기준(KST)으로 표시.
+try:
+    from zoneinfo import ZoneInfo
+    _KST = ZoneInfo("Asia/Seoul")
+except Exception:  # tzdata 없으면 서버 로컬로 폴백
+    _KST = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 시스템 에러 알림 — scheduler/cron 실패 시 super_admin에게 1회 알림 (24h 쿨다운)
@@ -166,8 +173,9 @@ async def _send_due_reminders(db: AsyncSession) -> int:
             pending_ids = [uid for uid in student_ids if uid not in submitted_ids]
 
             if pending_ids:
-                # 시간 표시: ko 로컬
-                due_str = a.due_date.astimezone().strftime("%m/%d %H:%M")
+                # 시간 표시: KST (서버 TZ가 UTC여도 한국 기준으로 표기)
+                due_local = a.due_date.astimezone(_KST) if _KST else a.due_date.astimezone()
+                due_str = due_local.strftime("%m/%d %H:%M")
                 count = await notify_users(
                     db, user_ids=pending_ids,
                     type="assignment.due_reminder",
