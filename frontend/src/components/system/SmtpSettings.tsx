@@ -80,10 +80,58 @@ export default function SmtpSettings({ onSaved, compact }: Props) {
   return (
     <div className="space-y-4">
       {!compact && (
-        <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800">
-          <b>가장 쉬운 방법: Gmail 앱 비밀번호</b> (무료) — Google 계정 → 보안 → 2단계 인증 켜기 →
-          앱 비밀번호 생성(16자리). Host <code>smtp.gmail.com</code>, Port <code>587</code>, TLS 켬,
-          아이디=Gmail 주소, 비밀번호=앱 비밀번호. 학교 메일 서버가 있으면 그 정보를 입력하세요.
+        <div className="space-y-3">
+          <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800">
+            <b>💡 가장 간단한 방법: 최고관리자 본인 메일 그대로 쓰기</b><br />
+            별도 학교 메일을 새로 만들 필요 없습니다. <b>본인(최고관리자) 메일 주소</b>를 그대로 넣으면,
+            로그인 인증 코드가 본인 메일로 옵니다(자기 메일로 자기 인증). 교직원이 많아지면 그때
+            학교 공용 메일로 바꾸면 됩니다.
+          </div>
+
+          {/* 빠른 입력 프리셋 — 클릭하면 host/port 자동 채움 */}
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <span className="text-gray-500">빠른 입력:</span>
+            <button type="button" onClick={() => setForm({ ...form, host: "smtp.gmail.com", port: 587, use_tls: true })}
+              className="rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50">Gmail</button>
+            <button type="button" onClick={() => setForm({ ...form, host: "smtp.naver.com", port: 587, use_tls: true })}
+              className="rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50">네이버</button>
+            <button type="button" onClick={() => setForm({ ...form, host: "smtp.daum.net", port: 465, use_tls: true })}
+              className="rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50">다음</button>
+            <button type="button" onClick={() => setForm({ ...form, host: "smtp.office365.com", port: 587, use_tls: true })}
+              className="rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50">Office365</button>
+          </div>
+
+          {/* 앱 비밀번호 발급 상세 가이드 — 펼침/접기 */}
+          <details className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+            <summary className="cursor-pointer font-semibold text-gray-800">📧 앱 비밀번호 발급 방법 (모르면 여기 클릭해서 펼치기)</summary>
+            <div className="mt-3 space-y-3">
+              <div>
+                <b className="text-gray-900">▸ Gmail</b>
+                <ol className="list-decimal list-inside mt-1 space-y-0.5 leading-relaxed">
+                  <li><a href="https://myaccount.google.com/security" target="_blank" rel="noopener" className="text-blue-600 underline">Google 계정 → 보안</a> 으로 이동</li>
+                  <li><b>2단계 인증</b>을 먼저 켭니다 (앱 비밀번호의 선행 조건)</li>
+                  <li>보안 화면에서 <b>"앱 비밀번호"</b> 검색 → 클릭</li>
+                  <li>앱 이름 아무거나 입력(예: <i>학교플랫폼</i>) → <b>생성</b></li>
+                  <li><b>16자리 코드</b>가 뜨면 복사 → 아래 <b>"비밀번호(앱 비밀번호)"</b> 칸에 붙여넣기</li>
+                  <li>아이디 = 본인 Gmail 주소 / 위에서 <b>Gmail</b> 프리셋 클릭하면 Host·Port 자동</li>
+                </ol>
+              </div>
+              <div>
+                <b className="text-gray-900">▸ 네이버</b>
+                <ol className="list-decimal list-inside mt-1 space-y-0.5 leading-relaxed">
+                  <li>네이버 메일 → <b>환경설정 → POP3/IMAP 설정</b> → "POP3/SMTP 사용함"</li>
+                  <li>2단계 인증을 쓰면: 내정보 → 보안 → <b>애플리케이션 비밀번호</b> 발급</li>
+                  <li>2단계 인증을 안 쓰면: 네이버 <b>계정 비밀번호</b> 그대로 사용 가능</li>
+                  <li>위에서 <b>네이버</b> 프리셋 클릭하면 Host·Port 자동</li>
+                </ol>
+              </div>
+              <div className="text-gray-500 border-t border-gray-200 pt-2">
+                ⚠️ Gmail은 <b>일반 로그인 비번이 아니라 "앱 비밀번호"</b>를 넣어야 합니다 (보안상 외부앱 차단).
+                입력한 비밀번호는 서버에서 <b>암호화 저장</b>되며 화면에 다시 표시되지 않습니다.
+                저장 후 아래 <b>"테스트 메일 보내기"</b>로 실제 도착을 꼭 확인하세요.
+              </div>
+            </div>
+          </details>
         </div>
       )}
       {msg && (
