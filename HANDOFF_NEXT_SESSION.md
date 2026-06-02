@@ -79,6 +79,12 @@
 - 검증 B 통과(연락처→비번, 명시 우선, 무폰→DEFAULT). **→ 등록(마법사 줄입력·CSV)·초기화 전부 "연락처 우선" 일관 완성.**
 - **개선 (commit ceafa70)**: CSV/xlsx 템플릿에서 **'비밀번호' 컬럼 폐지**(연락처가 곧 초기비번), 연락처 예시 '-' 없이(`01012345678`). 마법사 Step4/5 **per-row 임시비번 제거 → 상단 '일괄 임시 비번' 한 칸**(핸드폰 없는 사람 전원에 적용). 연락처 placeholder '-' 없이. import은 password 컬럼 있으면 호환 사용.
 
+### ✅ I. 개설과목 마법사 등록 + me/setup 학급/학년 학생기반 — 완료 (commit 02b5e0d)
+- **마법사 Step3Semesters**: '개설 과목' 등록 UI 추가 → 현재 학기 `subjects`를 `PUT /api/timetable/semesters/{id}/structure`로 저장. me/setup 담당과목 드롭다운의 표준 소스. 자유입력 X, 추가/수정·시스템→학기관리에서도 가능.
+- **me/setup**: 담임/수업 학급 = **등록 학생 명단(학년+반)에서 도출**(+classes_per_grade 합집합), 수업 학년 = 학생 학년. 담당과목 = `semester.subjects`. → 마법사가 classes_per_grade를 안 채우던 문제 해결.
+- **배경**: 마법사 Step1은 grade_count만, classes_per_grade·subjects는 마법사 미수집(확인: B에서 None). 그래서 학급=학생도출, 과목=마법사등록으로 전환.
+- **⏳ 미완(요청 일부)**: 교사 CSV/xlsx 템플릿에 '담당과목 드롭다운'은 보류 — teaching_subjects가 enrollment(학기별·복수값)에 있고 CSV import가 enrollment를 안 만들어 설계 결정 필요. 교사 본인은 me/setup에서 드롭다운으로 선택 가능(자유입력 아님).
+
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
 - **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
