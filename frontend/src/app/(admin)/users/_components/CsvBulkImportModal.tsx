@@ -51,7 +51,7 @@ export function CsvBulkImportModal({ onClose }: { onClose: () => void }) {
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `users_${role}_template.csv`;
+    a.download = `users_${role}_template.xlsx`;
     a.click();
   };
 
@@ -77,7 +77,7 @@ export function CsvBulkImportModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-border-default">
-          <h2 className="text-body font-semibold text-text-primary">CSV 일괄 등록 (최고관리자 전용)</h2>
+          <h2 className="text-body font-semibold text-text-primary">엑셀 일괄 등록 (최고관리자 전용)</h2>
           <button onClick={onClose} className="text-text-tertiary hover:text-text-primary">
             <X size={18} />
           </button>
@@ -120,7 +120,7 @@ export function CsvBulkImportModal({ onClose }: { onClose: () => void }) {
             <label className="block text-body font-medium text-text-primary mb-1">CSV 파일</label>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,.csv,text/csv"
               onChange={(e) => { setFile(e.target.files?.[0] || null); setResult(null); }}
               className="block w-full px-3 py-2 border border-border-default rounded text-body"
             />

@@ -118,7 +118,7 @@ export function Step4Teachers() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "교사_등록_템플릿.csv";
+    a.download = "교사_등록_템플릿.xlsx";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -171,7 +171,7 @@ export function Step4Teachers() {
           <input
             ref={csvInputRef}
             type="file"
-            accept=".csv"
+            accept=".xlsx,.csv"
             onChange={(e) => e.target.files?.[0] && onCsvUpload(e.target.files[0])}
             className="hidden"
           />
@@ -181,7 +181,7 @@ export function Step4Teachers() {
             disabled={csvUploading}
             className="px-3 py-1.5 text-[12px] text-accent border border-accent/30 rounded hover:bg-accent/5 flex items-center gap-1 disabled:opacity-50"
           >
-            <Upload size={12} /> {csvUploading ? "업로드 중..." : "CSV 일괄 등록"}
+            <Upload size={12} /> {csvUploading ? "업로드 중..." : "엑셀 일괄 등록"}
           </button>
         </div>
       </div>
