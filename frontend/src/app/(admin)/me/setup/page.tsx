@@ -20,13 +20,16 @@ interface Me {
 interface Semester {
   id: number;
   name: string;
-  is_current: boolean;
+  is_current?: boolean;
+  // 학교 구조 (드롭다운 소스) — _semester_to_dict 제공
+  classes_per_grade?: Record<string, number>;
+  subjects?: string[];
 }
 
 interface MyEnrollment {
   homeroom_class: string | null;
   subhomeroom_class: string | null;
-  teaching_grades: string[];
+  teaching_grades: (string | number)[];
   teaching_classes: string[];
   teaching_subjects: string[];
   semester?: Semester;
@@ -52,12 +55,12 @@ export default function TeacherMeSetupPage() {
   const [phone, setPhone] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // enrollment 폼
+  // enrollment 폼 — 학교 구조 기반 선택 (직접입력 X)
   const [homeroom, setHomeroom] = useState("");
   const [subhomeroom, setSubhomeroom] = useState("");
-  const [teachingGradesStr, setTeachingGradesStr] = useState("");
-  const [teachingClassesStr, setTeachingClassesStr] = useState("");
-  const [teachingSubjectsStr, setTeachingSubjectsStr] = useState("");
+  const [grades, setGrades] = useState<Set<string>>(new Set());
+  const [classes, setClasses] = useState<Set<string>>(new Set());
+  const [subjects, setSubjects] = useState<Set<string>>(new Set());
   const [savingEnroll, setSavingEnroll] = useState(false);
 
   // 연구 학생 검색·추가
@@ -86,9 +89,9 @@ export default function TeacherMeSetupPage() {
         });
         setHomeroom(en.homeroom_class || "");
         setSubhomeroom(en.subhomeroom_class || "");
-        setTeachingGradesStr((en.teaching_grades || []).join(", "));
-        setTeachingClassesStr((en.teaching_classes || []).join(", "));
-        setTeachingSubjectsStr((en.teaching_subjects || []).join(", "));
+        setGrades(new Set((en.teaching_grades || []).map(String)));
+        setClasses(new Set(en.teaching_classes || []));
+        setSubjects(new Set(en.teaching_subjects || []));
       }
       setSemesterId(sup.semester_id);
       setSupervised(sup.items || []);
@@ -114,19 +117,31 @@ export default function TeacherMeSetupPage() {
   const saveEnrollment = async () => {
     setSavingEnroll(true);
     try {
-      const splitList = (s: string) => s.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
       await api.put("/api/timetable/my-enrollment/onboarding", {
-        homeroom_class: homeroom.trim() || null,
-        subhomeroom_class: subhomeroom.trim() || null,
-        teaching_grades: splitList(teachingGradesStr),
-        teaching_classes: splitList(teachingClassesStr),
-        teaching_subjects: splitList(teachingSubjectsStr),
+        homeroom_class: homeroom || null,
+        subhomeroom_class: subhomeroom || null,
+        teaching_grades: Array.from(grades).map((g) => parseInt(g)),
+        teaching_classes: Array.from(classes),
+        teaching_subjects: Array.from(subjects),
       });
       alert("저장됨 ✓");
       await load();
     } catch (e: any) {
       alert(`저장 실패: ${e?.detail || e}`);
     } finally { setSavingEnroll(false); }
+  };
+
+  // 학교 구조 → 드롭다운 소스 (teacher-onboarding 페이지와 동일 규칙)
+  const sem = enrollment?.semester;
+  const allGrades = Object.keys(sem?.classes_per_grade || {}).sort();
+  const allClasses: string[] = Object.entries(sem?.classes_per_grade || {})
+    .flatMap(([g, n]) => Array.from({ length: n }, (_, i) => `${g}-${i + 1}`));
+  const allSubjects = sem?.subjects || [];
+  const toggleSet = (set: Set<string>, setFn: (s: Set<string>) => void, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setFn(next);
   };
 
   const searchStudents = async (q: string) => {
@@ -199,44 +214,87 @@ export default function TeacherMeSetupPage() {
         </div>
       </Section>
 
-      {/* 섹션 2,3: 담임 + 담당 과목 (한 번에 onboarding endpoint로 저장) */}
-      <Section icon={<GraduationCap size={16} />} title="2. 담임·담당 학급" subtitle={enrollment?.semester ? `${enrollment.semester.name} 기준` : ""}>
+      {/* 섹션 2: 담임·부담임 — 학교 구조 기반 드롭다운 (직접입력 X) */}
+      <Section icon={<GraduationCap size={16} />} title="2. 담임·부담임 학급" subtitle={sem ? `${sem.name} 기준` : ""}>
         <div className="grid grid-cols-2 gap-3">
-          <Field
-            label="담임 (예: 1-3)"
-            value={homeroom}
-            onChange={setHomeroom}
-            placeholder="비워두면 미담임"
-          />
-          <Field
-            label="부담임 (예: 2-1)"
-            value={subhomeroom}
-            onChange={setSubhomeroom}
-          />
+          <label className="block">
+            <span className="text-caption text-text-tertiary">담임 학급</span>
+            <select value={homeroom} onChange={(e) => setHomeroom(e.target.value)}
+                    className="w-full mt-0.5 px-2 py-1.5 border border-border-default rounded text-body bg-bg-primary">
+              <option value="">담임 아님</option>
+              {allClasses.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-caption text-text-tertiary">부담임 학급</span>
+            <select value={subhomeroom} onChange={(e) => setSubhomeroom(e.target.value)}
+                    className="w-full mt-0.5 px-2 py-1.5 border border-border-default rounded text-body bg-bg-primary">
+              <option value="">부담임 아님</option>
+              {allClasses.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
         </div>
+        {allClasses.length === 0 && (
+          <p className="text-caption text-text-tertiary mt-2">학교 구조(학급)가 설정되지 않았습니다. 관리자에게 요청하세요.</p>
+        )}
       </Section>
 
-      <Section icon={<BookOpen size={16} />} title="3. 담당 과목·수업 학급" subtitle="쉼표·공백으로 구분">
-        <div className="grid grid-cols-3 gap-3">
-          <Field
-            label="수업 학년"
-            value={teachingGradesStr}
-            onChange={setTeachingGradesStr}
-            placeholder="1, 2"
-          />
-          <Field
-            label="수업 학급"
-            value={teachingClassesStr}
-            onChange={setTeachingClassesStr}
-            placeholder="1-1, 1-3, 2-2"
-          />
-          <Field
-            label="담당 과목"
-            value={teachingSubjectsStr}
-            onChange={setTeachingSubjectsStr}
-            placeholder="수학, 미적분"
-          />
+      {/* 섹션 3: 수업 학년·학급·담당 과목 — 학교 구조에서 복수 선택 */}
+      <Section icon={<BookOpen size={16} />} title="3. 담당 과목·수업 학급" subtitle="학교 구조에서 선택">
+        {/* 수업 학년 */}
+        <div className="mb-3">
+          <span className="text-caption text-text-tertiary block mb-1.5">수업 학년 (복수 선택)</span>
+          <div className="flex flex-wrap gap-2">
+            {allGrades.map((g) => (
+              <label key={g} className={`px-3 py-1.5 text-caption border rounded cursor-pointer transition-colors ${
+                grades.has(g) ? "border-accent bg-accent/10 text-accent" : "border-border-default hover:bg-bg-secondary"}`}>
+                <input type="checkbox" checked={grades.has(g)} onChange={() => toggleSet(grades, setGrades, g)} className="hidden" />
+                {g}학년
+              </label>
+            ))}
+            {allGrades.length === 0 && <span className="text-caption text-text-tertiary">학교 구조 미설정 — 관리자에게 요청</span>}
+          </div>
         </div>
+
+        {/* 수업 학급 (학년 선택 시 활성) */}
+        <div className="mb-3">
+          <span className="text-caption text-text-tertiary block mb-1.5">
+            수업 학급 <span className="text-text-tertiary">(선택, 더 세밀히 지정할 때만)</span>
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {allClasses.map((c) => {
+              const enabledByGrade = grades.has(c.split("-")[0]);
+              const checked = classes.has(c);
+              return (
+                <label key={c}
+                  className={`px-2 py-0.5 text-caption border rounded cursor-pointer transition-colors ${
+                    checked ? "border-accent bg-accent/10 text-accent"
+                      : enabledByGrade ? "border-border-default hover:bg-bg-secondary" : "border-border-default opacity-40"}`}
+                  title={!enabledByGrade ? "해당 학년을 먼저 선택" : ""}>
+                  <input type="checkbox" checked={checked} disabled={!enabledByGrade}
+                         onChange={() => toggleSet(classes, setClasses, c)} className="hidden" />
+                  {c}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 담당 과목 */}
+        <div>
+          <span className="text-caption text-text-tertiary block mb-1.5">담당 과목 (복수 선택)</span>
+          <div className="flex flex-wrap gap-1.5">
+            {allSubjects.map((s) => (
+              <label key={s} className={`px-3 py-1 text-caption border rounded cursor-pointer transition-colors ${
+                subjects.has(s) ? "border-accent bg-accent/10 text-accent" : "border-border-default hover:bg-bg-secondary"}`}>
+                <input type="checkbox" checked={subjects.has(s)} onChange={() => toggleSet(subjects, setSubjects, s)} className="hidden" />
+                {s}
+              </label>
+            ))}
+            {allSubjects.length === 0 && <span className="text-caption text-text-tertiary">개설 과목 미설정 — 관리자에게 요청</span>}
+          </div>
+        </div>
+
         <div className="flex justify-end mt-3">
           <button onClick={saveEnrollment} disabled={savingEnroll}
                   className="px-3 py-1.5 bg-accent text-white text-caption rounded inline-flex items-center gap-1 disabled:opacity-50">
