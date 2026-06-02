@@ -1,7 +1,7 @@
 # 다음 세션 인계 — general_school ("이어서" 작업)
 
 > 사용자가 **"이어서"** 라고 하면 이 문서를 읽고 아래 **남은 작업**을 우선순위 순으로 진행한다.
-> (작성: 2026-06-02 세션 종료 시점)
+> (작성: 2026-06-02 / 갱신: 2026-06-02 2차 세션 — B·C·D 전부 완료·B배포. 현재 **필수 남은 작업 없음**, §3 참조)
 
 ---
 
@@ -41,29 +41,26 @@
 
 ---
 
-## 3. 남은 작업 (이어서 — 우선순위 순)
+## 3. 남은 작업 (이어서) — ✅ B·C·D 모두 완료 (2026-06-02 2차 세션, B 배포됨)
 
-### ⭐ B. 학생 선택 모달 (수강생/연구담당 등록 UX)
-- **문제**: 클래스룸 수강생 추가가 **학번 직접입력**(불편·오타). 연구담당 학생 등록도 직접입력.
-- **목표**: 등록된 **전교생 목록에서 모달로 선택**. 학년/학급별 필터 + 학년·학급 **전체선택 한 번에**.
-- **관련 코드**:
-  - 수강생 추가 API: `backend/app/modules/classroom/router.py` — `POST /courses/{cid}/students` (572), `POST /courses/{cid}/students/bulk` (620, 학번 기반)
-  - 전교생 조회: `GET /api/users?role=student` (응답 `{items,total}`, multi-role split 수정됨) / 또는 `GET /api/users/peers` (`search_peers`, UserPicker 패턴)
-  - frontend: 학번입력 모달(사진의 "학생 일괄 등록") 찾아 → **전교생 선택 모달**로 교체. 재사용 `StudentPickerModal` 컴포넌트 신규 권장.
-  - 연구담당: `past_research` / research supervision 모듈의 학생 등록부.
-- **원칙**: 모든 학생/교사 선택 = **직접입력 금지 → 등록 명단 기반 모달/드롭다운**.
+직전 핸드오프의 B·C·D를 모두 구현하고 GitHub push + 수성고 B 배포(BUILD_OK·gs-frontend active)까지 완료. **남은 필수 작업 없음.**
 
-### C. 드롭다운 연동 (내 정보 등록)
-- **문제**: 내정보(수업/학급/과목/연구담당)가 직접입력 → 오타·비표준.
-- **목표**: 마법사 등록 데이터 기반 **드롭다운** (학기 enrollment, 개설 과목).
-- **관련 코드**:
-  - 내정보: `/me/setup` 페이지 + `PUT /api/timetable/my-enrollment/onboarding`
-  - 과목 소스: `Semester.subjects`(학기 구조) 또는 `Course`. 마법사 Step3Semesters(학기구조)·Step7Courses 확인.
-  - 학급/학년: enrollment 기반.
+### ✅ B. 학생 선택 모달 — 완료 (commit f9acb3b)
+- 신규 `frontend/src/components/StudentPickerModal.tsx` (재사용 컴포넌트): 학년/반 필터 + 이름·아이디 검색 + "현재 목록 전체 선택" + 이미등록 학생 "등록됨" 비활성 + 학번 붙여넣기 보조입력(접힘).
+- `GET /api/users/peers?role=student` 사용 — `user.manage.view` 권한 없는 교사도 본인 강좌에 학생 등록 가능(`/api/users`는 권한 필요해서 회피).
+- 클래스룸 강좌상세 `(admin)/classroom/[cid]/page.tsx`의 학번입력 `BulkAddModal` 제거 → StudentPickerModal로 교체. 백엔드 무변경(`CourseStudentBulk`가 user_ids/student_numbers 둘 다 지원).
 
-### D. 메뉴 순서 (대시보드 위치) — 화면에서 가능
-- **목표**: 대시보드를 "업무" 카테고리 밖, **"알림(공지)" 바로 아래** → 그 뒤 드라이브 순.
-- **방법**: 메뉴는 DB 설정 (`frontend/src/lib/menu-context.tsx` + `/system/menu` 관리화면에 `moveItem`/`moveCategory` 있음). **사용자가 화면에서 직접 조정 가능 → 코드 0**. 기본값 바꾸려면 menu seed 확인.
+### ✅ C. 내 정보 드롭다운 연동 — 완료 (commit 3836962)
+- `(admin)/me/setup/page.tsx`: 담임/부담임 = 학급 `<select>`, 수업학년/수업학급 = 체크박스(학급은 선택 학년에서만 활성), 담당과목 = 체크박스. 모두 `enrollment.semester.classes_per_grade`/`subjects` 기반.
+- `auth/teacher-onboarding/page.tsx`와 동일 UX·데이터경로(`GET /api/timetable/my-enrollment`). 자유텍스트(쉼표구분) 입력 제거. 백엔드 무변경(`_semester_to_dict`가 구조 제공).
+
+### ✅ D. 메뉴 순서 — 완료 (commit 8667b54)
+- `frontend/src/config/menu-categories.ts` `defaultCategories.admin`: **알림(공지) → 대시보드 → 드라이브 → 업무(내정보·시간표) → 이하 동일.** 알림·대시보드를 단일항목 카테고리로 승격, `Bell` 아이콘 추가.
+- ⚠️ **시드(기본값)만 변경** — DB에 `menu_categories` 오버라이드가 저장돼 있으면 미적용 → `/system/menu`에서 조정. **B는 현재 오버라이드 없음(null) → 즉시 반영 확인됨.**
+
+### 선택적 후속 (비필수)
+- **연구담당 학생 등록**: `system/research-supervisors`의 CreateSupervisionModal + `me/setup` 4번 섹션은 이미 typeahead 검색-선택(명단 기반)이라 직접입력 문제 없음. 전교생 브라우징이 필요하면 StudentPickerModal에 단일선택 모드 추가해 통일 가능.
+- **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
 
 ---
 
