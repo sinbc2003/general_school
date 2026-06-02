@@ -3,11 +3,12 @@
 자체 양식 — UTF-8 BOM. 헤더 첫 줄. **한글·영문 헤더 둘 다 인식**.
 
 역할별 컬럼 (필수/선택):
-  designated_admin: 이름*, 이메일*, 아이디*, 비밀번호, 연락처
-  teacher:           이름*, 이메일*, 아이디*, 비밀번호, 연락처, 부서
-  student:           이름*, 이메일*, 아이디*, 비밀번호, 연락처, 학년, 반, 번호
+  designated_admin: 이름*, 이메일*, 아이디*, 연락처
+  teacher:           이름*, 이메일*, 아이디*, 연락처, 부서
+  student:           이름*, 이메일*, 아이디*, 연락처, 학년, 반, 번호
 
-초기 비밀번호: 명시 비번 → 연락처(숫자만) → settings.DEFAULT_USER_PASSWORD. must_change_password=True.
+초기 비밀번호 = 연락처(숫자만, '-' 없이). 연락처 없으면 settings.DEFAULT_USER_PASSWORD. must_change_password=True.
+(비밀번호 컬럼은 폐지 — 연락처가 곧 초기 비번. 단 호환을 위해 password 컬럼이 있으면 그 값을 우선 사용)
 이메일/아이디 중복은 행 단위 실패로 보고.
 """
 
@@ -41,9 +42,9 @@ COLUMN_ALIASES: dict[str, str] = {
 
 
 CSV_TEMPLATES: dict[str, list[str]] = {
-    "designated_admin": ["이름", "이메일", "아이디", "비밀번호", "연락처"],
-    "teacher":          ["이름", "이메일", "아이디", "비밀번호", "연락처", "부서"],
-    "student":          ["이름", "이메일", "아이디", "비밀번호", "연락처",
+    "designated_admin": ["이름", "이메일", "아이디", "연락처"],
+    "teacher":          ["이름", "이메일", "아이디", "연락처", "부서"],
+    "student":          ["이름", "이메일", "아이디", "연락처",
                          "학년", "반", "번호"],
 }
 
@@ -89,35 +90,32 @@ def template_csv(role: str) -> str:
     header = ",".join(cols)
 
     if role == "student":
-        example = "홍길동,gildong@school.local,10101,,010-1234-5678,1,1,1"
+        example = "홍길동,gildong@school.local,10101,01012345678,1,1,1"
         descs = [
             "# 이름 필수 (실명)",
             "# 이메일 필수 (학교/개인 메일)",
             "# 아이디 필수 (학번 권장: 학년+반+번호 5자리 예 10101)",
-            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 연락처도 없으면 기본값",
-            "# 연락처 — 초기 비밀번호로 사용(숫자만). 첫 로그인 시 강제 변경",
+            "# 연락처 = 초기 비밀번호 ('-' 없이 숫자만 입력). 첫 로그인 시 강제 변경",
             "# 학년 1·2·3",
             "# 반 숫자",
             "# 번호 출석번호",
         ]
     elif role == "teacher":
-        example = "김선생,kim@school.local,kimss,,010-1234-5678,수학과"
+        example = "김선생,kim@school.local,kimss,01012345678,수학과"
         descs = [
             "# 이름 필수 (실명)",
             "# 이메일 필수 (학교 메일)",
             "# 아이디 필수 (영문+숫자 8자 이상 권장)",
-            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 연락처도 없으면 기본값",
-            "# 연락처 — 초기 비밀번호로 사용(숫자만). 첫 로그인 시 강제 변경",
+            "# 연락처 = 초기 비밀번호 ('-' 없이 숫자만 입력). 첫 로그인 시 강제 변경",
             "# 부서명 (마법사 2단계에서 등록한 부서명과 정확히 일치)",
         ]
     else:
-        example = "지정관리자,da@school.local,da01,,010-1234-5678"
+        example = "지정관리자,da@school.local,da01,01012345678"
         descs = [
             "# 이름 필수",
             "# 이메일 필수",
             "# 아이디 필수",
-            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 없으면 기본값",
-            "# 연락처 — 초기 비밀번호로 사용(숫자만)",
+            "# 연락처 = 초기 비밀번호 ('-' 없이 숫자만 입력)",
         ]
 
     # 헤더 + 예시 행 + 빈 셀에 설명 (Excel에서 #로 시작하는 셀은 데이터 무시)
@@ -155,9 +153,9 @@ def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
         cell.fill = PatternFill("solid", fgColor="4A4A6E")
 
     examples = {
-        "teacher": ["김선생", "kim@school.local", "kimss", "", "010-1234-5678", "수학과"],
-        "student": ["홍길동", "gildong@school.local", "10101", "", "010-1234-5678", "1", "1", "1"],
-        "designated_admin": ["지정관리자", "da@school.local", "da01", "", "010-1234-5678"],
+        "teacher": ["김선생", "kim@school.local", "kimss", "01012345678", "수학과"],
+        "student": ["홍길동", "gildong@school.local", "10101", "01012345678", "1", "1", "1"],
+        "designated_admin": ["지정관리자", "da@school.local", "da01", "01012345678"],
     }
     ws.append(examples.get(role, []))
     for c in range(1, len(cols) + 1):

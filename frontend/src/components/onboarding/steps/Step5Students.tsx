@@ -13,18 +13,19 @@ interface StudentRow {
   name: string;
   email: string;
   phone: string;
-  password: string; // 임시 비번 — 연락처 없을 때만 사용 (있으면 연락처가 초기 비번)
 }
 
 const emptyRow = (): StudentRow => ({
   grade: 1, class_number: 1, student_number: 1,
-  name: "", email: "", phone: "", password: "",
+  name: "", email: "", phone: "",
 });
 
 export function Step5Students() {
   const [rows, setRows] = useState<StudentRow[]>([emptyRow(), emptyRow(), emptyRow()]);
   const [existingCount, setExistingCount] = useState(0);
   const [saving, setSaving] = useState(false);
+  // 핸드폰 없는 학생 일괄 임시 비번 (상단 한 칸). 핸드폰 있으면 핸드폰이 초기 비번.
+  const [batchTempPassword, setBatchTempPassword] = useState("");
 
   const loadCount = useCallback(async () => {
     try {
@@ -49,12 +50,13 @@ export function Step5Students() {
   const submitAll = async () => {
     const valid = rows.filter((r) => r.name.trim() && r.email.trim());
     if (valid.length === 0) { alert("이름과 이메일 입력한 줄이 없습니다"); return; }
-    // 연락처도 임시비번도 없는 줄 → 공통 기본비번으로 떨어짐 (경고)
-    const noPw = valid.filter((r) => !r.phone.trim() && !r.password.trim()).length;
-    const warn = noPw > 0
-      ? `\n\n⚠️ ${noPw}명은 연락처·임시비번이 모두 비어 공통 기본비번이 부여됩니다. 임시 비번 입력을 권장합니다.`
-      : "";
-    if (!confirm(`${valid.length}명의 학생을 등록하시겠습니까?\n초기 비밀번호 = 연락처(숫자만), 없으면 임시 비번.${warn}`)) return;
+    const temp = batchTempPassword.trim();
+    // 핸드폰 없는 줄 → 상단 일괄 임시비번. 임시비번도 없으면 공통 기본비번(경고).
+    const noPhone = valid.filter((r) => !r.phone.trim()).length;
+    const warn = (noPhone > 0 && !temp)
+      ? `\n\n⚠️ ${noPhone}명은 핸드폰 번호가 없는데 상단 '임시 비밀번호'도 비어 있어 공통 기본비번이 부여됩니다.`
+      : (noPhone > 0 ? `\n핸드폰 없는 ${noPhone}명은 임시 비번이 초기 비번이 됩니다.` : "");
+    if (!confirm(`${valid.length}명의 학생을 등록하시겠습니까?\n초기 비밀번호 = 핸드폰 번호('-' 제외).${warn}`)) return;
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
@@ -65,8 +67,8 @@ export function Step5Students() {
           email: r.email.trim(),
           role: "student",
           phone: r.phone.trim() || null,
-          // 임시 비번 입력 시 그것을, 아니면 미전송 → 백엔드가 연락처(숫자만)를 초기 비번으로.
-          password: r.password.trim() || undefined,
+          // 핸드폰 있으면 미전송(백엔드가 핸드폰=초기비번), 없으면 상단 일괄 임시비번.
+          password: r.phone.trim() ? undefined : (temp || undefined),
           grade: r.grade,
           class_number: r.class_number,
           student_number: r.student_number,
@@ -132,7 +134,7 @@ export function Step5Students() {
           <h2 className="text-body font-semibold text-text-primary">학생 등록</h2>
           <p className="text-caption text-text-tertiary mt-1">
             줄별 입력 또는 CSV 일괄 업로드. 학년/반/번호 필수.
-            <br />초기 비밀번호 = <strong>연락처(숫자만)</strong>. 연락처가 없으면 <strong>임시 비번</strong>을 입력하세요. (첫 로그인 시 변경 강제)
+            <br />초기 비밀번호 = <strong>핸드폰 번호('-' 제외)</strong>. (첫 로그인 시 변경 강제)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -161,6 +163,18 @@ export function Step5Students() {
         </div>
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-2 bg-bg-secondary/40 border border-border-default rounded-lg px-3 py-2">
+        <label className="text-[12px] text-text-secondary whitespace-nowrap">핸드폰 없는 학생 임시 비번 (일괄)</label>
+        <input
+          type="text"
+          value={batchTempPassword}
+          onChange={(e) => setBatchTempPassword(e.target.value)}
+          placeholder="비우면 공통 기본비번"
+          className="flex-1 min-w-[140px] max-w-xs px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
+        />
+        <span className="text-[11px] text-text-tertiary">핸드폰 있는 학생은 핸드폰 번호('-' 제외)가 초기 비번</span>
+      </div>
+
       <div className="bg-bg-primary border border-border-default rounded-lg overflow-x-auto mb-3">
         <table className="w-full text-[12px]">
           <thead className="bg-bg-secondary border-b border-border-default text-text-tertiary">
@@ -172,7 +186,6 @@ export function Step5Students() {
               <th className="px-2 py-2 text-left">이름 *</th>
               <th className="px-2 py-2 text-left">이메일 *</th>
               <th className="px-2 py-2 text-left">연락처</th>
-              <th className="px-2 py-2 text-left w-28">임시 비번</th>
               <th className="px-2 py-2 w-10"></th>
             </tr>
           </thead>
@@ -185,8 +198,7 @@ export function Step5Students() {
                 <td><input type="number" value={r.student_number} min={1} onChange={(e) => updateRow(i, { student_number: Number(e.target.value) })} className="w-14 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5"><input type="text" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} placeholder="이름" className="w-full px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5"><input type="email" value={r.email} onChange={(e) => updateRow(i, { email: e.target.value })} placeholder="email" className="w-full px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
-                <td className="px-2 py-1.5"><input type="text" value={r.phone} onChange={(e) => updateRow(i, { phone: e.target.value })} placeholder="010-..." className="w-32 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
-                <td className="px-2 py-1.5"><input type="text" value={r.password} onChange={(e) => updateRow(i, { password: e.target.value })} placeholder={r.phone.trim() ? "연락처 사용" : "연락처 없을 때"} className="w-28 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
+                <td className="px-2 py-1.5"><input type="text" value={r.phone} onChange={(e) => updateRow(i, { phone: e.target.value })} placeholder="01012345678" className="w-32 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5 text-center"><button type="button" onClick={() => removeRow(i)} className="p-1 rounded hover:bg-red-50 text-red-500"><Trash2 size={12} /></button></td>
               </tr>
             ))}

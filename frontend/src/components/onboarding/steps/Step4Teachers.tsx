@@ -10,7 +10,6 @@ interface TeacherRow {
   name: string;
   email: string;
   phone: string;
-  password: string; // 임시 비번 — 연락처 없을 때만 사용 (있으면 연락처가 초기 비번)
   department_id: number;
   is_grade_lead: boolean;
   lead_grade: number;
@@ -35,7 +34,6 @@ const emptyRow = (): TeacherRow => ({
   name: "",
   email: "",
   phone: "",
-  password: "",
   department_id: 0,
   is_grade_lead: false,
   lead_grade: 0,
@@ -47,6 +45,8 @@ export function Step4Teachers() {
   const [existing, setExisting] = useState<ExistingTeacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // 핸드폰 없는 교사 일괄 임시 비번 (상단 한 칸). 핸드폰 있으면 핸드폰이 초기 비번.
+  const [batchTempPassword, setBatchTempPassword] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,11 +75,12 @@ export function Step4Teachers() {
       alert("이름과 이메일을 입력한 줄이 없습니다");
       return;
     }
-    const noPw = valid.filter((r) => !r.phone.trim() && !r.password.trim()).length;
-    const warn = noPw > 0
-      ? `\n\n⚠️ ${noPw}명은 연락처·임시비번이 모두 비어 공통 기본비번이 부여됩니다. 임시 비번 입력을 권장합니다.`
-      : "";
-    if (!confirm(`${valid.length}명의 교사를 등록하시겠습니까?\n초기 비밀번호 = 연락처(숫자만), 없으면 임시 비번.${warn}`)) return;
+    const temp = batchTempPassword.trim();
+    const noPhone = valid.filter((r) => !r.phone.trim()).length;
+    const warn = (noPhone > 0 && !temp)
+      ? `\n\n⚠️ ${noPhone}명은 핸드폰 번호가 없는데 상단 '임시 비밀번호'도 비어 있어 공통 기본비번이 부여됩니다.`
+      : (noPhone > 0 ? `\n핸드폰 없는 ${noPhone}명은 임시 비번이 초기 비번이 됩니다.` : "");
+    if (!confirm(`${valid.length}명의 교사를 등록하시겠습니까?\n초기 비밀번호 = 핸드폰 번호('-' 제외).${warn}`)) return;
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
@@ -90,8 +91,8 @@ export function Step4Teachers() {
           email: r.email.trim(),
           role: "teacher",
           phone: r.phone.trim() || null,
-          // 임시 비번 입력 시 그것을, 아니면 미전송 → 백엔드가 연락처(숫자만)를 초기 비번으로.
-          password: r.password.trim() || undefined,
+          // 핸드폰 있으면 미전송(백엔드가 핸드폰=초기비번), 없으면 상단 일괄 임시비번.
+          password: r.phone.trim() ? undefined : (temp || undefined),
           department_id: r.department_id > 0 ? r.department_id : null,
           is_grade_lead: r.is_grade_lead,
           lead_grade: r.is_grade_lead && r.lead_grade > 0 ? r.lead_grade : null,
@@ -165,7 +166,7 @@ export function Step4Teachers() {
           <h2 className="text-body font-semibold text-text-primary">교사 등록</h2>
           <p className="text-caption text-text-tertiary mt-1">
             줄별로 입력 또는 CSV 일괄 업로드.
-            <br />초기 비밀번호 = <strong>연락처(숫자만)</strong>. 연락처가 없으면 <strong>임시 비번</strong>을 입력하세요. (첫 로그인 시 변경 강제)
+            <br />초기 비밀번호 = <strong>핸드폰 번호('-' 제외)</strong>. (첫 로그인 시 변경 강제)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -194,6 +195,19 @@ export function Step4Teachers() {
         </div>
       </div>
 
+      {/* 핸드폰 없는 교사 일괄 임시 비번 */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 bg-bg-secondary/40 border border-border-default rounded-lg px-3 py-2">
+        <label className="text-[12px] text-text-secondary whitespace-nowrap">핸드폰 없는 교사 임시 비번 (일괄)</label>
+        <input
+          type="text"
+          value={batchTempPassword}
+          onChange={(e) => setBatchTempPassword(e.target.value)}
+          placeholder="비우면 공통 기본비번"
+          className="flex-1 min-w-[140px] max-w-xs px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
+        />
+        <span className="text-[11px] text-text-tertiary">핸드폰 있는 교사는 핸드폰 번호('-' 제외)가 초기 비번</span>
+      </div>
+
       {/* 줄별 입력 */}
       <div className="bg-bg-primary border border-border-default rounded-lg overflow-x-auto mb-3">
         <table className="w-full text-[12px]">
@@ -203,7 +217,6 @@ export function Step4Teachers() {
               <th className="px-2 py-2 text-left">이름 *</th>
               <th className="px-2 py-2 text-left">이메일 *</th>
               <th className="px-2 py-2 text-left">연락처</th>
-              <th className="px-2 py-2 text-left w-28">임시 비번</th>
               <th className="px-2 py-2 text-left">부서</th>
               <th className="px-2 py-2 text-left w-24">학년부장</th>
               <th className="px-2 py-2 w-10"></th>
@@ -236,17 +249,8 @@ export function Step4Teachers() {
                     type="text"
                     value={r.phone}
                     onChange={(e) => updateRow(i, { phone: e.target.value })}
-                    placeholder="010-..."
+                    placeholder="01012345678"
                     className="w-32 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
-                  />
-                </td>
-                <td className="px-2 py-1.5">
-                  <input
-                    type="text"
-                    value={r.password}
-                    onChange={(e) => updateRow(i, { password: e.target.value })}
-                    placeholder={r.phone.trim() ? "연락처 사용" : "연락처 없을 때"}
-                    className="w-28 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
                   />
                 </td>
                 <td className="px-2 py-1.5">
