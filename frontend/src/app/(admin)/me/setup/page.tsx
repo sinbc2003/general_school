@@ -51,6 +51,8 @@ export default function TeacherMeSetupPage() {
   const [semesterId, setSemesterId] = useState<number | null>(null);
   const [supervised, setSupervised] = useState<SupervisedStudent[]>([]);
   const [loading, setLoading] = useState(true);
+  // 담임/수업 학급 드롭다운 소스 — 등록된 학생 명단(학년+반)에서 도출
+  const [studentClasses, setStudentClasses] = useState<{ grade: number | null; class_number: number | null }[]>([]);
 
   // 본인 정보 폼
   const [phone, setPhone] = useState("");
@@ -73,11 +75,13 @@ export default function TeacherMeSetupPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, en, sup] = await Promise.all([
+      const [m, en, sup, studs] = await Promise.all([
         api.get("/api/auth/me"),
         api.get("/api/timetable/my-enrollment").catch(() => null),
         api.get("/api/past-research/_my/supervised-students").catch(() => ({ items: [], semester_id: null })),
+        api.get<{ items: any[] }>("/api/users/peers?role=student&per_page=2000").catch(() => ({ items: [] })),
       ]);
+      setStudentClasses((studs.items || []).map((s: any) => ({ grade: s.grade, class_number: s.class_number })));
       setMe(m);
       setPhone(m.phone || "");
       if (en) {
@@ -133,11 +137,25 @@ export default function TeacherMeSetupPage() {
     } finally { setSavingEnroll(false); }
   };
 
-  // 학교 구조 → 드롭다운 소스 (teacher-onboarding 페이지와 동일 규칙)
+  // 드롭다운 소스:
+  //  - 학급/학년 = 등록된 학생 명단(학년+반)에서 도출 (+ 학교구조 classes_per_grade 있으면 합집합)
+  //  - 과목 = 학기 개설 과목(마법사에서 등록) — 자유입력 X
   const sem = enrollment?.semester;
-  const allGrades = Object.keys(sem?.classes_per_grade || {}).sort();
-  const allClasses: string[] = Object.entries(sem?.classes_per_grade || {})
+  const structClasses = Object.entries(sem?.classes_per_grade || {})
     .flatMap(([g, n]) => Array.from({ length: n }, (_, i) => `${g}-${i + 1}`));
+  const studentClassList = studentClasses
+    .filter((s) => s.grade && s.class_number)
+    .map((s) => `${s.grade}-${s.class_number}`);
+  const allClasses: string[] = Array.from(new Set([...structClasses, ...studentClassList]))
+    .sort((a, b) => {
+      const [ag, ac] = a.split("-").map(Number);
+      const [bg, bc] = b.split("-").map(Number);
+      return ag - bg || ac - bc;
+    });
+  const allGrades = Array.from(new Set([
+    ...Object.keys(sem?.classes_per_grade || {}),
+    ...studentClasses.map((s) => s.grade).filter((g): g is number => !!g).map(String),
+  ])).sort();
   const allSubjects = sem?.subjects || [];
   const toggleSet = (set: Set<string>, setFn: (s: Set<string>) => void, key: string) => {
     const next = new Set(set);
@@ -230,7 +248,7 @@ export default function TeacherMeSetupPage() {
           </label>
         </div>
         {allClasses.length === 0 && (
-          <p className="text-caption text-text-tertiary mt-2">학교 구조(학급)가 설정되지 않았습니다. 관리자에게 요청하세요.</p>
+          <p className="text-caption text-text-tertiary mt-2">아직 등록된 학생이 없어 학급 목록이 비어 있습니다. 학생을 먼저 등록하면 학급이 자동으로 표시됩니다.</p>
         )}
       </Section>
 
@@ -247,7 +265,7 @@ export default function TeacherMeSetupPage() {
                 {g}학년
               </label>
             ))}
-            {allGrades.length === 0 && <span className="text-caption text-text-tertiary">학교 구조 미설정 — 관리자에게 요청</span>}
+            {allGrades.length === 0 && <span className="text-caption text-text-tertiary">학생 등록 후 학년이 표시됩니다</span>}
           </div>
         </div>
 
@@ -286,7 +304,7 @@ export default function TeacherMeSetupPage() {
                 {s}
               </label>
             ))}
-            {allSubjects.length === 0 && <span className="text-caption text-text-tertiary">개설 과목 미설정 — 관리자에게 요청</span>}
+            {allSubjects.length === 0 && <span className="text-caption text-text-tertiary">개설 과목 미설정 — 마법사 또는 시스템→학기관리에서 등록</span>}
           </div>
         </div>
 

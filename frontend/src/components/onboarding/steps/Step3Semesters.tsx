@@ -13,6 +13,7 @@ interface Semester {
   end_date: string | null;
   is_current: boolean;
   is_archived: boolean;
+  subjects?: string[];
 }
 
 export function Step3Semesters({ gradeCount }: { gradeCount: number }) {
@@ -23,6 +24,8 @@ export function Step3Semesters({ gradeCount }: { gradeCount: number }) {
   const [semester, setSemester] = useState(1);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [subjectInput, setSubjectInput] = useState("");
+  const [savingSubj, setSavingSubj] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +62,31 @@ export function Step3Semesters({ gradeCount }: { gradeCount: number }) {
   const remove = async (s: Semester) => {
     if (!confirm(`"${s.name}" 학기를 삭제하시겠습니까?\n관련 명단·강좌가 모두 삭제됩니다.`)) return;
     try { await api.delete(`/api/timetable/semesters/${s.id}`); await load(); } catch (e: any) { alert(e?.message); }
+  };
+
+  // 개설 과목 — 현재 학기(없으면 첫 학기) 기준. me/setup·템플릿 드롭다운의 표준 소스.
+  const currentSem = items.find((s) => s.is_current) || items[0] || null;
+
+  const saveSubjects = async (next: string[]) => {
+    if (!currentSem) return;
+    setSavingSubj(true);
+    try {
+      await api.put(`/api/timetable/semesters/${currentSem.id}/structure`, { subjects: next });
+      await load();
+    } catch (e: any) { alert(e?.detail || e?.message || "과목 저장 실패"); }
+    finally { setSavingSubj(false); }
+  };
+  const addSubject = async () => {
+    const v = subjectInput.trim();
+    if (!v || !currentSem) return;
+    const cur = currentSem.subjects || [];
+    if (cur.includes(v)) { setSubjectInput(""); return; }
+    await saveSubjects([...cur, v]);
+    setSubjectInput("");
+  };
+  const removeSubject = (s: string) => {
+    if (!currentSem) return;
+    saveSubjects((currentSem.subjects || []).filter((x) => x !== s));
   };
 
   return (
@@ -165,6 +193,47 @@ export function Step3Semesters({ gradeCount }: { gradeCount: number }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 개설 과목 — 교사 담당과목 선택의 표준 목록 (자유입력 X) */}
+      {currentSem && (
+        <div className="bg-bg-primary border border-border-default rounded-lg p-4 mt-4">
+          <h3 className="text-body font-semibold text-text-primary mb-1">
+            개설 과목 <span className="text-[11px] text-text-tertiary font-normal">— {currentSem.name} 기준</span>
+          </h3>
+          <p className="text-caption text-text-tertiary mb-3">
+            여기서 한 번 등록하면, 교사 담당 과목·템플릿이 이 목록을 <strong>드롭다운으로 선택</strong>합니다(자유입력 방지).
+            나중에 과목이 추가/변경되면 여기나 <code className="text-accent">시스템 → 학기 관리</code>에서 수정하세요.
+          </p>
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="text" value={subjectInput} onChange={(e) => setSubjectInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addSubject()}
+              placeholder="과목명 (예: 수학, 미적분, 물리학Ⅰ)"
+              className="flex-1 px-3 py-2 text-[13px] border border-border-default rounded bg-bg-primary"
+            />
+            <button
+              type="button" onClick={addSubject} disabled={savingSubj || !subjectInput.trim()}
+              className="px-3 py-2 text-[13px] bg-accent text-white rounded-md hover:opacity-90 disabled:opacity-40 flex items-center gap-1"
+            >
+              <Plus size={14} /> 추가
+            </button>
+          </div>
+          {(currentSem.subjects || []).length === 0 ? (
+            <div className="text-[12px] text-text-tertiary">아직 등록된 과목이 없습니다. 위에서 추가하세요.</div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {(currentSem.subjects || []).map((s) => (
+                <span key={s} className="inline-flex items-center gap-1 px-2 py-1 text-[12px] bg-bg-secondary border border-border-default rounded">
+                  {s}
+                  <button type="button" onClick={() => removeSubject(s)} disabled={savingSubj} className="text-text-tertiary hover:text-red-500">
+                    <Trash2 size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
