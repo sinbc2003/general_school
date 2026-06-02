@@ -24,6 +24,7 @@ from app.modules.users.router import router
 from app.modules.users._helpers import (
     ADMIN_ROLES, VALID_ROLES,
     _ensure_not_last_super_admin, _is_admin, _user_response,
+    phone_to_initial_password,
 )
 
 
@@ -215,7 +216,9 @@ async def create_user(
     if existing.scalar_one_or_none():
         raise HTTPException(409, "이미 등록된 이메일입니다")
 
-    password = body.password or settings.DEFAULT_USER_PASSWORD
+    # 초기 비밀번호 우선순위: 명시 비번(임시) → 전화번호 숫자 → 마지막 폴백(기본값).
+    # 관리자 등록 시 비번을 안 주면 전화번호(있으면)가 초기 비번이 된다.
+    password = body.password or phone_to_initial_password(body.phone) or settings.DEFAULT_USER_PASSWORD
 
     from datetime import datetime
     expires_at = None

@@ -1,5 +1,7 @@
 """Shared helpers + constants for users sub-modules."""
 
+import re
+
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,19 @@ from app.models.user import User
 
 VALID_ROLES = {"super_admin", "designated_admin", "teacher", "staff", "student"}
 ADMIN_ROLES = {"super_admin", "designated_admin"}
+
+_PHONE_NONDIGIT = re.compile(r"\D")
+
+
+def phone_to_initial_password(phone: str | None) -> str | None:
+    """전화번호 → 초기 비밀번호(숫자만). '-'·공백 등 비숫자 제거. 숫자 없으면 None.
+
+    관리자가 사용자 등록 시 비번 미지정이면 이 값을 초기 비번으로 쓴다(전화 없으면 None).
+    """
+    if not phone:
+        return None
+    digits = _PHONE_NONDIGIT.sub("", phone)
+    return digits or None
 
 
 def _is_admin(u: User) -> bool:

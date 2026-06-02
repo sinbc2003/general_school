@@ -10,6 +10,7 @@ interface TeacherRow {
   name: string;
   email: string;
   phone: string;
+  password: string; // 임시 비번 — 연락처 없을 때만 사용 (있으면 연락처가 초기 비번)
   department_id: number;
   is_grade_lead: boolean;
   lead_grade: number;
@@ -34,6 +35,7 @@ const emptyRow = (): TeacherRow => ({
   name: "",
   email: "",
   phone: "",
+  password: "",
   department_id: 0,
   is_grade_lead: false,
   lead_grade: 0,
@@ -73,7 +75,11 @@ export function Step4Teachers() {
       alert("이름과 이메일을 입력한 줄이 없습니다");
       return;
     }
-    if (!confirm(`${valid.length}명의 교사를 등록하시겠습니까?\n초기 비밀번호는 연락처(있으면) 또는 기본값입니다.`)) return;
+    const noPw = valid.filter((r) => !r.phone.trim() && !r.password.trim()).length;
+    const warn = noPw > 0
+      ? `\n\n⚠️ ${noPw}명은 연락처·임시비번이 모두 비어 공통 기본비번이 부여됩니다. 임시 비번 입력을 권장합니다.`
+      : "";
+    if (!confirm(`${valid.length}명의 교사를 등록하시겠습니까?\n초기 비밀번호 = 연락처(숫자만), 없으면 임시 비번.${warn}`)) return;
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
@@ -84,7 +90,8 @@ export function Step4Teachers() {
           email: r.email.trim(),
           role: "teacher",
           phone: r.phone.trim() || null,
-          password: r.phone.replace(/-/g, "") || undefined,
+          // 임시 비번 입력 시 그것을, 아니면 미전송 → 백엔드가 연락처(숫자만)를 초기 비번으로.
+          password: r.password.trim() || undefined,
           department_id: r.department_id > 0 ? r.department_id : null,
           is_grade_lead: r.is_grade_lead,
           lead_grade: r.is_grade_lead && r.lead_grade > 0 ? r.lead_grade : null,
@@ -157,7 +164,8 @@ export function Step4Teachers() {
         <div>
           <h2 className="text-body font-semibold text-text-primary">교사 등록</h2>
           <p className="text-caption text-text-tertiary mt-1">
-            줄별로 입력 또는 CSV 일괄 업로드. 초기 비밀번호 = 연락처(-제거) 또는 기본값.
+            줄별로 입력 또는 CSV 일괄 업로드.
+            <br />초기 비밀번호 = <strong>연락처(숫자만)</strong>. 연락처가 없으면 <strong>임시 비번</strong>을 입력하세요. (첫 로그인 시 변경 강제)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -195,6 +203,7 @@ export function Step4Teachers() {
               <th className="px-2 py-2 text-left">이름 *</th>
               <th className="px-2 py-2 text-left">이메일 *</th>
               <th className="px-2 py-2 text-left">연락처</th>
+              <th className="px-2 py-2 text-left w-28">임시 비번</th>
               <th className="px-2 py-2 text-left">부서</th>
               <th className="px-2 py-2 text-left w-24">학년부장</th>
               <th className="px-2 py-2 w-10"></th>
@@ -229,6 +238,15 @@ export function Step4Teachers() {
                     onChange={(e) => updateRow(i, { phone: e.target.value })}
                     placeholder="010-..."
                     className="w-32 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
+                  />
+                </td>
+                <td className="px-2 py-1.5">
+                  <input
+                    type="text"
+                    value={r.password}
+                    onChange={(e) => updateRow(i, { password: e.target.value })}
+                    placeholder={r.phone.trim() ? "연락처 사용" : "연락처 없을 때"}
+                    className="w-28 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
                   />
                 </td>
                 <td className="px-2 py-1.5">
