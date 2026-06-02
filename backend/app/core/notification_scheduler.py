@@ -8,8 +8,10 @@
 - 1시간(3600s) 주기로 tick
 - 매 tick:
   1) Assignment 중 due_date가 23~25시간 후 + due_reminder_sent_at IS NULL
-  2) 해당 강좌(같은 학기 + 같은 과목) active 학생 찾기
-  3) 학생 중 AssignmentSubmission 없는 사람만 알림 발송
+     + is_visible=True + status=ACTIVE (= 학생에게 실제 노출되는 과제만)
+  2) 같은 학기 active 학생 찾기 (list_assignments와 동일 노출 기준).
+     target_grades 지정 시 해당 학년 학생만.
+  3) 학생 중 AssignmentSubmission 없는(미제출) 사람만 알림 발송
   4) Assignment.due_reminder_sent_at = now()로 갱신 → 중복 차단
 
 중복 방지:
@@ -27,13 +29,13 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import async_session_factory
-from app.models.assignment import Assignment, AssignmentSubmission
-from app.models.classroom import Course, CourseStudent
+from app.core.database import async_session_factory, engine, is_sqlite
+from app.models.assignment import Assignment, AssignmentStatus, AssignmentSubmission
 from app.models.storage_volume import StorageVolume
+from app.models.timetable import SemesterEnrollment
 from app.models.user import User
 
 log = logging.getLogger(__name__)
@@ -43,6 +45,12 @@ TICK_SECONDS = 3600
 # 마감 윈도 (시간) — due_date가 [WINDOW_LOW, WINDOW_HIGH] 시간 후 범위면 발송 대상.
 WINDOW_LOW_HOURS = 23
 WINDOW_HIGH_HOURS = 25
+
+# 멀티워커(gunicorn) 환경에서 스케줄러를 워커 1개만 실행하기 위한 Postgres advisory
+# lock 키. registration.py의 SCREGIST(0x5343...)와 충돌 안 나는 별도 값 "GSNOTIFY".
+SCHEDULER_LOCK_KEY = 0x47534E4F54494659
+# _acquire_scheduler_lock가 "다른 워커가 이미 보유" 를 알리는 sentinel.
+_LOCK_SKIP = object()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,19 +107,26 @@ async def _notify_scheduler_failure(error_type: str, error_msg: str) -> None:
 
 
 async def _send_due_reminders(db: AsyncSession) -> int:
-    """한 번 실행 — 발송된 알림 수 반환."""
+    """한 번 실행 — 발송된 알림 수 반환.
+
+    대상 학생 = 같은 학기 active 학생 (list_assignments가 학생에게 노출하는
+    기준과 동일 — 강좌 수강 여부로 거르지 않음). target_grades가 지정된 과제는
+    해당 학년 학생만. 이미 제출한 학생은 제외.
+    """
     from app.services.notification import notify_users
 
     now = datetime.now(timezone.utc)
     low = now + timedelta(hours=WINDOW_LOW_HOURS)
     high = now + timedelta(hours=WINDOW_HIGH_HOURS)
 
-    # 윈도 안 + 아직 미발송인 과제
+    # 윈도 안 + 아직 미발송 + 학생에게 실제 노출되는(visible·ACTIVE) 과제만
     rows = (await db.execute(
         select(Assignment).where(
             Assignment.due_date >= low,
             Assignment.due_date <= high,
             Assignment.due_reminder_sent_at.is_(None),
+            Assignment.is_visible == True,  # noqa: E712
+            Assignment.status == AssignmentStatus.ACTIVE,
         )
     )).scalars().all()
 
@@ -121,40 +136,34 @@ async def _send_due_reminders(db: AsyncSession) -> int:
     total_notified = 0
     for a in rows:
         try:
-            # 같은 학기 + 과목의 강좌들 (한 과목이 여러 강좌일 수도)
-            courses = (await db.execute(
-                select(Course).where(
-                    Course.semester_id == a.semester_id,
-                    Course.subject == a.subject,
-                )
-            )).scalars().all()
-            if not courses:
-                # 강좌 매핑 없으면 그냥 mark만 (중복 발송 방지)
-                a.due_reminder_sent_at = now
-                continue
+            # 대상 = 같은 학기 active 학생 (SemesterEnrollment 기준).
+            stq = select(SemesterEnrollment.user_id).where(
+                SemesterEnrollment.semester_id == a.semester_id,
+                SemesterEnrollment.role == "student",
+                SemesterEnrollment.status == "active",
+            )
+            # target_grades 지정 시 해당 학년만 (None/빈 list면 전체 학년 대상)
+            grades = [
+                int(g) for g in (a.target_grades or [])
+                if str(g).strip().lstrip("-").isdigit()
+            ]
+            if grades:
+                stq = stq.where(SemesterEnrollment.grade.in_(grades))
 
-            course_ids = [c.id for c in courses]
-            # 강좌 active 학생들
-            student_ids = (await db.execute(
-                select(CourseStudent.student_id).where(
-                    CourseStudent.course_id.in_(course_ids),
-                    CourseStudent.status == "active",
-                )
-            )).scalars().all()
-            student_ids = list(set(student_ids))
-
+            student_ids = list({uid for uid in (await db.execute(stq)).scalars().all() if uid})
             if not student_ids:
+                # 대상 학생 없으면 mark만 (중복 발송 방지)
                 a.due_reminder_sent_at = now
                 continue
 
             # 미제출자만 (이미 제출한 학생에겐 reminder 의미 X)
-            submitted_ids = (await db.execute(
+            submitted_ids = set((await db.execute(
                 select(AssignmentSubmission.user_id).where(
                     AssignmentSubmission.assignment_id == a.id,
                     AssignmentSubmission.user_id.in_(student_ids),
                 )
-            )).scalars().all()
-            pending_ids = [uid for uid in student_ids if uid not in set(submitted_ids)]
+            )).scalars().all())
+            pending_ids = [uid for uid in student_ids if uid not in submitted_ids]
 
             if pending_ids:
                 # 시간 표시: ko 로컬
@@ -163,14 +172,14 @@ async def _send_due_reminders(db: AsyncSession) -> int:
                     db, user_ids=pending_ids,
                     type="assignment.due_reminder",
                     title=f"⏰ 과제 마감 임박: {a.title}",
-                    body=f"마감 {due_str}까지 약 24시간 남았습니다. 아직 제출하지 않았다면 서둘러주세요.",
-                    link_url=f"/s/assignments/{a.id}",
+                    body=f"[{a.subject}] 마감 {due_str}까지 약 24시간 남았습니다. 아직 제출하지 않았다면 서둘러 제출하세요.",
+                    link_url="/s/assignment",
                     source_user_id=None,
                     meta={"assignment_id": a.id, "due_date": a.due_date.isoformat()},
                 )
                 total_notified += count
 
-            # 마크 (중복 방지) — 학생 0명이어도 마크
+            # 마크 (중복 방지) — 미제출자 0명(전원 제출)이어도 mark
             a.due_reminder_sent_at = now
         except Exception as e:
             log.warning("due reminder for assignment %s failed: %s", a.id, e)
@@ -451,6 +460,47 @@ async def _fail_stale_llm_grading(db: AsyncSession) -> int:
     return failed_count
 
 
+async def _acquire_scheduler_lock():
+    """멀티워커(gunicorn)에서 스케줄러를 1개 워커만 실행하기 위한 Postgres advisory lock.
+
+    gunicorn은 워커마다 lifespan을 실행 → 스케줄러가 워커 수만큼 중복 기동된다.
+    그러면 마감 reminder가 학생에게 N번 중복 발송되고, github_update_check 등은
+    같은 row를 동시 INSERT해 unique 충돌이 난다. advisory lock으로 1개만 통과시킨다.
+
+    반환:
+      - None       : SQLite(dev, 단일 프로세스) 또는 lock 시도 예외 → 가드 없이 실행
+      - connection : lock 획득 성공 (close 전까지 lock 유지되므로 호출측이 보관)
+      - _LOCK_SKIP : 다른 워커가 이미 보유 → 호출측은 cron 돌리지 말고 return
+    """
+    if is_sqlite:
+        return None
+    try:
+        conn = await engine.connect()
+    except Exception as e:
+        log.warning("[NOTIF SCHED] lock connection 실패(%s) — 가드 없이 실행", e)
+        return None
+    try:
+        res = await conn.execute(
+            text("SELECT pg_try_advisory_lock(:k)"), {"k": SCHEDULER_LOCK_KEY}
+        )
+        got = bool(res.scalar())
+    except Exception as e:
+        log.warning("[NOTIF SCHED] advisory lock 시도 실패(%s) — 가드 없이 실행", e)
+        try:
+            await conn.close()
+        except Exception:
+            pass
+        return None
+    if not got:
+        try:
+            await conn.close()
+        except Exception:
+            pass
+        return _LOCK_SKIP
+    log.info("[NOTIF SCHED] advisory lock 획득 — 이 워커가 단독으로 cron 실행")
+    return conn
+
+
 async def _scheduler_loop() -> None:
     """무한 루프 — 1시간마다 tick.
 
@@ -458,11 +508,20 @@ async def _scheduler_loop() -> None:
     다른 task까지 트랜잭션 abort(`InFailedSQLTransactionError`)로 줄줄이 죽는
     회귀를 차단 (2026-05-22 발견: 모델/DB schema mismatch가 _maybe_purge_trash
     한 곳에서 발생 → 같은 session 안의 후속 _disable_expired_users 등 모두 실패).
+
+    멀티워커: advisory lock으로 1개 워커만 실제 cron을 돌린다 (중복 발송·unique 충돌 차단).
     """
     log.info("[NOTIF SCHED] 시작 (tick %ds, window %d~%dh)",
              TICK_SECONDS, WINDOW_LOW_HOURS, WINDOW_HIGH_HOURS)
     # 첫 tick은 30초 후 (startup race 회피)
     await asyncio.sleep(30)
+
+    # 멀티워커 singleton 가드 — 1개 워커만 통과
+    lock = await _acquire_scheduler_lock()
+    if lock is _LOCK_SKIP:
+        log.info("[NOTIF SCHED] 다른 워커가 스케줄러 보유 중 — 이 워커는 cron skip")
+        return
+    lock_conn = lock  # None(가드 미적용) 또는 보유 connection
 
     # task_name → (callable, log_on_success_or_None)
     # callable은 (db) 받아서 결과(int) 반환 — 성공 시 main loop에서 commit.
@@ -476,48 +535,56 @@ async def _scheduler_loop() -> None:
         ("stale_llm_grading", _fail_stale_llm_grading, None),  # 내부에서 log
     ]
 
-    while True:
-        try:
-            for task_name, task_fn, log_fn in tasks:
-                # **task별 독립 session** — 하나 실패해도 다른 task 영향 X
-                try:
-                    async with async_session_factory() as db:
-                        try:
-                            result = await task_fn(db)
-                            await db.commit()
-                            if log_fn:
-                                msg = log_fn(result if isinstance(result, int) else 0)
-                                if msg:
-                                    log.info("[NOTIF SCHED] %s", msg)
-                        except Exception:
-                            await db.rollback()
-                            raise
-                except Exception as e:
-                    log.warning("[NOTIF SCHED] %s failed: %s", task_name, e)
-                    # task별 error_type → 24h 쿨다운 별개 (한 task가 죽으면
-                    # 그것만 24h 알림, 다른 task는 정상)
+    try:
+        while True:
+            try:
+                for task_name, task_fn, log_fn in tasks:
+                    # **task별 독립 session** — 하나 실패해도 다른 task 영향 X
                     try:
-                        await _notify_scheduler_failure(
-                            f"notification_scheduler_{task_name}", str(e),
-                        )
-                    except Exception:
-                        log.exception("_notify_scheduler_failure call failed")
+                        async with async_session_factory() as db:
+                            try:
+                                result = await task_fn(db)
+                                await db.commit()
+                                if log_fn:
+                                    msg = log_fn(result if isinstance(result, int) else 0)
+                                    if msg:
+                                        log.info("[NOTIF SCHED] %s", msg)
+                            except Exception:
+                                await db.rollback()
+                                raise
+                    except Exception as e:
+                        log.warning("[NOTIF SCHED] %s failed: %s", task_name, e)
+                        # task별 error_type → 24h 쿨다운 별개 (한 task가 죽으면
+                        # 그것만 24h 알림, 다른 task는 정상)
+                        try:
+                            await _notify_scheduler_failure(
+                                f"notification_scheduler_{task_name}", str(e),
+                            )
+                        except Exception:
+                            log.exception("_notify_scheduler_failure call failed")
 
-            # 스토리지 볼륨 사용량/헬스체크 — 자체 session + 6h 쿨다운
+                # 스토리지 볼륨 사용량/헬스체크 — 자체 session + 6h 쿨다운
+                try:
+                    await _update_storage_volumes()
+                except Exception:
+                    log.exception("[NOTIF SCHED] _update_storage_volumes outer failure")
+            except asyncio.CancelledError:
+                log.info("[NOTIF SCHED] 정상 종료")
+                raise
+            except Exception as e:
+                log.warning("[NOTIF SCHED] 루프 예외 (계속 실행): %s", e)
+                try:
+                    await _notify_scheduler_failure("notification_scheduler_loop", str(e))
+                except Exception:
+                    log.exception("_notify_scheduler_failure (loop) call failed")
+            await asyncio.sleep(TICK_SECONDS)
+    finally:
+        # advisory lock 해제 (정상 종료·취소·예외 모두) — connection close = unlock
+        if lock_conn is not None:
             try:
-                await _update_storage_volumes()
+                await lock_conn.close()
             except Exception:
-                log.exception("[NOTIF SCHED] _update_storage_volumes outer failure")
-        except asyncio.CancelledError:
-            log.info("[NOTIF SCHED] 정상 종료")
-            raise
-        except Exception as e:
-            log.warning("[NOTIF SCHED] 루프 예외 (계속 실행): %s", e)
-            try:
-                await _notify_scheduler_failure("notification_scheduler_loop", str(e))
-            except Exception:
-                log.exception("_notify_scheduler_failure (loop) call failed")
-        await asyncio.sleep(TICK_SECONDS)
+                pass
 
 
 def start_scheduler() -> asyncio.Task:
