@@ -123,12 +123,14 @@ export function SemesterFormModal({ open, editingId, editingSemester, items, onC
         copy_positions: true,
       });
     } else {
-      setForm(EMPTY_FORM);
+      // 신규 생성: 직전 학기를 명단 복사 원본으로 자동 선택 (carry-over 편의 — 그냥 생성해도 명단 따라옴)
+      const latest = [...items].sort((a, b) => (b.year - a.year) || (b.semester - a.semester))[0];
+      setForm({ ...EMPTY_FORM, copy_from_semester_id: latest?.id ?? null });
     }
     setTeacherFile(null);
     setStudentFile(null);
     setCreateResult(null);
-  }, [open, editingId, editingSemester]);
+  }, [open, editingId, editingSemester, items]);
 
   if (!open) return null;
 
