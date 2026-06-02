@@ -13,7 +13,6 @@ import {
   XCircle,
   Loader2,
   Filter,
-  Eye,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
@@ -188,7 +187,7 @@ export default function PastResearchAdminPage() {
 
   const openPreview = async (it: Item) => {
     setPreviewLoadingId(it.id);
-    const url = await fetchPdfBlobUrl(it.file_url);
+    const url = await fetchPdfBlobUrl(`/api/past-research/${it.id}/file`);
     setPreviewLoadingId(null);
     if (url) { setPreviewTitle(it.title); setPreviewUrl(url); }
   };
@@ -377,7 +376,8 @@ export default function PastResearchAdminPage() {
             </thead>
             <tbody>
               {items.map((it) => (
-                <tr key={it.id} className="border-b border-border-default last:border-b-0 hover:bg-bg-secondary">
+                <tr key={it.id} onClick={() => openPreview(it)} title="클릭하여 미리보기"
+                    className="border-b border-border-default last:border-b-0 hover:bg-bg-secondary cursor-pointer">
                   <td className="px-3 py-2 text-caption text-text-secondary whitespace-nowrap">
                     {it.year}년 {it.grade ? `${it.grade}학년` : ""} {it.semester ? `${it.semester}학기` : ""}
                   </td>
@@ -406,19 +406,14 @@ export default function PastResearchAdminPage() {
                   <td className="px-3 py-2 text-right text-caption text-text-tertiary">
                     {fmtSize(it.file_size)}
                   </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <td className="px-3 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    {previewLoadingId === it.id && (
+                      <Loader2 size={14} className="animate-spin inline-block mr-1 text-text-tertiary align-middle" />
+                    )}
                     <button
-                      onClick={() => openPreview(it)}
-                      title="미리보기"
-                      disabled={previewLoadingId === it.id}
-                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary disabled:opacity-50"
-                    >
-                      {previewLoadingId === it.id ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
-                    </button>
-                    <button
-                      onClick={() => downloadSecure(it.file_url, it.original_filename)}
+                      onClick={() => downloadSecure(`/api/past-research/${it.id}/file`, it.original_filename)}
                       title="다운로드"
-                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary ml-1"
+                      className="p-1.5 hover:bg-bg-primary rounded text-text-secondary"
                     >
                       <Download size={14} />
                     </button>

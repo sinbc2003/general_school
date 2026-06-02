@@ -1,6 +1,9 @@
 """검색·조회·필터 (browse) — 모든 인증 사용자."""
 
-from fastapi import Depends, Query
+import os
+
+from fastapi import Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import String as SaString
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +76,34 @@ async def list_past_research(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.get("/{rid}/file")
+async def serve_past_research_file(
+    rid: int,
+    user: User = Depends(require_permission("past_research.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """보고서 PDF 서빙 — 미리보기(inline)·다운로드 공통. past_research.view 권한자.
+
+    file_url(절대경로 기반)이 환경(STORAGE_ROOT 절대경로)에서 깨지는 문제를 우회 —
+    id로 stored_path를 직접 서빙. 렌더링은 클라이언트 브라우저(서버 부담 없음).
+    """
+    p = (await db.execute(
+        select(PastResearch).where(PastResearch.id == rid)
+    )).scalar_one_or_none()
+    if not p:
+        raise HTTPException(404, "보고서를 찾을 수 없습니다")
+    if p.status != "approved" and user.role not in ("super_admin", "designated_admin"):
+        raise HTTPException(403, "접근 권한이 없습니다")
+    if not p.stored_path or not os.path.isfile(p.stored_path):
+        raise HTTPException(404, "파일이 존재하지 않습니다")
+    return FileResponse(
+        p.stored_path,
+        media_type="application/pdf",
+        filename=p.original_filename or f"research_{rid}.pdf",
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/_facets")

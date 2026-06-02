@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Search, FileText, Download, Award, Loader2, Eye, X } from "lucide-react";
+import { Search, FileText, Download, Award, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { downloadSecure, fetchPdfBlobUrl } from "@/lib/api/download";
 
@@ -86,7 +86,7 @@ export default function PastResearchStudentPage() {
 
   const openPreview = async (it: Item) => {
     setPreviewLoadingId(it.id);
-    const url = await fetchPdfBlobUrl(it.file_url);
+    const url = await fetchPdfBlobUrl(`/api/past-research/${it.id}/file`);
     setPreviewLoadingId(null);
     if (url) { setPreviewTitle(it.title); setPreviewUrl(url); }
   };
@@ -148,7 +148,8 @@ export default function PastResearchStudentPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {items.map((it) => (
-            <div key={it.id} className="bg-bg-primary border border-border-default rounded-lg p-3 hover:border-accent transition">
+            <div key={it.id} onClick={() => openPreview(it)} title="클릭하여 미리보기"
+                 className="bg-bg-primary border border-border-default rounded-lg p-3 hover:border-accent transition cursor-pointer">
               <div className="flex items-center gap-1 mb-2 flex-wrap">
                 <span className="text-[10px] px-1.5 py-0.5 bg-bg-secondary text-text-secondary rounded">
                   {it.year}년
@@ -187,15 +188,11 @@ export default function PastResearchStudentPage() {
               <div className="flex items-center justify-between text-caption">
                 <span className="text-text-tertiary">{fmtSize(it.file_size)}</span>
                 <div className="flex items-center gap-1">
+                  {previewLoadingId === it.id
+                    ? <span className="inline-flex items-center gap-1 text-accent"><Loader2 size={12} className="animate-spin" /> 여는 중</span>
+                    : <span className="text-text-tertiary">클릭하여 미리보기</span>}
                   <button
-                    onClick={() => openPreview(it)}
-                    disabled={previewLoadingId === it.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
-                  >
-                    {previewLoadingId === it.id ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} 미리보기
-                  </button>
-                  <button
-                    onClick={() => downloadSecure(it.file_url, it.original_filename)}
+                    onClick={(e) => { e.stopPropagation(); downloadSecure(`/api/past-research/${it.id}/file`, it.original_filename); }}
                     title="다운로드"
                     className="p-1.5 border border-border-default rounded text-text-secondary hover:bg-bg-secondary"
                   >
