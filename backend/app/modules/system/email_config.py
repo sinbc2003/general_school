@@ -85,7 +85,11 @@ async def set_email_config(
     await _set_cfg(db, "email.smtp_from_name", (body.from_name or "").strip())
     await _set_cfg(db, "email.smtp_use_tls", "true" if body.use_tls else "false")
     if body.password:
-        await _set_cfg(db, "email.smtp_password", body.password, encrypt_it=True)
+        # Gmail/네이버 등 앱 비밀번호는 'abcd efgh ijkl mnop'처럼 공백과 함께 표시됨.
+        # 공백·개행은 비번의 일부가 아니므로 제거 — 공백째 저장 시 535 인증실패의 흔한 원인.
+        import re
+        pw = re.sub(r"\s+", "", body.password)
+        await _set_cfg(db, "email.smtp_password", pw, encrypt_it=True)
     await db.flush()
     await log_action(db, user, "email.smtp_config_updated", target=body.host, request=request, is_sensitive=True)
     return {"ok": True}
