@@ -32,22 +32,29 @@ if [ -z "$LOCAL_IP" ]; then
     exit 0
 fi
 
-# FRONTEND_URL / BACKEND_URL = http://<LAN IP>  (없으면 추가)
+# 공개 도메인 모드 — .env에 GS_PUBLIC_URL이 있으면 그 도메인을 FRONTEND/BACKEND로 우선 사용.
+# (외부 Cloudflare 도메인 운영 시, 재부팅에도 도메인이 사설 IP로 덮이지 않게 한다.)
+# 없으면(=내부 LAN 모드) 기존대로 현재 LAN IP를 사용.
+PUBLIC_URL="$(grep -E '^GS_PUBLIC_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '[:space:]')"
+
+# FRONTEND_URL / BACKEND_URL  (공개 도메인 있으면 도메인, 없으면 http://<LAN IP>)
+if [ -n "$PUBLIC_URL" ]; then FB_URL="$PUBLIC_URL"; else FB_URL="http://$LOCAL_IP"; fi
 for key in FRONTEND_URL BACKEND_URL; do
     if grep -q "^${key}=" "$ENV_FILE"; then
-        sed -i "s|^${key}=.*|${key}=http://$LOCAL_IP|" "$ENV_FILE"
+        sed -i "s|^${key}=.*|${key}=$FB_URL|" "$ENV_FILE"
     else
-        echo "${key}=http://$LOCAL_IP" >> "$ENV_FILE"
+        echo "${key}=$FB_URL" >> "$ENV_FILE"
     fi
 done
 
-# CORS = localhost + LAN IP (+ Tailscale IP)
+# CORS = localhost + LAN IP (+ Tailscale IP) (+ 공개 도메인) — 도메인 모드여도 LAN 접속 유지
 CORS="http://localhost:3000,http://localhost,http://$LOCAL_IP"
 [ -n "$TS_IP" ] && CORS="$CORS,http://$TS_IP"
+[ -n "$PUBLIC_URL" ] && CORS="$CORS,$PUBLIC_URL"
 if grep -q '^CORS_ALLOW_ORIGINS=' "$ENV_FILE"; then
     sed -i "s|^CORS_ALLOW_ORIGINS=.*|CORS_ALLOW_ORIGINS=$CORS|" "$ENV_FILE"
 else
     echo "CORS_ALLOW_ORIGINS=$CORS" >> "$ENV_FILE"
 fi
 
-echo "[gs-autoip] LAN=$LOCAL_IP  TS=${TS_IP:-none}  → .env 갱신 완료"
+echo "[gs-autoip] LAN=$LOCAL_IP  TS=${TS_IP:-none}  PUBLIC=${PUBLIC_URL:-none}  → .env 갱신 완료"
