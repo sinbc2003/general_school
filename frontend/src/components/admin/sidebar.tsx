@@ -8,6 +8,7 @@ import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useMenuSettings } from "@/lib/menu-context";
 import { useSidebar } from "@/lib/sidebar-context";
+import { useBranding } from "@/lib/branding-context";
 import { adminMenu, type MenuItem } from "@/config/admin-menu";
 import { studentMenu } from "@/config/student-menu";
 import { iconMap, type MenuCategory } from "@/config/menu-categories";
@@ -43,6 +44,7 @@ export function AdminSidebar() {
   const { user, logout, hasPermission, isSuperAdmin } = useAuth();
   const { categories, isHidden } = useMenuSettings();
   const { collapsed, toggle: toggleCollapsed } = useSidebar();
+  const { schoolName } = useBranding();
   const pathname = usePathname();
   const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
 
@@ -243,7 +245,7 @@ export function AdminSidebar() {
       <div className="flex items-center justify-between h-header px-3 border-b border-border-default">
         {!collapsed && (
           <span className="font-semibold text-body text-text-primary truncate">
-            학교 플랫폼
+            {schoolName}
           </span>
         )}
         <button
