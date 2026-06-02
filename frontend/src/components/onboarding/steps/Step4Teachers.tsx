@@ -9,6 +9,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 interface TeacherRow {
   name: string;
   email: string;
+  username: string;
   phone: string;
   department_id: number;
   is_grade_lead: boolean;
@@ -33,6 +34,7 @@ interface ExistingTeacher {
 const emptyRow = (): TeacherRow => ({
   name: "",
   email: "",
+  username: "",
   phone: "",
   department_id: 0,
   is_grade_lead: false,
@@ -89,6 +91,7 @@ export function Step4Teachers() {
         await api.post("/api/users", {
           name: r.name.trim(),
           email: r.email.trim(),
+          username: r.username.trim() || undefined,
           role: "teacher",
           phone: r.phone.trim() || null,
           // 핸드폰 있으면 미전송(백엔드가 핸드폰=초기비번), 없으면 상단 일괄 임시비번.
@@ -216,6 +219,7 @@ export function Step4Teachers() {
               <th className="px-2 py-2 text-left w-8"></th>
               <th className="px-2 py-2 text-left">이름 *</th>
               <th className="px-2 py-2 text-left">이메일 *</th>
+              <th className="px-2 py-2 text-left">아이디</th>
               <th className="px-2 py-2 text-left">연락처</th>
               <th className="px-2 py-2 text-left">부서</th>
               <th className="px-2 py-2 text-left w-24">학년부장</th>
@@ -242,6 +246,15 @@ export function Step4Teachers() {
                     onChange={(e) => updateRow(i, { email: e.target.value })}
                     placeholder="email@school.kr"
                     className="w-full px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
+                  />
+                </td>
+                <td className="px-2 py-1.5">
+                  <input
+                    type="text"
+                    value={r.username}
+                    onChange={(e) => updateRow(i, { username: e.target.value })}
+                    placeholder="아이디(선택)"
+                    className="w-28 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary"
                   />
                 </td>
                 <td className="px-2 py-1.5">

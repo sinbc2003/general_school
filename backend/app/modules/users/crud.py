@@ -420,9 +420,21 @@ async def update_user(
 async def delete_user(
     user_id: int,
     request: Request,
+    mode: str = "disable",
     user: User = Depends(require_permission("user.manage.delete")),
     db: AsyncSession = Depends(get_db),
 ):
+    """계정 삭제 — mode로 강도 선택 (Danger Zone).
+
+    - disable (기본): 소프트 비활성화. 데이터 전부 보존, 로그인만 차단. 복구 가능.
+    - delete: 계정 영구 삭제. 개인 데이터(드라이브·제출물·포트폴리오·수강·알림·소유 강좌 등)는
+      DB FK CASCADE로 함께 삭제. 공유 공간의 글/댓글은 작성자 표시만 비워진 채 남음.
+    - purge: delete + 본인이 올린 글/댓글/공지/업로드 문서/설문응답까지 삭제(완전 삭제).
+      단 선배연구(past_researches)·과제·대회 등 기관 콘텐츠는 보존(작성자만 NULL 처리).
+    """
+    if mode not in ("disable", "delete", "purge"):
+        raise HTTPException(400, "mode는 disable|delete|purge 중 하나여야 합니다")
+
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
@@ -435,14 +447,41 @@ async def delete_user(
     if user.role == "designated_admin" and target.role == "designated_admin":
         raise HTTPException(403, "다른 지정관리자는 최고관리자만 삭제할 수 있습니다")
 
-    target.status = "disabled"
-    await db.flush()
+    target_email = target.email
+    target_name = target.name
 
-    # 즉시 세션 차단 (disabled 사용자는 더 이상 토큰 갱신 불가)
+    # 모든 모드 공통: 세션 즉시 차단
     from app.modules.permissions.router import _invalidate_user_sessions
     await _invalidate_user_sessions(db, target.id)
     await db.flush()
 
-    # 계정 비활성화 = 사실상 삭제 + 세션 차단 — 민감.
-    await log_action(db, user, "user_disabled", target=target.email, request=request, is_sensitive=True)
-    return {"ok": True}
+    if mode == "disable":
+        target.status = "disabled"
+        await db.flush()
+        await log_action(db, user, "user_disabled", target=target_email, request=request, is_sensitive=True)
+        return {"ok": True, "mode": mode}
+
+    # delete / purge — 영구 삭제
+    from sqlalchemy import text as _text
+    if mode == "purge":
+        # 본인이 '작성'한 콘텐츠 명시 삭제 (이 FK들은 SET NULL이라 그냥 두면 작성자만 비고 글은 남음).
+        # 기관 콘텐츠(과제/대회/문제/동아리/선배연구)는 보존 — 다른 사용자 영향 방지.
+        for stmt in (
+            "DELETE FROM classroom_post_comments WHERE author_id = :uid",
+            "DELETE FROM classroom_posts WHERE author_id = :uid",
+            "DELETE FROM announcements WHERE author_id = :uid",
+            "DELETE FROM classroom_survey_responses WHERE respondent_id = :uid",
+            "DELETE FROM documents WHERE uploaded_by_id = :uid",
+        ):
+            await db.execute(_text(stmt), {"uid": user_id})
+
+    # 계정 행 삭제 — 개인 데이터는 DB FK CASCADE로 함께 제거됨
+    await db.execute(_text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
+    db.expunge(target)
+    await db.flush()
+
+    await log_action(
+        db, user, f"user_{mode}",
+        target=f"{target_name}<{target_email}>", request=request, is_sensitive=True,
+    )
+    return {"ok": True, "mode": mode}

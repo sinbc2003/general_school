@@ -4,13 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api/client";
 import { PermissionGate } from "@/components/common/permission-gate";
-import { Upload, Download, Search, RotateCcw, UserX, HardDrive } from "lucide-react";
+import { Upload, Download, Search, RotateCcw, UserX, HardDrive, Plus, Trash2 } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 import { InlineCell } from "@/components/ui/InlineCell";
 import type { UserItem } from "@/types";
 import { CsvBulkImportModal } from "./_components/CsvBulkImportModal";
 import { LifecycleModal } from "./_components/LifecycleModal";
 import { QuotaBulkModal } from "./_components/QuotaBulkModal";
+import { CreateUserModal } from "./_components/CreateUserModal";
+import { DangerZoneModal } from "./_components/DangerZoneModal";
 
 
 // MB 단위 포맷 (작은 값은 MB, 1024 이상은 GB로)
@@ -47,6 +49,7 @@ export default function UsersPage() {
   const [lifecycleTarget, setLifecycleTarget] = useState<UserItem | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [showQuotaBulkModal, setShowQuotaBulkModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UserItem | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -150,10 +153,19 @@ export default function UsersPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-title text-text-primary">사용자 관리</h1>
         <div className="flex items-center gap-2">
+          <PermissionGate permission="user.manage.create">
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+            >
+              <Plus size={14} />
+              계정 등록
+            </button>
+          </PermissionGate>
           {isSuperAdmin && (
             <button
               onClick={() => setShowCsvModal(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover"
+              className="flex items-center gap-1 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary"
             >
               <Upload size={14} />
               CSV 일괄 등록
@@ -395,6 +407,15 @@ export default function UsersPage() {
                 >
                   <UserX size={14} />
                 </button>
+                {isSuperAdmin && u.role !== "super_admin" && (
+                  <button
+                    onClick={() => setDeleteTarget(u)}
+                    title="계정 삭제 (비활성화 / 삭제 / 데이터까지 삭제)"
+                    className="p-1 hover:bg-red-50 rounded text-text-tertiary hover:text-red-600"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             ),
           },
@@ -415,6 +436,21 @@ export default function UsersPage() {
           allUsers={users}
           onClose={() => setLifecycleTarget(null)}
           onSaved={() => { setLifecycleTarget(null); fetchUsers(); }}
+        />
+      )}
+
+      {showCreate && (
+        <CreateUserModal
+          onClose={() => setShowCreate(false)}
+          onCreated={fetchUsers}
+        />
+      )}
+
+      {deleteTarget && (
+        <DangerZoneModal
+          user={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDone={fetchUsers}
         />
       )}
     </div>

@@ -12,12 +12,13 @@ interface StudentRow {
   student_number: number;
   name: string;
   email: string;
+  username: string;
   phone: string;
 }
 
 const emptyRow = (): StudentRow => ({
   grade: 1, class_number: 1, student_number: 1,
-  name: "", email: "", phone: "",
+  name: "", email: "", username: "", phone: "",
 });
 
 export function Step5Students() {
@@ -65,6 +66,7 @@ export function Step5Students() {
         await api.post("/api/users", {
           name: r.name.trim(),
           email: r.email.trim(),
+          username: r.username.trim() || undefined,
           role: "student",
           phone: r.phone.trim() || null,
           // 핸드폰 있으면 미전송(백엔드가 핸드폰=초기비번), 없으면 상단 일괄 임시비번.
@@ -185,6 +187,7 @@ export function Step5Students() {
               <th className="px-2 py-2 text-left w-14">번호</th>
               <th className="px-2 py-2 text-left">이름 *</th>
               <th className="px-2 py-2 text-left">이메일 *</th>
+              <th className="px-2 py-2 text-left">아이디</th>
               <th className="px-2 py-2 text-left">연락처</th>
               <th className="px-2 py-2 w-10"></th>
             </tr>
@@ -198,6 +201,7 @@ export function Step5Students() {
                 <td><input type="number" value={r.student_number} min={1} onChange={(e) => updateRow(i, { student_number: Number(e.target.value) })} className="w-14 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5"><input type="text" value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} placeholder="이름" className="w-full px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5"><input type="email" value={r.email} onChange={(e) => updateRow(i, { email: e.target.value })} placeholder="email" className="w-full px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
+                <td className="px-2 py-1.5"><input type="text" value={r.username} onChange={(e) => updateRow(i, { username: e.target.value })} placeholder="아이디(학번 등)" className="w-28 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5"><input type="text" value={r.phone} onChange={(e) => updateRow(i, { phone: e.target.value })} placeholder="01012345678" className="w-32 px-2 py-1 text-[12px] border border-border-default rounded bg-bg-primary" /></td>
                 <td className="px-2 py-1.5 text-center"><button type="button" onClick={() => removeRow(i)} className="p-1 rounded hover:bg-red-50 text-red-500"><Trash2 size={12} /></button></td>
               </tr>
