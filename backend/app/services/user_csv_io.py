@@ -3,11 +3,11 @@
 자체 양식 — UTF-8 BOM. 헤더 첫 줄. **한글·영문 헤더 둘 다 인식**.
 
 역할별 컬럼 (필수/선택):
-  designated_admin: 이름*, 이메일*, 아이디*, 비밀번호
-  teacher:           이름*, 이메일*, 아이디*, 비밀번호, 부서
-  student:           이름*, 이메일*, 아이디*, 비밀번호, 학년, 반, 번호
+  designated_admin: 이름*, 이메일*, 아이디*, 비밀번호, 연락처
+  teacher:           이름*, 이메일*, 아이디*, 비밀번호, 연락처, 부서
+  student:           이름*, 이메일*, 아이디*, 비밀번호, 연락처, 학년, 반, 번호
 
-password 누락 시 settings.DEFAULT_USER_PASSWORD 사용 + must_change_password=True
+초기 비밀번호: 명시 비번 → 연락처(숫자만) → settings.DEFAULT_USER_PASSWORD. must_change_password=True.
 이메일/아이디 중복은 행 단위 실패로 보고.
 """
 
@@ -30,6 +30,7 @@ COLUMN_ALIASES: dict[str, str] = {
     "이메일": "email", "메일": "email", "email": "email", "e-mail": "email",
     "아이디": "username", "ID": "username", "id": "username", "username": "username", "유저네임": "username",
     "비밀번호": "password", "패스워드": "password", "password": "password", "비번": "password",
+    "연락처": "phone", "전화번호": "phone", "휴대폰": "phone", "핸드폰": "phone", "전화": "phone", "phone": "phone",
     # 교사
     "부서": "department", "department": "department", "소속": "department",
     # 학생
@@ -40,11 +41,22 @@ COLUMN_ALIASES: dict[str, str] = {
 
 
 CSV_TEMPLATES: dict[str, list[str]] = {
-    "designated_admin": ["이름", "이메일", "아이디", "비밀번호"],
-    "teacher":          ["이름", "이메일", "아이디", "비밀번호", "부서"],
-    "student":          ["이름", "이메일", "아이디", "비밀번호",
+    "designated_admin": ["이름", "이메일", "아이디", "비밀번호", "연락처"],
+    "teacher":          ["이름", "이메일", "아이디", "비밀번호", "연락처", "부서"],
+    "student":          ["이름", "이메일", "아이디", "비밀번호", "연락처",
                          "학년", "반", "번호"],
 }
+
+import re as _re
+_PHONE_NONDIGIT = _re.compile(r"\D")
+
+
+def _phone_digits(phone: str | None) -> str | None:
+    """전화번호 → 숫자만 (초기 비밀번호용). 숫자 없으면 None. (semester_import와 동일 규칙)"""
+    if not phone:
+        return None
+    d = _PHONE_NONDIGIT.sub("", phone)
+    return d or None
 
 # 표준 영문 키 기준 (한글 → 영문 변환 후 검사)
 REQUIRED: dict[str, set[str]] = {
@@ -77,32 +89,35 @@ def template_csv(role: str) -> str:
     header = ",".join(cols)
 
     if role == "student":
-        example = "홍길동,gildong@school.local,10101,,1,1,1"
+        example = "홍길동,gildong@school.local,10101,,010-1234-5678,1,1,1"
         descs = [
             "# 이름 필수 (실명)",
             "# 이메일 필수 (학교/개인 메일)",
             "# 아이디 필수 (학번 권장: 학년+반+번호 5자리 예 10101)",
-            "# 비번 빈칸이면 기본값 + 첫 로그인 시 강제 변경",
+            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 연락처도 없으면 기본값",
+            "# 연락처 — 초기 비밀번호로 사용(숫자만). 첫 로그인 시 강제 변경",
             "# 학년 1·2·3",
             "# 반 숫자",
             "# 번호 출석번호",
         ]
     elif role == "teacher":
-        example = "김선생,kim@school.local,kimss,,수학과"
+        example = "김선생,kim@school.local,kimss,,010-1234-5678,수학과"
         descs = [
             "# 이름 필수 (실명)",
             "# 이메일 필수 (학교 메일)",
             "# 아이디 필수 (영문+숫자 8자 이상 권장)",
-            "# 비번 빈칸이면 기본값 + 첫 로그인 시 강제 변경",
+            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 연락처도 없으면 기본값",
+            "# 연락처 — 초기 비밀번호로 사용(숫자만). 첫 로그인 시 강제 변경",
             "# 부서명 (마법사 2단계에서 등록한 부서명과 정확히 일치)",
         ]
     else:
-        example = "지정관리자,da@school.local,da01,"
+        example = "지정관리자,da@school.local,da01,,010-1234-5678"
         descs = [
             "# 이름 필수",
             "# 이메일 필수",
             "# 아이디 필수",
-            "# 비번 빈칸 시 기본값",
+            "# 비번 빈칸이면 연락처(숫자만)가 초기 비번, 없으면 기본값",
+            "# 연락처 — 초기 비밀번호로 사용(숫자만)",
         ]
 
     # 헤더 + 예시 행 + 빈 셀에 설명 (Excel에서 #로 시작하는 셀은 데이터 무시)
@@ -140,9 +155,9 @@ def template_xlsx(role: str, dept_names: list[str] | None = None) -> bytes:
         cell.fill = PatternFill("solid", fgColor="4A4A6E")
 
     examples = {
-        "teacher": ["김선생", "kim@school.local", "kimss", "", "수학과"],
-        "student": ["홍길동", "gildong@school.local", "10101", "", "1", "1", "1"],
-        "designated_admin": ["지정관리자", "da@school.local", "da01", ""],
+        "teacher": ["김선생", "kim@school.local", "kimss", "", "010-1234-5678", "수학과"],
+        "student": ["홍길동", "gildong@school.local", "10101", "", "010-1234-5678", "1", "1", "1"],
+        "designated_admin": ["지정관리자", "da@school.local", "da01", "", "010-1234-5678"],
     }
     ws.append(examples.get(role, []))
     for c in range(1, len(cols) + 1):
@@ -254,7 +269,13 @@ async def import_users_csv(
             name = first_val
             email = (row.get("email") or "").strip().lower()
             username = (row.get("username") or "").strip()
-            password = (row.get("password") or "").strip() or settings.DEFAULT_USER_PASSWORD
+            phone = (row.get("phone") or "").strip() or None
+            # 초기 비번: 명시 비번 → 연락처(숫자만) → 기본값
+            password = (
+                (row.get("password") or "").strip()
+                or _phone_digits(phone)
+                or settings.DEFAULT_USER_PASSWORD
+            )
 
             if not name or not email or not username:
                 raise ValueError("이름/이메일/아이디 필수")
@@ -269,6 +290,7 @@ async def import_users_csv(
                 name=name, email=email, username=username,
                 password_hash=hash_password(password),
                 role=role, status="approved",
+                phone=phone,
                 must_change_password=True,
             )
             if role == "teacher":
