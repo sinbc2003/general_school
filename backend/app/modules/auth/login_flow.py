@@ -164,7 +164,8 @@ async def _start_email_challenge(
     }
     # dev 편의: ENV=dev + SMTP 미설정이면 응답에 dev_code 포함 → frontend가 표시.
     # production(ENV!=dev 또는 SMTP_HOST 설정됨)에서는 절대 포함 안 됨 (보안 critical).
-    if settings.ENV == "dev" and not settings.SMTP_HOST:
+    # 예외: SHOW_LOGIN_CODE=true (임시 데모용 토글) — 시연 편의로 코드를 화면에 노출.
+    if (settings.ENV == "dev" and not settings.SMTP_HOST) or settings.SHOW_LOGIN_CODE:
         resp["dev_code"] = code
     return resp
 

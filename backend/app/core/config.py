@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     LOGIN_CHALLENGE_MINUTES: int = 10
     # 코드 입력 최대 시도 횟수.
     LOGIN_CHALLENGE_MAX_ATTEMPTS: int = 5
+    # [임시/데모] true면 2FA 코드를 응답(화면)에 노출 — SMTP/ENV 무관. 시연 편의용.
+    # ⚠️ 공개 환경에선 2FA 무력화에 가까우므로 데모 후 반드시 false. 기본 false.
+    SHOW_LOGIN_CODE: bool = False
 
     # ── AI ──
     ANTHROPIC_API_KEY: str = ""

@@ -77,7 +77,8 @@ async def send_email_2fa(
         "expires_in_minutes": settings.LOGIN_CHALLENGE_MINUTES,
     }
     # dev 편의 (운영에서는 절대 노출 안 됨 — login_flow와 동일 가드)
-    if settings.ENV == "dev" and not settings.SMTP_HOST:
+    # 예외: SHOW_LOGIN_CODE=true (임시 데모용) — 코드를 화면에 노출.
+    if (settings.ENV == "dev" and not settings.SMTP_HOST) or settings.SHOW_LOGIN_CODE:
         resp["dev_code"] = code
     return resp
 
