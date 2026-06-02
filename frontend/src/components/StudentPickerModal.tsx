@@ -13,8 +13,11 @@
  *
  * 재사용: 클래스룸 수강생 등록, 연구담당 매핑 등 "학생 명단 선택"이 필요한 모든 곳.
  *
- * onConfirm(userIds)        — 선택 확정 시 호출(부모가 실제 등록 API 처리). 성공 시 모달 자동 닫힘.
- * onConfirmNumbers(numbers) — (선택) 학번 붙여넣기 등록 지원 시. 미지정이면 붙여넣기 UI 숨김.
+ * mode="multi"(기본): 체크박스 다중 선택 + 전체선택 + 학번 붙여넣기.
+ *   onConfirm(userIds)        — 선택 확정 시 호출(부모가 실제 등록 API 처리). 성공 시 모달 자동 닫힘.
+ *   onConfirmNumbers(numbers) — (선택) 학번 붙여넣기 등록 지원 시. 미지정이면 붙여넣기 UI 숨김.
+ * mode="single": 한 명 클릭 즉시 선택. 연구담당 1:1 매핑 등.
+ *   onPick(student)           — 클릭한 학생(전체 row) 전달 후 모달 닫힘. 부모가 폼에 반영.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,7 +25,7 @@ import { Search, Loader2, Check, Users, ChevronDown } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/Modal";
 import { api } from "@/lib/api/client";
 
-interface StudentRow {
+export interface StudentRow {
   id: number;
   name: string;
   username?: string | null;
@@ -34,12 +37,16 @@ interface StudentRow {
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** "multi"(기본): 다중 선택 / "single": 한 명 클릭 즉시 선택 */
+  mode?: "single" | "multi";
   /** 이미 등록된 학생 user_id — 목록에서 "등록됨"으로 비활성 표시 */
   excludedUserIds?: number[];
-  /** 선택 확정 — 부모가 실제 등록 처리 후 resolve. resolve되면 모달 자동 닫힘 */
-  onConfirm: (userIds: number[]) => Promise<void>;
-  /** (선택) 학번 목록 붙여넣기 등록. 지정 시 하단에 접힌 보조 입력 노출 */
+  /** [multi] 선택 확정 — 부모가 실제 등록 처리 후 resolve. resolve되면 모달 자동 닫힘 */
+  onConfirm?: (userIds: number[]) => Promise<void>;
+  /** [multi] (선택) 학번 목록 붙여넣기 등록. 지정 시 하단에 접힌 보조 입력 노출 */
   onConfirmNumbers?: (studentNumbers: number[]) => Promise<void>;
+  /** [single] 한 명 클릭 시 호출 — 선택한 학생 전체 정보 전달. 호출 후 모달 닫힘 */
+  onPick?: (student: StudentRow) => void | Promise<void>;
   title?: string;
   confirmLabel?: string;
 }
@@ -53,9 +60,10 @@ function fmtNo(g?: number | null, c?: number | null, n?: number | null): string 
 }
 
 export function StudentPickerModal({
-  open, onClose, excludedUserIds = [], onConfirm, onConfirmNumbers,
+  open, onClose, mode = "multi", excludedUserIds = [], onConfirm, onConfirmNumbers, onPick,
   title = "학생 선택", confirmLabel = "추가",
 }: Props) {
+  const isSingle = mode === "single";
   const [grade, setGrade] = useState<number | "">("");
   const [classNumber, setClassNumber] = useState<number | "">("");
   const [search, setSearch] = useState("");
@@ -126,7 +134,7 @@ export function StudentPickerModal({
 
   // onConfirm 성공 시 자동 닫힘. 실패 시 부모가 에러 토스트 책임 → 여기선 삼켜 모달 유지.
   const confirmSelection = async () => {
-    if (selected.size === 0) return;
+    if (!onConfirm || selected.size === 0) return;
     setSaving(true);
     try {
       await onConfirm(Array.from(selected));
@@ -144,6 +152,17 @@ export function StudentPickerModal({
     setSaving(true);
     try {
       await onConfirmNumbers(numbers);
+      onClose();
+    } catch { /* 부모가 토스트 처리 */ }
+    finally { setSaving(false); }
+  };
+
+  // [single] 한 명 클릭 → 부모에 전달 후 닫기
+  const pickOne = async (u: StudentRow) => {
+    if (!onPick) return;
+    setSaving(true);
+    try {
+      await onPick(u);
       onClose();
     } catch { /* 부모가 토스트 처리 */ }
     finally { setSaving(false); }
@@ -173,16 +192,20 @@ export function StudentPickerModal({
         </div>
       </div>
 
-      {/* 전체 선택 / 선택 수 */}
-      <div className="flex items-center justify-between mb-2">
-        <button
-          type="button" onClick={toggleAll} disabled={selectable.length === 0}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 disabled:opacity-40"
-        >
-          <Check size={12} /> {allSelected ? "전체 해제" : `현재 목록 전체 선택 (${selectable.length})`}
-        </button>
-        <span className="text-caption text-text-tertiary">선택 {selected.size}명</span>
-      </div>
+      {/* 전체 선택 / 선택 수 (multi 전용) */}
+      {!isSingle ? (
+        <div className="flex items-center justify-between mb-2">
+          <button
+            type="button" onClick={toggleAll} disabled={selectable.length === 0}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 disabled:opacity-40"
+          >
+            <Check size={12} /> {allSelected ? "전체 해제" : `현재 목록 전체 선택 (${selectable.length})`}
+          </button>
+          <span className="text-caption text-text-tertiary">선택 {selected.size}명</span>
+        </div>
+      ) : (
+        <p className="text-caption text-text-tertiary mb-2">학생을 클릭하면 바로 선택됩니다.</p>
+      )}
 
       {/* 명단 list */}
       <div className="border border-border-default rounded bg-bg-primary max-h-[360px] overflow-y-auto">
@@ -202,17 +225,19 @@ export function StudentPickerModal({
             return (
               <button
                 key={u.id} type="button"
-                onClick={() => !isExcluded && toggle(u.id)}
+                onClick={() => { if (!isExcluded) isSingle ? pickOne(u) : toggle(u.id); }}
                 disabled={isExcluded || saving}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-left border-b border-border-default last:border-b-0 ${
                   isExcluded ? "opacity-50 cursor-not-allowed" : "hover:bg-bg-secondary"
                 }`}
               >
-                <span className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
-                  isSel ? "bg-accent border-accent" : "border-border-default"
-                }`}>
-                  {isSel && <Check size={11} className="text-white" />}
-                </span>
+                {!isSingle && (
+                  <span className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                    isSel ? "bg-accent border-accent" : "border-border-default"
+                  }`}>
+                    {isSel && <Check size={11} className="text-white" />}
+                  </span>
+                )}
                 <span className="min-w-0 flex-1 truncate text-body text-text-primary">
                   {u.name}
                   {no && <span className="text-[11px] text-text-tertiary ml-2">{no}</span>}
@@ -230,8 +255,8 @@ export function StudentPickerModal({
         </p>
       )}
 
-      {/* 학번 직접 붙여넣기 (보조) */}
-      {onConfirmNumbers && (
+      {/* 학번 직접 붙여넣기 (보조, multi 전용) */}
+      {!isSingle && onConfirmNumbers && (
         <div className="mt-3 border-t border-border-default pt-3">
           <button
             type="button" onClick={() => setPasteOpen((v) => !v)}
@@ -260,14 +285,16 @@ export function StudentPickerModal({
 
       <ModalFooter>
         <button onClick={onClose} disabled={saving} className="px-4 py-1.5 text-caption border border-border-default rounded">
-          취소
+          {isSingle ? "닫기" : "취소"}
         </button>
-        <button
-          onClick={confirmSelection} disabled={saving || selected.size === 0}
-          className="inline-flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded disabled:opacity-50"
-        >
-          {saving ? "등록 중..." : `선택한 ${selected.size}명 ${confirmLabel}`}
-        </button>
+        {!isSingle && (
+          <button
+            onClick={confirmSelection} disabled={saving || selected.size === 0}
+            className="inline-flex items-center gap-1 px-4 py-1.5 text-caption bg-accent text-white rounded disabled:opacity-50"
+          >
+            {saving ? "등록 중..." : `선택한 ${selected.size}명 ${confirmLabel}`}
+          </button>
+        )}
       </ModalFooter>
     </Modal>
   );

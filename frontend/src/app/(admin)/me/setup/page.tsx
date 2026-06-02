@@ -6,6 +6,7 @@ import {
   Loader2, Save, CheckCircle2, X, Plus, Trash2, Search,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { StudentPickerModal, type StudentRow } from "@/components/StudentPickerModal";
 
 interface Me {
   id: number;
@@ -63,10 +64,11 @@ export default function TeacherMeSetupPage() {
   const [subjects, setSubjects] = useState<Set<string>>(new Set());
   const [savingEnroll, setSavingEnroll] = useState(false);
 
-  // 연구 학생 검색·추가
-  const [studentSearch, setStudentSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  // 연구 학생 추가 — 명단에서 선택 (직접입력 X)
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
   const [topicTitle, setTopicTitle] = useState("");
+  const [addingSup, setAddingSup] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,30 +146,23 @@ export default function TeacherMeSetupPage() {
     setFn(next);
   };
 
-  const searchStudents = async (q: string) => {
-    setStudentSearch(q);
-    if (!q.trim()) { setSearchResults([]); return; }
-    try {
-      const d = await api.get(`/api/teacher-groups/_students/_search?q=${encodeURIComponent(q)}`);
-      setSearchResults(d.items || []);
-    } catch {}
-  };
-
-  const addSupervised = async (student_id: number) => {
+  const addSupervised = async () => {
+    if (!selectedStudent) return;
     if (!semesterId) { alert("현재 학기 정보가 없습니다"); return; }
     if (!me) return;
+    setAddingSup(true);
     try {
       await api.post("/api/past-research/_supervisions", {
         semester_id: semesterId,
-        student_id,
+        student_id: selectedStudent.id,
         supervisor_id: me.id,
         topic_title: topicTitle.trim() || null,
       });
-      setStudentSearch(""); setSearchResults([]); setTopicTitle("");
+      setSelectedStudent(null); setTopicTitle("");
       await load();
     } catch (e: any) {
       alert(`추가 실패: ${e?.detail || e}`);
-    }
+    } finally { setAddingSup(false); }
   };
 
   const removeSupervised = async (sid: number) => {
@@ -326,28 +321,46 @@ export default function TeacherMeSetupPage() {
         )}
 
         <div className="space-y-2">
-          <div className="relative">
-            <div className="flex gap-1">
-              <input value={studentSearch} onChange={(e) => searchStudents(e.target.value)}
-                     placeholder="학번 또는 이름 검색"
-                     className="flex-1 px-2 py-1.5 border border-border-default rounded text-caption bg-bg-primary" />
+          {selectedStudent ? (
+            <div className="flex items-center justify-between px-2 py-1.5 bg-bg-secondary rounded">
+              <span className="text-caption text-text-primary">
+                {selectedStudent.name}
+                {selectedStudent.grade && selectedStudent.class_number && selectedStudent.student_number && (
+                  <span className="text-text-tertiary ml-2">
+                    {selectedStudent.grade}{String(selectedStudent.class_number).padStart(2, "0")}{String(selectedStudent.student_number).padStart(2, "0")}
+                  </span>
+                )}
+                {selectedStudent.username && <span className="text-text-tertiary ml-2">({selectedStudent.username})</span>}
+              </span>
+              <button onClick={() => setSelectedStudent(null)} className="text-text-tertiary hover:text-text-primary">
+                <X size={14} />
+              </button>
             </div>
-            {searchResults.length > 0 && (
-              <div className="absolute z-10 left-0 right-0 mt-1 bg-bg-primary border border-border-default rounded shadow-lg max-h-60 overflow-y-auto">
-                {searchResults.map((s) => (
-                  <button key={s.id} onClick={() => addSupervised(s.id)}
-                          className="w-full text-left px-2 py-1.5 hover:bg-bg-secondary text-caption flex items-center justify-between">
-                    <span>{s.name} <span className="text-text-tertiary">({s.username})</span></span>
-                    {s.grade && <span className="text-text-tertiary text-[10px]">{s.grade}학년</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          ) : (
+            <button type="button" onClick={() => setPickerOpen(true)}
+                    className="w-full flex items-center justify-center gap-1.5 px-2 py-2 border border-dashed border-border-default rounded text-caption text-text-secondary hover:bg-bg-secondary">
+              <Search size={13} /> 학생 명단에서 찾기
+            </button>
+          )}
           <input value={topicTitle} onChange={(e) => setTopicTitle(e.target.value)}
                  placeholder="연구 주제 (선택, 학생 추가 시 같이 저장)"
                  className="w-full px-2 py-1.5 border border-border-default rounded text-caption bg-bg-primary" />
+          <div className="flex justify-end">
+            <button onClick={addSupervised} disabled={!selectedStudent || addingSup}
+                    className="px-3 py-1.5 bg-accent text-white text-caption rounded inline-flex items-center gap-1 disabled:opacity-50">
+              {addingSup ? <><Loader2 size={12} className="animate-spin" /> 추가 중</> : <><Plus size={12} /> 담당 학생 추가</>}
+            </button>
+          </div>
         </div>
+
+        <StudentPickerModal
+          open={pickerOpen}
+          mode="single"
+          onClose={() => setPickerOpen(false)}
+          title="담당 학생 선택"
+          excludedUserIds={supervised.map((s) => s.student_id)}
+          onPick={(stu) => setSelectedStudent(stu)}
+        />
       </Section>
 
       <div className="text-center text-caption text-text-tertiary pt-2">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Plus, Trash2, Search, X, Upload, FileSpreadsheet, Download } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { StudentPickerModal, type StudentRow } from "@/components/StudentPickerModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -248,23 +249,13 @@ function CsvBulkModal({ semesterId, onClose, onDone }: {
 function CreateSupervisionModal({ semesterId, onClose, onCreated }: {
   semesterId: number; onClose: () => void; onCreated: () => void;
 }) {
-  const [studentSearch, setStudentSearch] = useState("");
-  const [students, setStudents] = useState<any[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState<any>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<StudentRow | null>(null);
   const [teacherSearch, setTeacherSearch] = useState("");
   const [teachers, setTeachers] = useState<any[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<any>(null);
   const [topicTitle, setTopicTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const searchStudent = async (q: string) => {
-    setStudentSearch(q);
-    if (!q.trim()) { setStudents([]); return; }
-    try {
-      const d = await api.get(`/api/teacher-groups/_students/_search?q=${encodeURIComponent(q)}`);
-      setStudents(d.items || []);
-    } catch {}
-  };
 
   const searchTeacher = async (q: string) => {
     setTeacherSearch(q);
@@ -296,31 +287,28 @@ function CreateSupervisionModal({ semesterId, onClose, onCreated }: {
       <div className="bg-bg-primary rounded-lg p-5 w-full max-w-md">
         <h3 className="text-body font-semibold text-text-primary mb-3">담당교사 매핑 추가</h3>
 
-        <div className="mb-3 relative">
+        <div className="mb-3">
           <span className="text-caption text-text-tertiary">학생 *</span>
           {selectedStudent ? (
             <div className="mt-0.5 flex items-center justify-between px-2 py-1.5 bg-bg-secondary rounded">
-              <span className="text-body text-text-primary">{selectedStudent.name} ({selectedStudent.username})</span>
-              <button onClick={() => { setSelectedStudent(null); setStudentSearch(""); }} className="text-text-tertiary">
+              <span className="text-body text-text-primary">
+                {selectedStudent.name}
+                {selectedStudent.grade && selectedStudent.class_number && selectedStudent.student_number && (
+                  <span className="text-text-tertiary ml-2 text-caption">
+                    {selectedStudent.grade}{String(selectedStudent.class_number).padStart(2, "0")}{String(selectedStudent.student_number).padStart(2, "0")}
+                  </span>
+                )}
+                {selectedStudent.username && <span className="text-text-tertiary ml-2 text-caption">({selectedStudent.username})</span>}
+              </span>
+              <button onClick={() => setSelectedStudent(null)} className="text-text-tertiary">
                 <X size={14} />
               </button>
             </div>
           ) : (
-            <>
-              <input value={studentSearch} onChange={(e) => searchStudent(e.target.value)}
-                     placeholder="학번 또는 이름 검색"
-                     className="mt-0.5 w-full px-2 py-1 border border-border-default rounded text-body bg-bg-primary" />
-              {students.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1 bg-bg-primary border border-border-default rounded shadow-lg max-h-48 overflow-y-auto">
-                  {students.map((s) => (
-                    <button key={s.id} onClick={() => { setSelectedStudent(s); setStudents([]); }}
-                            className="w-full text-left px-2 py-1.5 hover:bg-bg-secondary text-caption">
-                      {s.name} ({s.username}) {s.grade && `· ${s.grade}학년`}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+            <button type="button" onClick={() => setPickerOpen(true)}
+                    className="mt-0.5 w-full flex items-center justify-center gap-1.5 px-2 py-2 border border-dashed border-border-default rounded text-caption text-text-secondary hover:bg-bg-secondary">
+              <Search size={13} /> 학생 명단에서 찾기
+            </button>
           )}
         </div>
 
@@ -366,6 +354,14 @@ function CreateSupervisionModal({ semesterId, onClose, onCreated }: {
           </button>
         </div>
       </div>
+
+      <StudentPickerModal
+        open={pickerOpen}
+        mode="single"
+        onClose={() => setPickerOpen(false)}
+        title="학생 선택"
+        onPick={(stu) => setSelectedStudent(stu)}
+      />
     </div>
   );
 }
