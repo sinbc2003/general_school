@@ -4,7 +4,7 @@
  * 강좌 상세 (관리자·교사용).
  *
  * - 상단: 강좌 정보 + 편집
- * - 좌측: 학생 명단 + 일괄 등록 (학번)
+ * - 좌측: 학생 명단 + 일괄 등록 (전교생 명단에서 선택 — StudentPickerModal)
  * - 우측: 클래스룸 글 (공지·자료) 작성·목록
  */
 
@@ -21,7 +21,7 @@ import { AssignmentModal, type AssignmentModalInitial, type CreateKind } from "@
 import { getCourseTone } from "@/components/classroom/_color";
 import { useToast } from "@/components/ui/Toast";
 import { CourseworkTab } from "./_components/Coursework";
-import { BulkAddModal } from "./_components/BulkAddModal";
+import { StudentPickerModal } from "@/components/StudentPickerModal";
 import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
 import { PeopleTab } from "@/components/classroom/PeopleTab";
 import { CourseChatbots } from "@/components/classroom/CourseChatbots";
@@ -76,6 +76,25 @@ export default function CourseDetailAdminPage() {
       toast.show(`${name} 학생 제외됨`, "success");
     } catch (e: any) {
       toast.show(e?.detail || "실패", "error");
+    }
+  };
+
+  // 학생 일괄 등록 — 명단 선택(user_ids) 또는 학번 붙여넣기(student_numbers) 모두 같은 bulk endpoint.
+  // 성공 시 toast + reload, 실패 시 toast 후 rethrow(모달 열린 채 유지).
+  const enrollStudents = async (body: { user_ids?: number[]; student_numbers?: number[] }) => {
+    try {
+      const res = await api.post<{ added: number; skipped: number; reactivated: number }>(
+        `/api/classroom/courses/${cid}/students/bulk`, body,
+      );
+      const parts: string[] = [];
+      if (res.added) parts.push(`추가 ${res.added}`);
+      if (res.reactivated) parts.push(`재활성화 ${res.reactivated}`);
+      if (res.skipped) parts.push(`중복 ${res.skipped}`);
+      await load();
+      toast.show(`수강생 등록: ${parts.join(" · ") || "변경 없음"}`, "success");
+    } catch (e: any) {
+      toast.show(e?.detail || "등록 실패", "error");
+      throw e;
     }
   };
 
@@ -232,13 +251,15 @@ export default function CourseDetailAdminPage() {
         </div>
       )}
 
-      {showBulk && (
-        <BulkAddModal
-          cid={cid}
-          onClose={() => setShowBulk(false)}
-          onSaved={() => { setShowBulk(false); load(); }}
-        />
-      )}
+      <StudentPickerModal
+        open={showBulk}
+        onClose={() => setShowBulk(false)}
+        title="수강생 추가"
+        confirmLabel="등록"
+        excludedUserIds={course.students.map((s) => s.student_id)}
+        onConfirm={(userIds) => enrollStudents({ user_ids: userIds })}
+        onConfirmNumbers={(studentNumbers) => enrollStudents({ student_numbers: studentNumbers })}
+      />
 
       {modalKind && (
         <AssignmentModal
