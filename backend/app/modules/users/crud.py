@@ -82,7 +82,9 @@ async def search_peers(
             return {"items": []}
         query = query.where(User.id.in_(allowed_ids))
     if role:
-        query = query.where(User.role == role)
+        _roles = [r.strip() for r in role.split(",") if r.strip()]
+        if _roles:
+            query = query.where(User.role.in_(_roles))
     if grade is not None:
         query = query.where(User.grade == grade)
     if class_number is not None:
@@ -117,7 +119,9 @@ async def list_users(
     query = select(User)
 
     if role:
-        query = query.where(User.role == role)
+        _roles = [r.strip() for r in role.split(",") if r.strip()]
+        if _roles:
+            query = query.where(User.role.in_(_roles))
     if grade is not None:
         query = query.where(User.grade == grade)
     if class_number is not None:
@@ -172,6 +176,22 @@ async def list_users(
     }
 
 
+def _format_phone(phone: str | None) -> str | None:
+    """전화번호 표준화 — 숫자만 추출 후 휴대폰 하이픈 형식(010-1234-5678).
+
+    '-' 입력 여부와 무관하게 통일. 형식이 안 맞으면(02 등) 원본 유지.
+    """
+    if not phone:
+        return phone
+    import re
+    d = re.sub(r"\D", "", phone)
+    if len(d) == 11 and d.startswith("01"):
+        return f"{d[:3]}-{d[3:7]}-{d[7:]}"
+    if len(d) == 10 and d.startswith("01"):
+        return f"{d[:3]}-{d[3:6]}-{d[6:]}"
+    return phone.strip()
+
+
 @router.post("")
 async def create_user(
     body: UserCreate,
@@ -221,7 +241,7 @@ async def create_user(
         lead_grade=body.lead_grade,
         user_type=body.user_type or "regular",
         expires_at=expires_at,
-        phone=body.phone,
+        phone=_format_phone(body.phone),
         google_email=body.google_email,
         lifecycle_status=body.lifecycle_status or "active",
         must_change_password=True,
@@ -332,7 +352,7 @@ async def update_user(
             except ValueError:
                 raise HTTPException(400, "expires_at 형식이 잘못됨 (ISO 8601 필요)")
     if body.phone is not None:
-        target.phone = body.phone
+        target.phone = _format_phone(body.phone)
     if body.google_email is not None:
         target.google_email = body.google_email
     if body.lifecycle_status is not None:
