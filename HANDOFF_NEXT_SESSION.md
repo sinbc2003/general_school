@@ -73,6 +73,11 @@
 - `/users` 초기화 버튼: 전화번호 있으면 확인→폰번호, 없으면 `prompt`로 임시비번 입력. `UserItem`에 phone 추가.
 - 검증: 3경우(phone/manual/400) B에서 통과. reset 경로의 DEFAULT_USER_PASSWORD 의존 제거.
 
+### ✅ H. CSV 일괄등록도 연락처 기반 초기비번 — 완료 (commit 6fb2ff5)
+- `user_csv_io.py`: CSV/xlsx 템플릿에 **'연락처' 컬럼** 추가(비밀번호 다음). 한글 별칭 매핑.
+- 초기비번 = 명시비번 → 연락처(숫자만) → DEFAULT. `phone`을 User에 저장. 마법사 '엑셀 일괄 등록' + CSV 업로드 모두 적용.
+- 검증 B 통과(연락처→비번, 명시 우선, 무폰→DEFAULT). **→ 등록(마법사 줄입력·CSV)·초기화 전부 "연락처 우선" 일관 완성.**
+
 ### 참고 (비필수)
 - **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
 - **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
