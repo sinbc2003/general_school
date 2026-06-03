@@ -12,18 +12,24 @@ interface SidebarContextValue {
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
   toggle: () => void;
+  // 모바일 드로어 열림 상태 (작은 화면에서 사이드바를 오버레이로 표시)
+  mobileOpen: boolean;
+  setMobileOpen: (v: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarContextValue>({
   collapsed: false,
   setCollapsed: () => {},
   toggle: () => {},
+  mobileOpen: false,
+  setMobileOpen: () => {},
 });
 
 export const useSidebar = () => useContext(SidebarContext);
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsedState] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     const stored = typeof window !== "undefined"
@@ -50,7 +56,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SidebarContext.Provider value={{ collapsed, setCollapsed, toggle }}>
+    <SidebarContext.Provider value={{ collapsed, setCollapsed, toggle, mobileOpen, setMobileOpen }}>
       {children}
     </SidebarContext.Provider>
   );

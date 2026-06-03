@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronRight, LogOut, Menu, MoreHorizontal, CalendarRange } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, Menu, MoreHorizontal, CalendarRange, X } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { useMenuSettings } from "@/lib/menu-context";
@@ -40,12 +40,28 @@ interface CurrentSemester {
   is_current: boolean;
 }
 
+// 작은 화면(<768px) 감지 — 모바일에선 사이드바를 드로어로 + 항상 라벨 표시.
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isMobile;
+}
+
 export function AdminSidebar() {
   const { user, logout, hasPermission, isSuperAdmin } = useAuth();
   const { categories, isHidden } = useMenuSettings();
-  const { collapsed, toggle: toggleCollapsed } = useSidebar();
+  const { collapsed: collapsedRaw, toggle: toggleCollapsed, mobileOpen, setMobileOpen } = useSidebar();
   const { schoolName } = useBranding();
   const pathname = usePathname();
+  const isMobile = useIsMobile();
+  // 모바일에서는 데스크톱 collapse 설정을 무시하고 항상 펼친 드로어(라벨 표시).
+  const collapsed = collapsedRaw && !isMobile;
   const [currentSem, setCurrentSem] = useState<CurrentSemester | null>(null);
 
   // 현재 학기 fetch (사용자 로그인 후 1회)
@@ -56,6 +72,9 @@ export function AdminSidebar() {
       .then((d) => setCurrentSem(d))
       .catch(() => setCurrentSem(null));
   }, [user, pathname]);
+
+  // 모바일: 페이지 이동 시 드로어 자동 닫기
+  useEffect(() => { setMobileOpen(false); }, [pathname, setMobileOpen]);
 
   // 학생이면 학생 전용 메뉴/카테고리. 또한 super_admin이 /s/* 경로에 있으면
   // 학생 사이드바를 그대로 보여줌 (학생 화면 미리보기 모드).
@@ -237,7 +256,9 @@ export function AdminSidebar() {
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-full bg-bg-primary flex flex-col transition-all duration-200 z-30 shadow-[1px_0_0_rgba(0,0,0,0.04),3px_0_10px_-3px_rgba(0,0,0,0.05)] ${
+      className={`fixed top-0 left-0 h-full bg-bg-primary flex flex-col transition-all duration-200 z-40 shadow-[1px_0_0_rgba(0,0,0,0.04),3px_0_10px_-3px_rgba(0,0,0,0.05)] ${
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      } md:translate-x-0 ${
         collapsed ? "w-sidebar-collapsed" : "w-sidebar"
       }`}
     >
@@ -248,13 +269,24 @@ export function AdminSidebar() {
             {schoolName}
           </span>
         )}
-        <button
-          onClick={toggleCollapsed}
-          className="p-1 hover:bg-bg-secondary rounded"
-          title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-        >
-          <Menu size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* 모바일: 드로어 닫기 */}
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="md:hidden p-1 hover:bg-bg-secondary rounded"
+            title="메뉴 닫기"
+          >
+            <X size={18} />
+          </button>
+          {/* 데스크톱: 접기/펼치기 */}
+          <button
+            onClick={toggleCollapsed}
+            className="hidden md:block p-1 hover:bg-bg-secondary rounded"
+            title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+          >
+            <Menu size={18} />
+          </button>
+        </div>
       </div>
 
       {/* 현재 학기 표시 (admin sidebar 상단) */}

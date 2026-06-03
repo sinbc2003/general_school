@@ -1,10 +1,12 @@
 "use client";
 
+import { Menu } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { FeedbackPanel } from "@/components/feedback-panel";
 import Email2FAModal from "@/components/Email2FAModal";
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
+import { useBranding } from "@/lib/branding-context";
 import { AIAssistantProvider, useAIAssistant } from "@/lib/ai-assistant-context";
 
 export default function AdminLayout({
@@ -24,7 +26,8 @@ export default function AdminLayout({
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   // 통합 UI: 학생/교사/관리자 모두 같은 사이드바 사용.
   const { user, loading } = useAuth();
-  const { collapsed } = useSidebar();
+  const { collapsed, mobileOpen, setMobileOpen } = useSidebar();
+  const { schoolName } = useBranding();
   const ai = useAIAssistant();
 
   if (loading) {
@@ -40,14 +43,36 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-bg-secondary">
       <AdminSidebar />
-      <main
-        className={`p-6 transition-[margin,padding] duration-200 ${
-          collapsed ? "ml-sidebar-collapsed" : "ml-sidebar"
-        }`}
-        style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
-      >
-        {children}
-      </main>
+
+      {/* 모바일: 드로어 열렸을 때 배경 (탭하면 닫힘) */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-30"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <div className={`transition-[margin] duration-200 ${collapsed ? "md:ml-sidebar-collapsed" : "md:ml-sidebar"}`}>
+        {/* 모바일 상단바 — 햄버거로 메뉴 열기 */}
+        <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 h-14 px-4 bg-bg-primary border-b border-border-default">
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="메뉴 열기"
+            className="p-1 -ml-1 hover:bg-bg-secondary rounded"
+          >
+            <Menu size={22} />
+          </button>
+          <span className="font-semibold text-text-primary truncate">{schoolName}</span>
+        </header>
+
+        <main
+          className="p-4 md:p-6 transition-[padding] duration-200"
+          style={ai.open ? { paddingRight: ai.panelWidth + 8 } : undefined}
+        >
+          {children}
+        </main>
+      </div>
+
       <FeedbackPanel />
       <Email2FAModal />
     </div>
