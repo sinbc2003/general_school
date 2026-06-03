@@ -36,6 +36,7 @@ import {
   FileQuestion,
   Flag,
   Mail,
+  LogIn,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -317,6 +318,7 @@ export const adminMenu: MenuItem[] = [
       { key: "sys-enrollments", label: "학기별 명단", icon: UserPlus, path: "/system/enrollments", permission: "system.enrollment.manage" },
       { key: "sys-backup", label: "백업·복원", icon: FileArchive, path: "/system/backup", permission: null },
       { key: "sys-health", label: "상태", icon: Activity, path: "/system/health", permission: "system.health.view" },
+      { key: "sys-access-logs", label: "접속 로그", icon: LogIn, path: "/system/access-logs", permission: "system.audit.view" },
       { key: "sys-logs", label: "감사 로그", icon: FileText, path: "/system/logs", permission: "system.audit.view" },
       { key: "sys-menu", label: "메뉴 관리", icon: LayoutList, path: "/system/menu", permission: "system.settings.edit" },
       { key: "sys-settings", label: "설정", icon: Settings, path: "/system/settings", permission: "system.settings.edit" },
