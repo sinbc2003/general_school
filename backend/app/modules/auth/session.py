@@ -17,6 +17,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.permissions import resolve_permissions
+from app.models.audit import AuditLog
 from app.models.user import RefreshToken, User
 from app.modules.auth.schemas import (
     ChangePasswordRequest, RefreshRequest, TokenResponse,
@@ -27,7 +28,7 @@ from app.modules.auth._helpers import _check_must_enable_2fa, _user_to_dict
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(RefreshToken).where(RefreshToken.token == body.refresh_token)
     )
@@ -58,6 +59,25 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     ))
     await db.flush()
+
+    # 접속 로그 — access token(15분)이 만료되면 클라이언트가 refresh로 자동
+    # 재접속하므로, 폼 로그인이 안 남는 재방문도 여기서 잡는다. 단 access가 짧아
+    # 활성 사용자는 15분마다 refresh를 타므로, 그날(KST) 첫 접속만 기록(dedupe).
+    kst = timezone(timedelta(hours=9))
+    today_start_utc = (
+        datetime.now(kst).replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+    )
+    already_logged_today = (await db.execute(
+        select(AuditLog.id).where(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "login",
+            AuditLog.timestamp >= today_start_utc,
+        ).limit(1)
+    )).scalar()
+    if not already_logged_today:
+        # target="refresh"로 폼 로그인과 구분(감사 로그에서 식별 가능, 접속 로그엔 동일 표시).
+        await log_action(db, user, "login", target="refresh", request=request)
 
     perms = await resolve_permissions(db, user)
     must_2fa = await _check_must_enable_2fa(user, db)
