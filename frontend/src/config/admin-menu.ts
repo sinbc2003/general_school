@@ -152,6 +152,7 @@ export const adminMenu: MenuItem[] = [
   { key: "research-review", label: "승인 대기함", icon: ClipboardList, path: "/research-review", permission: "past_research.review", excludeRoles: ["student", "staff"] },
   { key: "my-groups", label: "내 그룹", icon: Users2, path: "/my-groups", permission: "teacher_group.view", excludeRoles: ["student"] },
   { key: "research-supervisors", label: "연구 담당교사 매핑", icon: UserPlus, path: "/system/research-supervisors", permission: "past_research.supervise", excludeRoles: ["student", "staff"] },
+  { key: "record-writer", label: "생활기록부", icon: ClipboardList, path: "/record-writer", permission: "record.project.view", excludeRoles: ["student"] },
   {
     key: "archive",
     label: "수업 자료실",

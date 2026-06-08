@@ -180,6 +180,7 @@ from app.modules.classroom_hwps.router import router as classroom_hwps_router
 from app.modules.courseware.router import router as courseware_router
 from app.modules.past_research.router import router as past_research_router
 from app.modules.teacher_groups.router import router as teacher_groups_router
+from app.modules.record_writer.router import router as record_writer_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -223,6 +224,7 @@ app.include_router(classroom_hwps_router)
 app.include_router(courseware_router)
 app.include_router(past_research_router)
 app.include_router(teacher_groups_router)
+app.include_router(record_writer_router)
 
 
 @app.get("/api/health")

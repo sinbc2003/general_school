@@ -139,6 +139,11 @@ from app.models.teacher_group import (
     TeacherGroup, TeacherGroupMember, TeacherGroupStudent, GroupSubmission,
 )
 
+# ── Student Record Project (생활기록부 자동작성 — 프로젝트/학생/항목/셀) ──
+from app.models.student_record_project import (
+    RecordProject, RecordProjectStudent, RecordColumn, RecordCell,
+)
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -220,4 +225,6 @@ __all__ = [
     "ResearchSupervision",
     # Teacher Groups
     "TeacherGroup", "TeacherGroupMember", "TeacherGroupStudent", "GroupSubmission",
+    # Student Record Project (생활기록부 자동작성)
+    "RecordProject", "RecordProjectStudent", "RecordColumn", "RecordCell",
 ]
