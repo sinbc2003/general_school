@@ -11,6 +11,8 @@ import {
   Trash2,
   X,
   Download,
+  Sparkles,
+  SpellCheck,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -49,6 +51,11 @@ interface FullData {
   columns: Column[];
   cells: Record<string, Cell>;
 }
+interface ModelOpt {
+  provider: string;
+  model_id: string;
+  label: string;
+}
 
 const INP = "w-full px-3 py-2 border border-border-default rounded text-body bg-bg-primary";
 const LBL = "block text-caption text-text-secondary mb-1";
@@ -70,8 +77,11 @@ export default function RecordProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [collectingCol, setCollectingCol] = useState<number | null>(null);
+  const [generatingCol, setGeneratingCol] = useState<number | null>(null);
   const [cellEdit, setCellEdit] = useState<{ col: Column; stu: StudentRow } | null>(null);
   const [colEdit, setColEdit] = useState<Column | "new" | null>(null);
+  const [models, setModels] = useState<ModelOpt[]>([]);
+  const [model, setModel] = useState<{ provider: string; model_id: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,6 +99,20 @@ export default function RecordProjectDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    api
+      .get(`/api/record-writer/models`)
+      .then((d) => {
+        setModels(d.models || []);
+        if (d.default_provider && d.default_model) {
+          setModel({ provider: d.default_provider, model_id: d.default_model });
+        } else if (d.models?.length) {
+          setModel({ provider: d.models[0].provider, model_id: d.models[0].model_id });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const refresh = async () => {
     setSyncing(true);
@@ -113,6 +137,30 @@ export default function RecordProjectDetailPage() {
       alert(`수집 실패: ${e?.detail || e}`);
     } finally {
       setCollectingCol(null);
+    }
+  };
+
+  const generateColumn = async (c: Column) => {
+    if (!model) {
+      alert("상단에서 AI 모델을 선택하세요. (관리자가 챗봇 API 키를 등록해야 합니다)");
+      return;
+    }
+    if (!confirm(`'${c.name}' 열을 AI로 일괄 생성합니다. 기존 생성 결과는 덮어쓰여집니다. 계속할까요?`))
+      return;
+    setGeneratingCol(c.id);
+    try {
+      const r = await api.post(`/api/record-writer/projects/${pid}/columns/${c.id}/generate`, {
+        provider: model.provider,
+        model_id: model.model_id,
+      });
+      await load();
+      let msg = `${r.generated}명 생성 완료 (총 ${r.total}명, $${r.cost_usd})`;
+      if (r.errors?.length) msg += `\n실패 ${r.errors.length}건: ${r.errors[0]?.error ?? ""}`;
+      alert(msg);
+    } catch (e: any) {
+      alert(`생성 실패: ${e?.detail || e}`);
+    } finally {
+      setGeneratingCol(null);
     }
   };
 
@@ -149,7 +197,24 @@ export default function RecordProjectDetailPage() {
       </button>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-title text-text-primary">{data.name}</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+          <select
+            value={model ? `${model.provider}:${model.model_id}` : ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              const idx = v.indexOf(":");
+              if (idx > 0) setModel({ provider: v.slice(0, idx), model_id: v.slice(idx + 1) });
+            }}
+            className="px-2 py-1.5 border border-border-default rounded text-caption bg-bg-primary max-w-[180px]"
+            title="AI 모델"
+          >
+            {models.length === 0 && <option value="">모델 없음</option>}
+            {models.map((m) => (
+              <option key={`${m.provider}:${m.model_id}`} value={`${m.provider}:${m.model_id}`}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <button
             onClick={refresh}
             disabled={syncing}
@@ -184,7 +249,7 @@ export default function RecordProjectDetailPage() {
                   return (
                     <th
                       key={c.id}
-                      className="border-b border-r border-border-default px-3 py-2 text-left min-w-[200px] max-w-[280px]"
+                      className="border-b border-r border-border-default px-3 py-2 text-left min-w-[210px] max-w-[300px]"
                     >
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-body text-text-primary truncate">
@@ -208,6 +273,18 @@ export default function RecordProjectDetailPage() {
                               )}
                             </button>
                           )}
+                          <button
+                            onClick={() => generateColumn(c)}
+                            disabled={generatingCol === c.id}
+                            title="AI 일괄 생성"
+                            className="p-1 hover:bg-bg-primary rounded text-purple-600 disabled:opacity-50"
+                          >
+                            {generatingCol === c.id ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <Sparkles size={13} />
+                            )}
+                          </button>
                           <button
                             onClick={() => setColEdit(c)}
                             title="항목 설정"
@@ -293,7 +370,8 @@ export default function RecordProjectDetailPage() {
       )}
 
       <p className="text-caption text-text-tertiary mt-3">
-        항목에 데이터 소스를 지정하면 <Download size={11} className="inline" /> 버튼으로 학생 제출물을 자동 수집합니다. AI 작성·맞춤법·유사도는 다음 단계입니다.
+        <Download size={11} className="inline" /> 자동 수집 → <Sparkles size={11} className="inline" /> AI 일괄 생성 →
+        셀 클릭으로 개별 편집·맞춤법. 종합 항목은 다른 열의 생성 결과를 합쳐 작성합니다.
       </p>
 
       {colEdit && (
@@ -313,6 +391,7 @@ export default function RecordProjectDetailPage() {
           col={cellEdit.col}
           stu={cellEdit.stu}
           cell={cellOf(cellEdit.col, cellEdit.stu)}
+          model={model}
           onClose={() => setCellEdit(null)}
           onSaved={() => {
             setCellEdit(null);
@@ -490,7 +569,7 @@ function ColumnModal({
         </div>
       )}
 
-      <label className={LBL}>시스템 프롬프트 (AI 작성 지시 — 다음 단계에서 사용)</label>
+      <label className={LBL}>시스템 프롬프트 (AI 작성 지시)</label>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -520,6 +599,7 @@ function CellModal({
   col,
   stu,
   cell,
+  model,
   onClose,
   onSaved,
 }: {
@@ -527,12 +607,15 @@ function CellModal({
   col: Column;
   stu: StudentRow;
   cell: Cell | undefined;
+  model: { provider: string; model_id: string } | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [raw, setRaw] = useState(cell?.raw_data ?? "");
   const [gen, setGen] = useState(cell?.generated_text ?? "");
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [spelling, setSpelling] = useState(false);
 
   const save = async () => {
     setSaving(true);
@@ -551,6 +634,50 @@ function CellModal({
     }
   };
 
+  // 이 셀만 AI 생성 (저장 후 닫고 reload)
+  const generateOne = async () => {
+    if (!model) {
+      alert("상단에서 AI 모델을 선택하세요.");
+      return;
+    }
+    // 편집 중 raw를 먼저 저장해야 생성에 반영됨
+    setGenerating(true);
+    try {
+      await api.put(`/api/record-writer/cells`, {
+        project_id: pid,
+        column_id: col.id,
+        student_id: stu.student_id,
+        raw_data: raw,
+      });
+      await api.post(`/api/record-writer/projects/${pid}/columns/${col.id}/generate`, {
+        provider: model.provider,
+        model_id: model.model_id,
+        only_student_ids: [stu.student_id],
+      });
+      onSaved();
+    } catch (e: any) {
+      alert(`생성 실패: ${e?.detail || e}`);
+      setGenerating(false);
+    }
+  };
+
+  const spellcheck = async () => {
+    if (!gen.trim()) return;
+    setSpelling(true);
+    try {
+      const r = await api.post(`/api/record-writer/spellcheck`, {
+        text: gen,
+        provider: model?.provider,
+        model_id: model?.model_id,
+      });
+      if (r.corrected) setGen(r.corrected);
+    } catch (e: any) {
+      alert(`맞춤법 교정 실패: ${e?.detail || e}`);
+    } finally {
+      setSpelling(false);
+    }
+  };
+
   return (
     <Modal title={`${stu.name} · ${col.name}`} onClose={onClose} wide>
       <label className={LBL}>원자료 (학생 제출물 — 항목 소스로 자동 수집됨)</label>
@@ -561,22 +688,40 @@ function CellModal({
         className={`${INP} text-caption mb-1`}
         placeholder="학생의 과제·설문·활동 내용 등"
       />
-      <div className="text-[10px] text-text-tertiary mb-3">{raw.length}자</div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] text-text-tertiary">{raw.length}자</span>
+        <button
+          onClick={generateOne}
+          disabled={generating}
+          className="text-caption text-purple-600 inline-flex items-center gap-1 disabled:opacity-50"
+        >
+          {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} 이 셀 AI 생성
+        </button>
+      </div>
 
-      <label className={LBL}>생성 결과 (AI 작성은 다음 단계 — 지금은 수동 입력 가능)</label>
+      <label className={LBL}>생성 결과</label>
       <textarea
         value={gen}
         onChange={(e) => setGen(e.target.value)}
         rows={5}
         className={`${INP} text-caption mb-1`}
-        placeholder="생활기록부 문장"
+        placeholder="생활기록부 문장 (AI 생성 또는 직접 입력)"
       />
-      <div className="text-[10px] text-text-tertiary mb-3">
-        {gen.length}자
-        {col.char_max ? ` / 최대 ${col.char_max}자` : ""}
-        {col.char_max && gen.length > col.char_max ? (
-          <span className="text-red-600 ml-1">초과</span>
-        ) : null}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] text-text-tertiary">
+          {gen.length}자
+          {col.char_max ? ` / 최대 ${col.char_max}자` : ""}
+          {col.char_max && gen.length > col.char_max ? (
+            <span className="text-red-600 ml-1">초과</span>
+          ) : null}
+        </span>
+        <button
+          onClick={spellcheck}
+          disabled={spelling || !gen.trim()}
+          className="text-caption text-accent inline-flex items-center gap-1 disabled:opacity-50"
+        >
+          {spelling ? <Loader2 size={13} className="animate-spin" /> : <SpellCheck size={13} />} 맞춤법 교정
+        </button>
       </div>
 
       <div className="flex justify-end gap-2 mt-2">

@@ -44,3 +44,15 @@ class CellUpsert(BaseModel):
     raw_data: str | None = None
     generated_text: str | None = None
     status: str | None = None
+
+
+class GenerateReq(BaseModel):
+    provider: str | None = None
+    model_id: str | None = None
+    only_student_ids: list[int] | None = None  # 지정 시 이 학생만 생성 (재생성용)
+
+
+class SpellcheckReq(BaseModel):
+    text: str
+    provider: str | None = None
+    model_id: str | None = None
