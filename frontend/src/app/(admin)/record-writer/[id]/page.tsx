@@ -13,6 +13,7 @@ import {
   Download,
   Sparkles,
   SpellCheck,
+  GitCompare,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -78,6 +79,7 @@ export default function RecordProjectDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [collectingCol, setCollectingCol] = useState<number | null>(null);
   const [generatingCol, setGeneratingCol] = useState<number | null>(null);
+  const [checkingSim, setCheckingSim] = useState(false);
   const [cellEdit, setCellEdit] = useState<{ col: Column; stu: StudentRow } | null>(null);
   const [colEdit, setColEdit] = useState<Column | "new" | null>(null);
   const [models, setModels] = useState<ModelOpt[]>([]);
@@ -164,6 +166,19 @@ export default function RecordProjectDetailPage() {
     }
   };
 
+  const checkSimilarity = async () => {
+    setCheckingSim(true);
+    try {
+      const r = await api.post(`/api/record-writer/projects/${pid}/similarity`, {});
+      await load();
+      alert(`유사도 검사 완료 — ${r.flagged}개 셀이 유사(60%+)로 표시됨`);
+    } catch (e: any) {
+      alert(`유사도 검사 실패: ${e?.detail || e}`);
+    } finally {
+      setCheckingSim(false);
+    }
+  };
+
   const deleteColumn = async (c: Column) => {
     if (!confirm(`'${c.name}' 항목을 삭제하시겠습니까? (해당 열의 셀 모두 삭제)`)) return;
     try {
@@ -221,6 +236,14 @@ export default function RecordProjectDetailPage() {
             className="px-3 py-1.5 border border-border-default rounded text-caption inline-flex items-center gap-1 disabled:opacity-50"
           >
             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} 학생 동기화
+          </button>
+          <button
+            onClick={checkSimilarity}
+            disabled={checkingSim}
+            title="학생 간 유사도(표절·복붙) 검사"
+            className="px-3 py-1.5 border border-border-default rounded text-caption inline-flex items-center gap-1 disabled:opacity-50"
+          >
+            {checkingSim ? <Loader2 size={14} className="animate-spin" /> : <GitCompare size={14} />} 유사도 검사
           </button>
           <button
             onClick={() => setColEdit("new")}
