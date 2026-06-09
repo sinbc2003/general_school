@@ -142,7 +142,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "career",
       name: "나의 진로",
       icon: "GraduationCap",
-      items: ["my-portfolio", "career", "past-research", "research-submit"],
+      items: ["my-portfolio", "my-records", "career", "past-research", "research-submit"],
     },
     {
       id: "activity",

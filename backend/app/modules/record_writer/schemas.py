@@ -56,3 +56,7 @@ class SpellcheckReq(BaseModel):
     text: str
     provider: str | None = None
     model_id: str | None = None
+
+
+class PublishReq(BaseModel):
+    published: bool = True

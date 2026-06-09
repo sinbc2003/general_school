@@ -46,6 +46,7 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "enrollment-wizard", label: "수강과목 신청", icon: BookOpen, path: "/s/enrollment-wizard", permission: null },
   { key: "my-drive", label: "내 드라이브", icon: HardDrive, path: "/s/drive", permission: null },
   { key: "my-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },
+  { key: "my-records", label: "내 생활기록부", icon: ClipboardList, path: "/s/records", permission: null },
   { key: "career", label: "진로/진학 설계", icon: Target, path: "/s/career", permission: null },
   { key: "past-research", label: "선배 연구 보고서", icon: FileArchive, path: "/s/past-research", permission: null },
   { key: "research-submit", label: "연구 보고서 제출", icon: FileArchive, path: "/s/research-submit", permission: null },

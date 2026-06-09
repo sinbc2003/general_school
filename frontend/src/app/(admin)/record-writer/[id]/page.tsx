@@ -14,6 +14,8 @@ import {
   Sparkles,
   SpellCheck,
   GitCompare,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -176,6 +178,17 @@ export default function RecordProjectDetailPage() {
       alert(`유사도 검사 실패: ${e?.detail || e}`);
     } finally {
       setCheckingSim(false);
+    }
+  };
+
+  const togglePublish = async (s: StudentRow) => {
+    try {
+      await api.post(`/api/record-writer/projects/${pid}/students/${s.student_id}/publish`, {
+        published: !s.is_published,
+      });
+      await load();
+    } catch (e: any) {
+      alert(`공개 설정 변경 실패: ${e?.detail || e}`);
     }
   };
 
@@ -349,8 +362,21 @@ export default function RecordProjectDetailPage() {
             <tbody>
               {data.students.map((s) => (
                 <tr key={s.id} className="hover:bg-bg-secondary/40">
-                  <td className="sticky left-0 z-10 bg-bg-primary border-b border-r border-border-default px-3 py-2 text-body text-text-primary whitespace-nowrap">
-                    {s.name}
+                  <td className="sticky left-0 z-10 bg-bg-primary border-b border-r border-border-default px-3 py-2 whitespace-nowrap">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-body text-text-primary">{s.name}</span>
+                      <button
+                        onClick={() => togglePublish(s)}
+                        title={s.is_published ? "공개됨 — 학생이 열람 가능" : "비공개 (클릭해 공개)"}
+                        className="p-0.5 flex-shrink-0"
+                      >
+                        {s.is_published ? (
+                          <Eye size={13} className="text-green-600" />
+                        ) : (
+                          <EyeOff size={13} className="text-text-tertiary" />
+                        )}
+                      </button>
+                    </div>
                   </td>
                   {data.columns.map((c) => {
                     const cell = cellOf(c, s);
