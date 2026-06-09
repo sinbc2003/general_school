@@ -8,6 +8,8 @@ class RecordProjectCreate(BaseModel):
     scope_ref_id: int | None = None       # 강좌/동아리/그룹 id
     scope_ref_class: str | None = None    # 담임 학급 "학년-반" (예: "3-2")
     global_prompt: str | None = None
+    # 생기부 종류 프리셋 id (subject/individual/club/autonomous/career/behavior) — 기본 항목 자동 생성
+    template_id: str | None = None
 
 
 class RecordProjectUpdate(BaseModel):

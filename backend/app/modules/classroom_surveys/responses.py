@@ -87,6 +87,15 @@ async def submit_response(
         db, user, "classroom.survey.respond",
         target=f"survey:{sid} response:{resp.id}", request=request,
     )
+
+    # 생기부 자동 연결 (실명 응답만 — 익명은 학생 매칭 불가)
+    if resp.respondent_id is not None:
+        try:
+            from app.services.record_autocollect import schedule_autocollect
+            schedule_autocollect("survey", sid, user.id)
+        except Exception:  # noqa: BLE001
+            pass
+
     return {"ok": True, "response_id": resp.id}
 
 

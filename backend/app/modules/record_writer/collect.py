@@ -5,6 +5,9 @@ source_config = {"type": "survey", "survey_id": N} 등.
 
 각 소스에서 학생별 텍스트를 뽑아 RecordCell.raw_data + raw_sources에 저장.
 extracted_text가 비어있는 과제는 summary/review_comment fallback.
+
+collect_into_cells()는 엔드포인트(열 일괄)와 자동 push(record_autocollect, 단일 학생)가
+공유한다 — 두 경로의 수집 결과가 동일하도록.
 """
 
 from fastapi import Depends, HTTPException
@@ -24,6 +27,7 @@ from app.models.club import ClubActivity, ClubSubmission
 from app.models.student_record_project import (
     RecordCell,
     RecordColumn,
+    RecordProject,
     RecordProjectStudent,
 )
 from app.models.student_self import StudentArtifact, StudentCareerPlan
@@ -142,7 +146,6 @@ async def _collect_career(db, student_ids, semester_id) -> dict:
             select(StudentCareerPlan).where(StudentCareerPlan.student_id.in_(student_ids))
         )
     ).scalars().all()
-    # 학생별 — 현 학기 우선, 없으면 첫 행
     best: dict[int, StudentCareerPlan] = {}
     for p in rows:
         cur = best.get(p.student_id)
@@ -233,6 +236,71 @@ async def _collect_group(db, group_id, student_ids) -> dict:
     return out
 
 
+async def collect_into_cells(
+    db: AsyncSession,
+    project: RecordProject,
+    column: RecordColumn,
+    student_ids: list[int],
+) -> int:
+    """열 source_config에 따라 student_ids의 셀 raw_data를 채운다 (commit은 호출자).
+
+    엔드포인트(열 전체)와 자동 push(단일 학생) 공유 — 동일한 수집 결과 보장.
+    """
+    cfg = column.source_config or {}
+    src_type = cfg.get("type")
+    if not src_type or src_type == "none" or not student_ids:
+        return 0
+
+    if src_type == "survey":
+        if not cfg.get("survey_id"):
+            return 0
+        collected = await _collect_survey(db, cfg["survey_id"], student_ids)
+    elif src_type == "assignment":
+        if not cfg.get("assignment_id"):
+            return 0
+        collected = await _collect_assignment(db, cfg["assignment_id"], student_ids)
+    elif src_type == "artifact":
+        collected = await _collect_artifacts(db, student_ids)
+    elif src_type == "career":
+        collected = await _collect_career(db, student_ids, project.semester_id)
+    elif src_type == "club":
+        club_id = cfg.get("club_id") or (project.scope_ref_id if project.scope_type == "club" else None)
+        collected = await _collect_club(db, club_id, student_ids)
+    elif src_type == "group":
+        group_id = cfg.get("group_id") or (project.scope_ref_id if project.scope_type == "group" else None)
+        collected = await _collect_group(db, group_id, student_ids)
+    else:
+        return 0
+
+    existing = {
+        c.student_id: c
+        for c in (
+            await db.execute(
+                select(RecordCell).where(
+                    RecordCell.column_id == column.id,
+                    RecordCell.student_id.in_(student_ids),
+                )
+            )
+        ).scalars().all()
+    }
+    count = 0
+    for sid in student_ids:
+        item = collected.get(sid)
+        if not item or not item[0]:
+            continue
+        text, srcs = item
+        cell = existing.get(sid)
+        if not cell:
+            cell = RecordCell(project_id=project.id, column_id=column.id, student_id=sid)
+            db.add(cell)
+        cell.raw_data = text[:MAX_CHARS]
+        cell.raw_sources = srcs
+        if not cell.generated_text:
+            cell.status = "collected"
+        count += 1
+    return count
+
+
 @router.get("/projects/{pid}/source-candidates")
 async def source_candidates(
     pid: int,
@@ -267,14 +335,12 @@ async def collect_column(
     user: User = Depends(require_permission("record.project.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """열 source_config에 따라 담당 학생 제출물을 셀에 자동 수집."""
+    """열 source_config에 따라 담당 학생 제출물을 셀에 일괄 자동 수집 (수동 트리거)."""
     p = await get_owned_project(db, user, pid)
     col = await db.get(RecordColumn, cid)
     if not col or col.project_id != pid:
         raise HTTPException(404, "항목을 찾을 수 없습니다")
-    cfg = col.source_config or {}
-    src_type = cfg.get("type")
-    if not src_type or src_type == "none":
+    if not (col.source_config or {}).get("type") or (col.source_config or {}).get("type") == "none":
         raise HTTPException(400, "이 항목에 데이터 소스가 설정되지 않았습니다. 항목 설정에서 소스를 지정하세요.")
 
     student_ids = list(
@@ -289,47 +355,6 @@ async def collect_column(
     if not student_ids:
         return {"collected": 0, "total": 0}
 
-    if src_type == "survey":
-        if not cfg.get("survey_id"):
-            raise HTTPException(400, "설문을 선택하세요")
-        collected = await _collect_survey(db, cfg["survey_id"], student_ids)
-    elif src_type == "assignment":
-        if not cfg.get("assignment_id"):
-            raise HTTPException(400, "과제를 선택하세요")
-        collected = await _collect_assignment(db, cfg["assignment_id"], student_ids)
-    elif src_type == "artifact":
-        collected = await _collect_artifacts(db, student_ids)
-    elif src_type == "career":
-        collected = await _collect_career(db, student_ids, p.semester_id)
-    elif src_type == "club":
-        club_id = cfg.get("club_id") or (p.scope_ref_id if p.scope_type == "club" else None)
-        collected = await _collect_club(db, club_id, student_ids)
-    elif src_type == "group":
-        group_id = cfg.get("group_id") or (p.scope_ref_id if p.scope_type == "group" else None)
-        collected = await _collect_group(db, group_id, student_ids)
-    else:
-        raise HTTPException(400, f"지원하지 않는 소스 유형: {src_type}")
-
-    existing = {
-        c.student_id: c
-        for c in (
-            await db.execute(select(RecordCell).where(RecordCell.column_id == cid))
-        ).scalars().all()
-    }
-    count = 0
-    for sid in student_ids:
-        item = collected.get(sid)
-        if not item or not item[0]:
-            continue
-        text, srcs = item
-        cell = existing.get(sid)
-        if not cell:
-            cell = RecordCell(project_id=pid, column_id=cid, student_id=sid)
-            db.add(cell)
-        cell.raw_data = text[:MAX_CHARS]
-        cell.raw_sources = srcs
-        if not cell.generated_text:
-            cell.status = "collected"
-        count += 1
+    count = await collect_into_cells(db, p, col, student_ids)
     await db.commit()
     return {"collected": count, "total": len(student_ids)}

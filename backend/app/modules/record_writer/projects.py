@@ -54,6 +54,25 @@ async def create_project(
     await db.flush()
     for i, sid in enumerate(student_ids):
         db.add(RecordProjectStudent(project_id=p.id, student_id=sid, display_order=i))
+    # 생기부 종류 템플릿 — 기본 항목 자동 생성
+    if body.template_id:
+        from app.models.student_record_project import RecordColumn
+        from app.modules.record_writer.presets import RECORD_PRESETS
+
+        preset = RECORD_PRESETS.get(body.template_id)
+        if preset:
+            for ci, cdef in enumerate(preset["columns"]):
+                db.add(
+                    RecordColumn(
+                        project_id=p.id,
+                        name=cdef["name"],
+                        display_order=ci,
+                        system_prompt=cdef.get("system_prompt"),
+                        source_config=cdef.get("source_config"),
+                        char_max=cdef.get("char_max"),
+                        kind=cdef.get("kind", "normal"),
+                    )
+                )
     await log_action(
         db, user, "record.project.create",
         detail=f"생기부 프로젝트 '{body.name}' 생성 (범위={body.scope_type}, 학생 {len(student_ids)}명)",

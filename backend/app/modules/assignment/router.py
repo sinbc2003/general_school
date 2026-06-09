@@ -258,6 +258,13 @@ async def submit_assignment(
         import logging
         logging.getLogger(__name__).warning("submission notify failed: %s", e)
 
+    # 생기부 자동 연결 — 이 과제가 소스로 연결된 생기부 항목이 있으면 제출 즉시 셀 자동 반영
+    try:
+        from app.services.record_autocollect import schedule_autocollect
+        schedule_autocollect("assignment", aid, user.id)
+    except Exception:  # noqa: BLE001
+        pass
+
     return {"id": sub.id, "status": sub.status.value, "filename": display_filename}
 
 
