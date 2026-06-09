@@ -10,6 +10,7 @@ import {
   Settings2,
   Trash2,
   X,
+  Download,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -52,6 +53,15 @@ interface FullData {
 const INP = "w-full px-3 py-2 border border-border-default rounded text-body bg-bg-primary";
 const LBL = "block text-caption text-text-secondary mb-1";
 
+const SOURCE_LABELS: Record<string, string> = {
+  survey: "설문",
+  assignment: "과제",
+  artifact: "산출물",
+  career: "진로",
+  club: "동아리",
+  group: "그룹",
+};
+
 export default function RecordProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -59,6 +69,7 @@ export default function RecordProjectDetailPage() {
   const [data, setData] = useState<FullData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [collectingCol, setCollectingCol] = useState<number | null>(null);
   const [cellEdit, setCellEdit] = useState<{ col: Column; stu: StudentRow } | null>(null);
   const [colEdit, setColEdit] = useState<Column | "new" | null>(null);
 
@@ -89,6 +100,19 @@ export default function RecordProjectDetailPage() {
       alert(`동기화 실패: ${e?.detail || e}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const collectColumn = async (c: Column) => {
+    setCollectingCol(c.id);
+    try {
+      const r = await api.post(`/api/record-writer/projects/${pid}/columns/${c.id}/collect`, {});
+      await load();
+      alert(`${r.collected}명 자동 수집됨 (총 ${r.total}명)`);
+    } catch (e: any) {
+      alert(`수집 실패: ${e?.detail || e}`);
+    } finally {
+      setCollectingCol(null);
     }
   };
 
@@ -154,42 +178,67 @@ export default function RecordProjectDetailPage() {
                 <th className="sticky left-0 z-10 bg-bg-secondary border-b border-r border-border-default px-3 py-2 text-left text-caption text-text-tertiary min-w-[110px]">
                   학생
                 </th>
-                {data.columns.map((c) => (
-                  <th
-                    key={c.id}
-                    className="border-b border-r border-border-default px-3 py-2 text-left min-w-[200px] max-w-[280px]"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-body text-text-primary truncate">
-                        {c.name}
-                        {c.kind === "summary" && (
-                          <span className="ml-1 text-[10px] text-amber-700">(종합)</span>
-                        )}
-                      </span>
-                      <span className="flex items-center gap-0.5 flex-shrink-0">
-                        <button
-                          onClick={() => setColEdit(c)}
-                          title="항목 설정"
-                          className="p-1 hover:bg-bg-primary rounded text-text-tertiary"
-                        >
-                          <Settings2 size={13} />
-                        </button>
-                        <button
-                          onClick={() => deleteColumn(c)}
-                          title="항목 삭제"
-                          className="p-1 hover:bg-red-50 rounded text-red-600"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </span>
-                    </div>
-                    {(c.char_min || c.char_max) && (
-                      <div className="text-[10px] text-text-tertiary mt-0.5">
-                        {c.char_min || 0}~{c.char_max || "?"}자
+                {data.columns.map((c) => {
+                  const srcType = c.source_config?.type;
+                  const hasSource = srcType && srcType !== "none";
+                  return (
+                    <th
+                      key={c.id}
+                      className="border-b border-r border-border-default px-3 py-2 text-left min-w-[200px] max-w-[280px]"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-body text-text-primary truncate">
+                          {c.name}
+                          {c.kind === "summary" && (
+                            <span className="ml-1 text-[10px] text-amber-700">(종합)</span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-0.5 flex-shrink-0">
+                          {hasSource && (
+                            <button
+                              onClick={() => collectColumn(c)}
+                              disabled={collectingCol === c.id}
+                              title={`자동 수집 (${SOURCE_LABELS[srcType] || srcType})`}
+                              className="p-1 hover:bg-bg-primary rounded text-accent disabled:opacity-50"
+                            >
+                              {collectingCol === c.id ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <Download size={13} />
+                              )}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setColEdit(c)}
+                            title="항목 설정"
+                            className="p-1 hover:bg-bg-primary rounded text-text-tertiary"
+                          >
+                            <Settings2 size={13} />
+                          </button>
+                          <button
+                            onClick={() => deleteColumn(c)}
+                            title="항목 삭제"
+                            className="p-1 hover:bg-red-50 rounded text-red-600"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </span>
                       </div>
-                    )}
-                  </th>
-                ))}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {hasSource && (
+                          <span className="text-[10px] px-1 bg-cream-100 text-amber-700 rounded">
+                            {SOURCE_LABELS[srcType] || srcType}
+                          </span>
+                        )}
+                        {(c.char_min || c.char_max) && (
+                          <span className="text-[10px] text-text-tertiary">
+                            {c.char_min || 0}~{c.char_max || "?"}자
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
                 {data.columns.length === 0 && (
                   <th className="border-b border-border-default px-4 py-2 text-caption text-text-tertiary font-normal">
                     &quot;항목 추가&quot;로 첫 열을 만드세요
@@ -244,7 +293,7 @@ export default function RecordProjectDetailPage() {
       )}
 
       <p className="text-caption text-text-tertiary mt-3">
-        셀을 클릭해 내용을 편집합니다. 자동 수집 · AI 작성 · 맞춤법 · 유사도는 다음 단계에서 제공됩니다.
+        항목에 데이터 소스를 지정하면 <Download size={11} className="inline" /> 버튼으로 학생 제출물을 자동 수집합니다. AI 작성·맞춤법·유사도는 다음 단계입니다.
       </p>
 
       {colEdit && (
@@ -323,9 +372,39 @@ function ColumnModal({
   const [charMin, setCharMin] = useState(column?.char_min?.toString() ?? "");
   const [charMax, setCharMax] = useState(column?.char_max?.toString() ?? "");
   const [prompt, setPrompt] = useState(column?.system_prompt ?? "");
+  const [srcType, setSrcType] = useState<string>(column?.source_config?.type ?? "none");
+  const [srcId, setSrcId] = useState<string>(
+    column?.source_config?.survey_id?.toString() ??
+      column?.source_config?.assignment_id?.toString() ??
+      ""
+  );
+  const [cands, setCands] = useState<{ surveys: any[]; assignments: any[] } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    api
+      .get(`/api/record-writer/projects/${pid}/source-candidates`)
+      .then(setCands)
+      .catch(() => setCands(null));
+  }, [pid]);
+
   const save = async () => {
+    let source_config: any = {};
+    if (srcType === "survey") {
+      if (!srcId) {
+        alert("설문을 선택하세요");
+        return;
+      }
+      source_config = { type: "survey", survey_id: Number(srcId) };
+    } else if (srcType === "assignment") {
+      if (!srcId) {
+        alert("과제를 선택하세요");
+        return;
+      }
+      source_config = { type: "assignment", assignment_id: Number(srcId) };
+    } else if (["artifact", "career", "club", "group"].includes(srcType)) {
+      source_config = { type: srcType };
+    }
     setSaving(true);
     const body: any = {
       name: name.trim() || "새 항목",
@@ -333,6 +412,7 @@ function ColumnModal({
       system_prompt: prompt || null,
       char_min: charMin ? Number(charMin) : null,
       char_max: charMax ? Number(charMax) : null,
+      source_config,
     };
     try {
       if (column) await api.put(`/api/record-writer/columns/${column.id}`, body);
@@ -366,6 +446,49 @@ function ColumnModal({
           <input value={charMax} onChange={(e) => setCharMax(e.target.value)} className={INP} placeholder="-" />
         </div>
       </div>
+
+      <label className={LBL}>데이터 소스 (학생 제출물 자동 수집)</label>
+      <select
+        value={srcType}
+        onChange={(e) => {
+          setSrcType(e.target.value);
+          setSrcId("");
+        }}
+        className={`${INP} mb-2`}
+      >
+        <option value="none">없음 (수동 입력)</option>
+        <option value="survey">설문 응답</option>
+        <option value="assignment">과제 제출</option>
+        <option value="artifact">학생 산출물</option>
+        <option value="career">진로 설계</option>
+        <option value="club">동아리 활동</option>
+        <option value="group">그룹 활동</option>
+      </select>
+      {srcType === "survey" && (
+        <select value={srcId} onChange={(e) => setSrcId(e.target.value)} className={`${INP} mb-3`}>
+          <option value="">설문 선택</option>
+          {cands?.surveys.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+      )}
+      {srcType === "assignment" && (
+        <select value={srcId} onChange={(e) => setSrcId(e.target.value)} className={`${INP} mb-3`}>
+          <option value="">과제 선택</option>
+          {cands?.assignments.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.title}
+            </option>
+          ))}
+        </select>
+      )}
+      {["artifact", "career", "club", "group"].includes(srcType) && (
+        <div className="text-[11px] text-text-tertiary mb-3 -mt-1">
+          담당 학생 각자의 {SOURCE_LABELS[srcType]} 데이터를 자동으로 모읍니다.
+        </div>
+      )}
 
       <label className={LBL}>시스템 프롬프트 (AI 작성 지시 — 다음 단계에서 사용)</label>
       <textarea
@@ -430,11 +553,11 @@ function CellModal({
 
   return (
     <Modal title={`${stu.name} · ${col.name}`} onClose={onClose} wide>
-      <label className={LBL}>원자료 (학생 제출물 — 자동 수집은 다음 단계)</label>
+      <label className={LBL}>원자료 (학생 제출물 — 항목 소스로 자동 수집됨)</label>
       <textarea
         value={raw}
         onChange={(e) => setRaw(e.target.value)}
-        rows={5}
+        rows={6}
         className={`${INP} text-caption mb-1`}
         placeholder="학생의 과제·설문·활동 내용 등"
       />
