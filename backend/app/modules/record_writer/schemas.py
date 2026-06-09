@@ -17,3 +17,30 @@ class RecordProjectUpdate(BaseModel):
 
 class AddStudentsReq(BaseModel):
     student_ids: list[int] = Field(default_factory=list)
+
+
+class ColumnCreate(BaseModel):
+    name: str = Field(default="새 항목", max_length=255)
+    system_prompt: str | None = None
+    source_config: dict | None = None
+    char_min: int | None = None
+    char_max: int | None = None
+    kind: str = "normal"  # normal | summary
+
+
+class ColumnUpdate(BaseModel):
+    name: str | None = None
+    system_prompt: str | None = None
+    source_config: dict | None = None
+    char_min: int | None = None
+    char_max: int | None = None
+    kind: str | None = None
+
+
+class CellUpsert(BaseModel):
+    project_id: int
+    column_id: int
+    student_id: int
+    raw_data: str | None = None
+    generated_text: str | None = None
+    status: str | None = None

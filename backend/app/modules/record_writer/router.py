@@ -16,3 +16,5 @@ router = APIRouter(prefix="/api/record-writer", tags=["record-writer"])
 # Sub-module endpoint 등록 — 마지막에 import해 circular 회피.
 from app.modules.record_writer import projects  # noqa: E402, F401
 from app.modules.record_writer import scope  # noqa: E402, F401
+from app.modules.record_writer import columns  # noqa: E402, F401
+from app.modules.record_writer import cells  # noqa: E402, F401
