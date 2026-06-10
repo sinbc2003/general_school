@@ -152,6 +152,9 @@ from app.models.tool_quiz import LiveQuizSession, LiveQuizPlayer, LiveQuizAnswer
 # ── Tool: Wordbook (ClassCard형 단어장 — 업무 및 수업 도구) ──
 from app.models.tool_wordbook import WordDeck, WordCard, WordStudyState
 
+# ── Tool: Board (Padlet형 보드 — 업무 및 수업 도구, 카드는 Yjs) ──
+from app.models.tool_board import ToolBoard
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -240,4 +243,6 @@ __all__ = [
     "LiveQuizSession", "LiveQuizPlayer", "LiveQuizAnswer",
     # Tool: Wordbook
     "WordDeck", "WordCard", "WordStudyState",
+    # Tool: Board
+    "ToolBoard",
 ]

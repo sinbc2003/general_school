@@ -27,19 +27,21 @@ import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
   Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive, Bot,
   Plus, Presentation, Table2, FileType, ExternalLink, Gamepad2, BookA,
+  StickyNote as StickyNoteIcon,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { DrivePicker } from "./DrivePicker";
 import { ChatbotPickerModal } from "./ChatbotPickerModal";
 import { QuizPickerModal } from "./QuizPickerModal";
 import { WordDeckPickerModal } from "./WordDeckPickerModal";
+import { BoardPickerModal } from "./BoardPickerModal";
 
 export type CreateKind = "assignment" | "material";
 
 type ShareMode = "view" | "edit" | "copy";
 
 interface AttachmentItem {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz" | "word_deck";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz" | "word_deck" | "board";
   title: string;
   url?: string;
   file_url?: string;
@@ -52,6 +54,7 @@ interface AttachmentItem {
   chatbot_id?: number;
   live_quiz_id?: number;
   word_deck_id?: number;
+  board_id?: number;
   /** 학생용 공유 모드. drive 자료(doc/sheet/deck/hwp)만 의미 있음.
    *  link/file/survey/chatbot은 항상 view 강제. copy는 Phase 2 활성화. */
   share_mode?: ShareMode;
@@ -195,6 +198,7 @@ export function AssignmentModal({
   const [showChatbotPicker, setShowChatbotPicker] = useState(false);
   const [showQuizPicker, setShowQuizPicker] = useState(false);
   const [showWordDeckPicker, setShowWordDeckPicker] = useState(false);
+  const [showBoardPicker, setShowBoardPicker] = useState(false);
 
   // 첨부 "만들기" 서브메뉴 (Google Classroom 식)
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -308,6 +312,10 @@ export function AssignmentModal({
 
   const addWordDeck = (d: { word_deck_id: number; title: string }) => {
     setAttachments([...attachments, { type: "word_deck", title: d.title, word_deck_id: d.word_deck_id }]);
+  };
+
+  const addBoard = (b: { board_id: number; title: string }) => {
+    setAttachments([...attachments, { type: "board", title: b.title, board_id: b.board_id }]);
   };
 
   const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
@@ -518,6 +526,7 @@ export function AssignmentModal({
                 <AttachBtn icon={Bot} label="챗봇" onClick={() => setShowChatbotPicker(true)} bg="#e0f2fe" color="#0369a1" />
                 <AttachBtn icon={Gamepad2} label="퀴즈" onClick={() => setShowQuizPicker(true)} bg="#f3e8ff" color="#7e22ce" />
                 <AttachBtn icon={BookA} label="단어장" onClick={() => setShowWordDeckPicker(true)} bg="#e0f2fe" color="#0284c7" />
+                <AttachBtn icon={StickyNoteIcon} label="보드" onClick={() => setShowBoardPicker(true)} bg="#fef3c7" color="#b45309" />
               </div>
               {showDrivePicker && (
                 <DrivePicker
@@ -544,6 +553,12 @@ export function AssignmentModal({
                   onSelect={addWordDeck}
                 />
               )}
+              {showBoardPicker && (
+                <BoardPickerModal
+                  onClose={() => setShowBoardPicker(false)}
+                  onSelect={addBoard}
+                />
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -564,6 +579,7 @@ export function AssignmentModal({
                       : a.type === "chatbot" ? Bot
                       : a.type === "live_quiz" ? Gamepad2
                       : a.type === "word_deck" ? BookA
+                      : a.type === "board" ? StickyNoteIcon
                       : LinkIcon;
                     const shareable = isShareable(a.type);
                     // 드라이브 자료 — 행 어디를 눌러도 새 창에서 편집기 오픈

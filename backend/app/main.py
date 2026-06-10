@@ -183,6 +183,7 @@ from app.modules.teacher_groups.router import router as teacher_groups_router
 from app.modules.record_writer.router import router as record_writer_router
 from app.modules.tool_quiz.router import router as tool_quiz_router
 from app.modules.tool_wordbook.router import router as tool_wordbook_router
+from app.modules.tool_board.router import router as tool_board_router
 
 # Phase 1: 핵심 인프라
 app.include_router(auth_router)
@@ -229,6 +230,7 @@ app.include_router(teacher_groups_router)
 app.include_router(record_writer_router)
 app.include_router(tool_quiz_router)
 app.include_router(tool_wordbook_router)
+app.include_router(tool_board_router)
 
 
 @app.get("/api/health")

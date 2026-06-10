@@ -27,7 +27,7 @@ import { PrivateComments } from "./PrivateComments";
 export type ShareMode = "view" | "edit" | "copy";
 
 export interface Attachment {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz" | "word_deck";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz" | "word_deck" | "board";
   title: string;
   url?: string;
   file_url?: string;
@@ -40,6 +40,7 @@ export interface Attachment {
   chatbot_id?: number;
   live_quiz_id?: number;
   word_deck_id?: number;
+  board_id?: number;
   /** Google Classroom 식 공유 모드.
    *  - view (default): 보기만
    *  - edit: 학생이 함께 편집 (협업)
@@ -547,6 +548,24 @@ function AttachmentRow({ a, postId, attIdx, courseId }: { a: Attachment; postId:
   // 라이브 퀴즈 첨부 — 학생은 PIN 입장, 교사(host)는 진행 화면
   if (a.type === "live_quiz" && a.live_quiz_id) {
     return <LiveQuizAttachmentRow a={a} isStudent={isStudent} />;
+  }
+  // 보드 첨부 — 학생/교사 모두 보드 화면 (강좌 첨부 = 카드 붙이기 권한)
+  if (a.type === "board" && a.board_id) {
+    const href = isStudent ? `/s/board/${a.board_id}` : `/tools/board/${a.board_id}`;
+    return (
+      <a
+        href={href}
+        className="w-full flex items-center gap-3 px-3 py-2.5 border border-amber-200 bg-amber-50 rounded hover:bg-amber-100 group text-left"
+      >
+        <span className="text-[16px]">🗒️</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-body text-amber-800 truncate font-medium">{a.title}</div>
+          <div className="text-[11px] text-amber-700">
+            보드 — 클릭하면 함께 카드를 붙일 수 있습니다.
+          </div>
+        </div>
+      </a>
+    );
   }
   // 단어장 첨부 — 학생은 학습 화면, 교사는 편집 페이지
   if (a.type === "word_deck" && a.word_deck_id) {

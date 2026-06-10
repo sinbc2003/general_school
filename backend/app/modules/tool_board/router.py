@@ -1,0 +1,335 @@
+"""보드 (Padlet형) 라우터.
+
+prefix가 /api/classroom/boards 인 이유: Hocuspocus 사이드카가
+`{FASTAPI}/api/classroom/{resourcePath}/{id}/permission|yjs-snapshot` 규약으로
+호출한다 (auth.ts resourcePath("board") → "boards"). doc/deck/sheet와 동일.
+
+엔드포인트:
+  관리 (tools.board.manage — 교사):
+    GET    /api/classroom/boards            — 본인 보드 list
+    POST   /api/classroom/boards            — 생성
+    PUT    /api/classroom/boards/{bid}      — 메타·컬럼·접근 설정 (owner)
+    DELETE /api/classroom/boards/{bid}      — 삭제 (owner)
+
+  참여 (인증 + 접근 가드):
+    GET /api/classroom/boards/{bid}         — 메타 + 본인 권한 (보드 화면 진입)
+
+  Hocuspocus 내부:
+    GET  /api/classroom/boards/{bid}/permission    (사용자 JWT)
+    GET  /api/classroom/boards/{bid}/yjs-snapshot  (INTERNAL_TOKEN)
+    POST /api/classroom/boards/{bid}/yjs-snapshot  (INTERNAL_TOKEN)
+
+카드 본문은 Yjs Y.Map("cards") — 서버는 snapshot bytes만 저장.
+"""
+
+from __future__ import annotations
+
+import base64
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import Text as SaText, cast, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.audit import log_action
+from app.core.auth import get_current_user
+from app.core.config import settings as app_settings
+from app.core.database import get_db
+from app.core.permissions import is_admin, require_permission
+from app.core.quota import adjust_quota
+from app.models import CoursePost, CourseStudent, ToolBoard, User
+from app.models.classroom import Course
+from app.modules.classroom.teachers import is_course_editor_or_admin
+
+router = APIRouter(prefix="/api/classroom/boards", tags=["tool-board"])
+
+DEFAULT_COLUMNS = ["아이디어", "질문", "기타"]
+MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024
+
+
+# ── Pydantic ──
+
+class BoardCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    course_id: int | None = None
+    access_mode: str = Field(default="members", pattern="^(members|public)$")
+    columns: list[str] | None = None  # 미지정 시 DEFAULT_COLUMNS
+
+
+class BoardUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    course_id: int | None = None
+    access_mode: str | None = Field(default=None, pattern="^(members|public)$")
+    columns: list[str] | None = Field(default=None, max_length=10)
+    is_archived: bool | None = None
+
+
+class SnapshotIn(BaseModel):
+    state_base64: str = Field(..., min_length=1)
+
+
+# ── helpers ──
+
+def _to_dict(b: ToolBoard, *, owner_name: str | None = None) -> dict:
+    return {
+        "id": b.id,
+        "owner_id": b.owner_id,
+        "owner_name": owner_name,
+        "title": b.title,
+        "description": b.description,
+        "course_id": b.course_id,
+        "access_mode": b.access_mode,
+        "columns": (b.settings or {}).get("columns") or DEFAULT_COLUMNS,
+        "is_archived": b.is_archived,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+        "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+    }
+
+
+async def _has_classroom_attachment(
+    db: AsyncSession, user: User, board_id: int,
+) -> bool:
+    """본인 소속 강좌 글에 이 보드가 첨부됐는지 (LIKE prefilter + Python 매칭)."""
+    student_ids = (await db.execute(
+        select(CourseStudent.course_id).where(
+            CourseStudent.student_id == user.id,
+            CourseStudent.status == "active",
+        )
+    )).scalars().all()
+    if not student_ids:
+        return False
+    rows = (await db.execute(
+        select(CoursePost.attachments).where(
+            CoursePost.course_id.in_(set(student_ids)),
+            CoursePost.attachments.isnot(None),
+            cast(CoursePost.attachments, SaText).like('%"board_id"%'),
+        )
+    )).scalars().all()
+    for atts in rows:
+        if not isinstance(atts, list):
+            continue
+        for a in atts:
+            if (
+                isinstance(a, dict)
+                and a.get("type") == "board"
+                and a.get("board_id") == board_id
+            ):
+                return True
+    return False
+
+
+async def _resolve_permission(db: AsyncSession, user: User, b: ToolBoard) -> dict:
+    """보드는 '참여'가 목적 — 접근 가능하면 기본 쓰기 허용 (archived는 읽기만)."""
+    def perm(read: bool, write: bool, share: bool, role: str | None) -> dict:
+        if b.is_archived:
+            write = False
+        return {"can_read": read, "can_write": write, "can_share": share, "role": role}
+
+    if b.owner_id == user.id:
+        return perm(True, True, True, "owner")
+    if is_admin(user):
+        return perm(True, True, True, "admin")
+
+    if b.course_id is not None:
+        course = await db.get(Course, b.course_id)
+        if course:
+            if await is_course_editor_or_admin(db, course, user):
+                return perm(True, True, False, "editor")
+            cs = (await db.execute(
+                select(CourseStudent).where(
+                    CourseStudent.course_id == b.course_id,
+                    CourseStudent.student_id == user.id,
+                    CourseStudent.status == "active",
+                )
+            )).scalar_one_or_none()
+            if cs:
+                return perm(True, True, False, "editor")
+
+    if await _has_classroom_attachment(db, user, b.id):
+        return perm(True, True, False, "editor")
+
+    if b.access_mode == "public":
+        return perm(True, True, False, "editor")
+
+    return {"can_read": False, "can_write": False, "can_share": False, "role": None}
+
+
+async def _get_board_or_404(db: AsyncSession, bid: int) -> ToolBoard:
+    b = await db.get(ToolBoard, bid)
+    if not b:
+        raise HTTPException(404, "보드 없음")
+    return b
+
+
+# ── 관리 (교사) ──
+
+@router.get("")
+async def my_boards(
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(
+        select(ToolBoard).where(ToolBoard.owner_id == user.id)
+        .order_by(ToolBoard.updated_at.desc()).limit(100)
+    )).scalars().all()
+    return {"items": [_to_dict(b) for b in rows]}
+
+
+@router.post("")
+async def create_board(
+    body: BoardCreate, request: Request,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.course_id is not None:
+        course = await db.get(Course, body.course_id)
+        if not course:
+            raise HTTPException(404, "강좌 없음")
+        if not await is_course_editor_or_admin(db, course, user):
+            raise HTTPException(403, "본인 강좌에만 연결 가능")
+    cols = [c.strip()[:50] for c in (body.columns or DEFAULT_COLUMNS) if c.strip()][:10]
+    b = ToolBoard(
+        owner_id=user.id,
+        title=body.title,
+        description=body.description,
+        course_id=body.course_id,
+        access_mode=body.access_mode,
+        settings={"columns": cols or DEFAULT_COLUMNS},
+    )
+    db.add(b)
+    await db.flush()
+    await log_action(db, user, "tools.board.create", target=f"board:{b.id}", request=request)
+    return _to_dict(b, owner_name=user.name)
+
+
+@router.put("/{bid}")
+async def update_board(
+    bid: int, body: BoardUpdate, request: Request,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    b = await _get_board_or_404(db, bid)
+    if b.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403, "본인 보드만 설정 가능")
+    patch = body.model_dump(exclude_unset=True)
+    cols = patch.pop("columns", None)
+    if cols is not None:
+        cleaned = [c.strip()[:50] for c in cols if c.strip()][:10]
+        if not cleaned:
+            raise HTTPException(400, "컬럼은 1개 이상 필요")
+        b.settings = {**(b.settings or {}), "columns": cleaned}
+    if "course_id" in patch and patch["course_id"] is not None:
+        course = await db.get(Course, patch["course_id"])
+        if not course:
+            raise HTTPException(404, "강좌 없음")
+    for k, v in patch.items():
+        setattr(b, k, v)
+    await db.flush()
+    await db.refresh(b)
+    await log_action(db, user, "tools.board.update", target=f"board:{bid}", request=request)
+    return _to_dict(b)
+
+
+@router.delete("/{bid}")
+async def delete_board(
+    bid: int, request: Request,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    b = await _get_board_or_404(db, bid)
+    if b.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403, "본인 보드만 삭제 가능")
+    await db.delete(b)
+    await db.flush()
+    await log_action(db, user, "tools.board.delete", target=f"board:{bid}", request=request)
+    return {"ok": True}
+
+
+# ── 참여 (보드 화면 진입) ──
+
+@router.get("/{bid}")
+async def get_board(
+    bid: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    b = await _get_board_or_404(db, bid)
+    perm = await _resolve_permission(db, user, b)
+    if not perm["can_read"]:
+        raise HTTPException(403, "이 보드에 접근 권한이 없습니다")
+    owner = await db.get(User, b.owner_id)
+    return {
+        **_to_dict(b, owner_name=owner.name if owner else None),
+        "permission": perm,
+    }
+
+
+# ── Hocuspocus 사이드카 연동 (classroom_sheets와 동일 패턴) ──
+
+@router.get("/{bid}/permission")
+async def check_board_permission(
+    bid: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hocuspocus WS auth 단계 — 사용자 JWT 인증."""
+    b = await _get_board_or_404(db, bid)
+    return await _resolve_permission(db, user, b)
+
+
+@router.get("/{bid}/yjs-snapshot")
+async def get_yjs_snapshot(
+    bid: int,
+    x_internal_token: str | None = Header(None, alias="X-Internal-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """보드 초기 로딩 — INTERNAL_TOKEN 인증 (Hocuspocus 전용)."""
+    expected = app_settings.HOCUSPOCUS_INTERNAL_TOKEN
+    if not expected:
+        raise HTTPException(503, "HOCUSPOCUS_INTERNAL_TOKEN 미설정")
+    if x_internal_token != expected:
+        raise HTTPException(401, "내부 토큰 인증 실패")
+    b = await _get_board_or_404(db, bid)
+    if b.yjs_state is None:
+        return {"state_base64": None, "board_id": bid}
+    return {
+        "state_base64": base64.b64encode(b.yjs_state).decode("ascii"),
+        "board_id": bid,
+    }
+
+
+@router.post("/{bid}/yjs-snapshot")
+async def put_yjs_snapshot(
+    bid: int, body: SnapshotIn,
+    x_internal_token: str | None = Header(None, alias="X-Internal-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hocuspocus 주기 저장 — INTERNAL_TOKEN 인증."""
+    expected = app_settings.HOCUSPOCUS_INTERNAL_TOKEN
+    if not expected:
+        raise HTTPException(503, "HOCUSPOCUS_INTERNAL_TOKEN 미설정")
+    if x_internal_token != expected:
+        raise HTTPException(401, "내부 토큰 인증 실패")
+    b = await _get_board_or_404(db, bid)
+    try:
+        data = base64.b64decode(body.state_base64)
+    except Exception:
+        raise HTTPException(400, "잘못된 base64")
+    if len(data) > MAX_SNAPSHOT_BYTES:
+        raise HTTPException(413, "snapshot이 너무 큽니다 (10MB 한도)")
+    old_bytes = b.storage_bytes or 0
+    b.yjs_state = data
+    b.storage_bytes = len(data)
+    await db.flush()
+
+    # quota 조정 (best-effort — sheets와 동일)
+    try:
+        owner = await db.get(User, b.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=len(data))
+    except Exception:
+        pass
+
+    return {"ok": True, "byte_size": len(data)}

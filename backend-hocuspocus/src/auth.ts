@@ -35,7 +35,7 @@ export function verifyToken(token: string): TokenPayload {
   return decoded;
 }
 
-export type TargetKind = "doc" | "deck" | "sheet";
+export type TargetKind = "doc" | "deck" | "sheet" | "board";
 
 export interface TargetRef {
   kind: TargetKind;
@@ -47,11 +47,12 @@ export interface TargetRef {
  *   "doc-{id}"    — 협업 문서 (classroom_docs)
  *   "deck-{id}"   — 협업 프리젠테이션 deck (classroom_slides)
  *   "sheet-{id}"  — 협업 스프레드시트 (classroom_sheets, Univer 기반)
+ *   "board-{id}"  — Padlet형 보드 (tool_board, 카드 Y.Map)
  *
  * frontend HocuspocusProvider의 name과 정확히 일치해야 함.
  */
 export function extractTarget(documentName: string): TargetRef {
-  const m = documentName.match(/^(doc|deck|sheet)-(\d+)$/);
+  const m = documentName.match(/^(doc|deck|sheet|board)-(\d+)$/);
   if (!m) {
     throw new Error(`invalid documentName: ${documentName}`);
   }
@@ -62,6 +63,7 @@ export function extractTarget(documentName: string): TargetRef {
 export function resourcePath(kind: TargetKind): string {
   if (kind === "deck") return "decks";
   if (kind === "sheet") return "sheets";
+  if (kind === "board") return "boards";
   return "docs";
 }
 

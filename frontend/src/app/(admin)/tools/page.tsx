@@ -45,7 +45,7 @@ const TOOLS: ToolDef[] = [
     description: "담벼락에 포스트잇 카드 붙이기 — 학급 전체 실시간 동시 편집",
     icon: StickyNote,
     href: "/tools/board",
-    ready: false,
+    ready: true,
     accent: "from-amber-500 to-orange-500",
   },
   {
