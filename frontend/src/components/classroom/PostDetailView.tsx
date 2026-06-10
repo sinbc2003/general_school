@@ -80,8 +80,11 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
 
   const kindLabel = isAssignment ? "과제" : isMaterial ? "자료" : "공지";
 
+  // 학생 + 과제 → Google Classroom 식 2단 (좌 본문 / 우 sticky '내 과제')
+  const studentAssignment = isAssignment && isStudentViewer;
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className={studentAssignment ? "max-w-5xl mx-auto" : "max-w-4xl mx-auto"}>
       <div className="mb-4">
         <Link
           href={`${baseHref}/${post.course_id}`}
@@ -90,6 +93,9 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
           <ArrowLeft size={12} /> {post.course_name || "강좌"}로
         </Link>
       </div>
+
+      <div className={studentAssignment ? "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start" : ""}>
+      <div className="min-w-0">
 
       {/* 헤더 카드 */}
       <div className="bg-bg-primary border border-border-default rounded-xl p-5 mb-4">
@@ -170,9 +176,6 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
         </div>
       )}
 
-      {/* 내 과제 — 학생 제출 (Google Classroom Turn-in) */}
-      {isAssignment && isStudentViewer && <MySubmissionCard post={post} />}
-
       {/* 제출 현황 + 돌려주기 (교사 전용 — 비담당은 API 403 → 자동 숨김) */}
       {isAssignment && !isStudentViewer && <SubmissionsSection post={post} />}
 
@@ -188,6 +191,16 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
 
       {/* 수업 댓글 — Google Classroom 식 */}
       <CommentsSection postId={post.id} />
+
+      </div>{/* /좌측 본문 */}
+
+      {/* 내 과제 — 학생 제출 (Google Classroom 우측 사이드바) */}
+      {studentAssignment && (
+        <aside className="lg:sticky lg:top-4">
+          <MySubmissionCard post={post} />
+        </aside>
+      )}
+      </div>{/* /grid */}
     </div>
   );
 }

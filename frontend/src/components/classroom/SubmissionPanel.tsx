@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2, Clock, FileUp, HardDrive, Loader2, Paperclip,
-  RotateCcw, Send, Trash2, Award,
+  Trash2, Award, Plus, Link as LinkIcon, FileText, Table2,
+  Presentation, FileType,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { downloadSecure } from "@/lib/api/download";
@@ -47,6 +48,37 @@ const STATUS_META = {
   returned: { label: "돌려줌", cls: "bg-violet-100 text-violet-700" },
 } as const;
 
+/** '+ 추가 또는 생성' > 만들기 — 학생 본인 자료 즉석 생성 + 첨부 (Google과 동일) */
+const STUDENT_CREATE_DEFS: {
+  type: "doc" | "sheet" | "deck" | "hwp";
+  label: string;
+  icon: any;
+  endpoint: string;
+  title: string;
+  openHref: (cid: number, id: number) => string;
+}[] = [
+  {
+    type: "doc", label: "문서", icon: FileText,
+    endpoint: "/api/classroom/docs", title: "제목 없는 문서",
+    openHref: (cid, id) => `/s/classroom/${cid}/docs/${id}`,
+  },
+  {
+    type: "sheet", label: "스프레드시트", icon: Table2,
+    endpoint: "/api/classroom/sheets", title: "제목 없는 스프레드시트",
+    openHref: (_c, id) => `/s/sheets/${id}`,
+  },
+  {
+    type: "deck", label: "프리젠테이션", icon: Presentation,
+    endpoint: "/api/classroom/decks", title: "제목 없는 프리젠테이션",
+    openHref: (cid, id) => `/s/classroom/${cid}/decks/${id}`,
+  },
+  {
+    type: "hwp", label: "한컴 문서", icon: FileType,
+    endpoint: "/api/classroom/hwps", title: "제목 없는 HWP",
+    openHref: (_c, id) => `/s/hwps/${id}`,
+  },
+];
+
 /** 학생용 드라이브 자료 열람 경로 */
 function studentHref(a: Attachment, cid: number): string | null {
   if (a.type === "doc" && a.doc_id) return `/s/classroom/${cid}/docs/${a.doc_id}`;
@@ -80,7 +112,22 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showDrive, setShowDrive] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // '+ 추가 또는 생성' 바깥 클릭 닫기
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [addMenuOpen]);
 
   const load = useCallback(async () => {
     try {
@@ -145,9 +192,41 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
     putAttachments(next);
   };
 
+  const addLink = () => {
+    const url = window.prompt("링크 URL:");
+    if (!url) return;
+    const t = window.prompt("표시할 제목:", url) || url;
+    putAttachments([...sub.attachments, { type: "link", url, title: t } as any]);
+  };
+
+  // 만들기 — 새 자료 즉석 생성 + 첨부 + 새 탭 편집 (Google '만들기'와 동일)
+  const createNew = async (def: (typeof STUDENT_CREATE_DEFS)[number]) => {
+    if (creating) return;
+    setAddMenuOpen(false);
+    setCreating(true);
+    const win = window.open("", "_blank"); // popup blocker 회피 — 제스처 동기 시점에 오픈
+    try {
+      const res = await api.post<{ id: number }>(def.endpoint, {
+        title: def.title,
+        access_mode: "specific_users",
+      });
+      const idKey = `${def.type}_id`;
+      await putAttachments([
+        ...sub.attachments,
+        { type: def.type, title: def.title, [idKey]: res.id } as any,
+      ]);
+      if (win) win.location.href = def.openHref(post.course_id, res.id);
+    } catch (e: any) {
+      win?.close();
+      alert(e?.detail || `${def.label} 생성 실패`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const turnIn = async () => {
     const empty = sub.attachments.length === 0 && (sub.copies?.length || 0) === 0;
-    if (!confirm(empty ? "첨부 없이 과제를 제출할까요?" : "과제를 제출할까요?")) return;
+    if (!confirm(empty ? "과제를 완료로 표시할까요?" : "과제를 제출할까요?")) return;
     setBusy(true);
     try {
       await api.post(`/api/classroom/posts/${post.id}/my-submission/turn-in`, {});
@@ -168,18 +247,26 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
     } finally { setBusy(false); }
   };
 
+  // Google Classroom 식 상태 텍스트 (우상단)
+  const statusText =
+    sub.status === "returned"
+      ? (sub.score != null ? `${sub.score}${post.max_score != null ? `/${post.max_score}` : ""}점` : "돌려줌")
+      : sub.status === "turned_in"
+        ? (sub.is_late ? "늦게 제출함" : "제출함")
+        : sub.is_late || (post.due_date && new Date(post.due_date) < new Date())
+          ? "기한 지남"
+          : "할당됨";
+  const statusColor =
+    sub.status === "returned" ? "text-violet-600"
+    : sub.status === "turned_in" ? (sub.is_late ? "text-red-500" : "text-emerald-600")
+    : statusText === "기한 지남" ? "text-red-500"
+    : "text-emerald-600";
+
   return (
-    <div className="bg-bg-primary border-2 border-accent/30 rounded-xl p-5 mt-4">
+    <div className="bg-bg-primary border border-border-default rounded-xl p-5 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-[13px] font-semibold text-text-primary">내 과제</div>
-        <div className="flex items-center gap-1.5">
-          {sub.is_late && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">늦음</span>
-          )}
-          <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${meta.cls}`}>
-            {meta.label}
-          </span>
-        </div>
+        <div className="text-[16px] font-medium text-text-primary">내 과제</div>
+        <div className={`text-[12.5px] font-medium ${statusColor}`}>{statusText}</div>
       </div>
 
       {/* 채점 결과 (returned) */}
@@ -236,6 +323,10 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
                   <a href={href} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
                     {a.title}
                   </a>
+                ) : a.url ? (
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
+                    {a.title}
+                  </a>
                 ) : (
                   <span className="text-caption flex-1 truncate">{a.title}</span>
                 )}
@@ -256,26 +347,60 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
         </div>
       )}
 
-      {/* 추가 버튼들 (제출 전) */}
+      {/* + 추가 또는 생성 (Google Classroom 식) */}
       {!locked && (
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div ref={addMenuRef} className="relative mb-2">
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading || busy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
+            onClick={() => setAddMenuOpen((v) => !v)}
+            disabled={busy || uploading || creating}
+            className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-caption font-medium text-accent border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
           >
-            {uploading ? <Loader2 size={12} className="animate-spin" /> : <FileUp size={12} />}
-            {uploading ? "업로드 중..." : "파일 업로드"}
+            {uploading || creating
+              ? <Loader2 size={13} className="animate-spin" />
+              : <Plus size={14} />}
+            {uploading ? "업로드 중..." : creating ? "생성 중..." : "추가 또는 생성"}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowDrive(true)}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
-          >
-            <HardDrive size={12} /> 내 드라이브
-          </button>
+          {addMenuOpen && (
+            <div className="absolute bottom-full left-0 right-0 mb-1.5 z-30 bg-bg-primary border border-border-default rounded-lg shadow-lg py-1.5">
+              <button
+                type="button"
+                onClick={() => { setAddMenuOpen(false); setShowDrive(true); }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-bg-secondary text-left text-caption"
+              >
+                <HardDrive size={14} className="text-violet-600" /> 내 드라이브
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAddMenuOpen(false); addLink(); }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-bg-secondary text-left text-caption"
+              >
+                <LinkIcon size={14} className="text-blue-600" /> 링크
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAddMenuOpen(false); fileRef.current?.click(); }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-bg-secondary text-left text-caption"
+              >
+                <FileUp size={14} className="text-indigo-600" /> 파일
+              </button>
+              <div className="border-t border-border-default my-1" />
+              <div className="px-3.5 py-1 text-[10.5px] text-text-tertiary">만들기</div>
+              {STUDENT_CREATE_DEFS.map((d) => {
+                const DIcon = d.icon;
+                return (
+                  <button
+                    key={d.type}
+                    type="button"
+                    onClick={() => createNew(d)}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-bg-secondary text-left text-caption"
+                  >
+                    <DIcon size={14} className="text-text-secondary" /> {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <input
             ref={fileRef} type="file" multiple onChange={onFiles} className="hidden"
             accept=".pdf,.hwp,.hwpx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif,.zip"
@@ -283,15 +408,15 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
         </div>
       )}
 
-      {/* 제출 / 제출 취소 */}
+      {/* 제출 / 완료로 표시 / 제출 취소 (Google Classroom 식) */}
       {locked ? (
         <button
           type="button"
           onClick={unsubmit}
           disabled={busy}
-          className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-caption border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
+          className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-caption font-medium text-accent border border-border-default rounded hover:bg-bg-secondary disabled:opacity-50"
         >
-          <RotateCcw size={13} /> 제출 취소
+          제출 취소
         </button>
       ) : (
         <button
@@ -300,7 +425,11 @@ export function MySubmissionCard({ post }: { post: PostDetail }) {
           disabled={busy}
           className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-caption font-medium bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-50"
         >
-          <Send size={13} /> {sub.status === "returned" ? "다시 제출" : "제출"}
+          {sub.status === "returned"
+            ? "다시 제출"
+            : sub.attachments.length === 0 && (sub.copies?.length || 0) === 0
+              ? "완료로 표시"
+              : "제출"}
         </button>
       )}
       {sub.turned_in_at && (
