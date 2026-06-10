@@ -26,7 +26,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
   Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive, Bot,
-  Plus, Presentation, Table2, FileType,
+  Plus, Presentation, Table2, FileType, ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { DrivePicker } from "./DrivePicker";
@@ -499,10 +499,16 @@ export function AssignmentModal({
                       : a.type === "chatbot" ? Bot
                       : LinkIcon;
                     const shareable = isShareable(a.type);
+                    // 드라이브 자료 — 행 어디를 눌러도 새 창에서 편집기 오픈
+                    const openHref = a.url ? null : editorHref(a);
                     return (
                       <div
                         key={i}
-                        className="flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary group"
+                        onClick={openHref ? () => window.open(openHref, "_blank", "noopener") : undefined}
+                        className={`flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary group ${
+                          openHref ? "cursor-pointer" : ""
+                        }`}
+                        title={openHref ? "클릭하면 새 창에서 열립니다" : undefined}
                       >
                         {emoji[a.type] ? (
                           <span className="text-[14px] flex-shrink-0">{emoji[a.type]}</span>
@@ -513,13 +519,14 @@ export function AssignmentModal({
                           <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
                             {a.title}
                           </a>
-                        ) : editorHref(a) ? (
+                        ) : openHref ? (
                           <a
-                            href={editorHref(a)!}
+                            href={openHref}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="text-caption text-accent hover:underline flex-1 truncate"
-                            title="새 탭에서 편집"
+                            title="새 창에서 편집"
                           >
                             {a.title}
                           </a>
@@ -530,10 +537,14 @@ export function AssignmentModal({
                         ) : (
                           <span className="text-caption flex-1 truncate">{a.title}</span>
                         )}
+                        {openHref && (
+                          <ExternalLink size={12} className="text-text-tertiary flex-shrink-0" />
+                        )}
                         {shareable && (
                           <select
                             value={a.share_mode || "view"}
                             onChange={(e) => setShareMode(i, e.target.value as ShareMode)}
+                            onClick={(e) => e.stopPropagation()}
                             className="text-[11px] border border-border-default rounded px-1.5 py-0.5 bg-bg-primary"
                             title="파일 공유 옵션"
                           >
@@ -543,7 +554,7 @@ export function AssignmentModal({
                           </select>
                         )}
                         <button
-                          onClick={() => removeAttachment(i)}
+                          onClick={(e) => { e.stopPropagation(); removeAttachment(i); }}
                           className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-error"
                           title="제거"
                         >
