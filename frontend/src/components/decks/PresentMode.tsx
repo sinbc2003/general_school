@@ -33,8 +33,7 @@ import { getTheme } from "./themes";
 import "../docs/collab-editor.css";
 import "./slide-canvas.css";
 
-const DEFAULT_HOCUSPOCUS_URL =
-  process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
+import { getHocuspocusUrl } from "@/lib/collab/hocuspocus-url";
 
 interface SlideRef {
   id: number;
@@ -53,7 +52,7 @@ interface PresentModeProps {
 
 export function PresentMode({
   deckId, deckTitle, slides, themeId, onExit,
-  hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
+  hocuspocusUrl = getHocuspocusUrl(),
 }: PresentModeProps) {
   const theme = getTheme(themeId);
   const [idx, setIdx] = useState(0);

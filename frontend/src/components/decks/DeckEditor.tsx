@@ -25,9 +25,7 @@ import { SlideEditor } from "./SlideEditor";
 import { ThemePicker } from "./ThemePicker";
 import { getTheme } from "./themes";
 import ActiveUserBanner from "@/components/collab/ActiveUserBanner";
-
-const DEFAULT_HOCUSPOCUS_URL =
-  process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
+import { getHocuspocusUrl } from "@/lib/collab/hocuspocus-url";
 
 interface Slide {
   id: number;
@@ -51,7 +49,7 @@ interface DeckEditorProps {
 
 export function DeckEditor({
   deckId, slides, canWrite, userName, userId, themeId,
-  onReload, hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
+  onReload, hocuspocusUrl = getHocuspocusUrl(),
 }: DeckEditorProps) {
   const [activeSlideId, setActiveSlideId] = useState<number | null>(
     slides[0]?.id ?? null,

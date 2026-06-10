@@ -49,6 +49,7 @@ import { KoreanMarkdownShortcuts } from "./KoreanMarkdownShortcuts";
 import { EditorContextMenu } from "./EditorContextMenu";
 import { TableBubbleMenu } from "./TableBubbleMenu";
 import ActiveUserBanner from "@/components/collab/ActiveUserBanner";
+import { getHocuspocusUrl } from "@/lib/collab/hocuspocus-url";
 import "./collab-editor.css";
 import "katex/dist/katex.min.css";
 
@@ -57,14 +58,11 @@ interface CollabEditorProps {
   userId: number;
   userName: string;
   canWrite: boolean;
-  /** dev 기본은 ws://localhost:1234. production은 NEXT_PUBLIC_HOCUSPOCUS_URL. */
+  /** 미지정 시 getHocuspocusUrl() — dev는 :1234 직결, production은 현재 호스트 /yjs 프록시. */
   hocuspocusUrl?: string;
   /** 부모에 editor 인스턴스 노출 (AI 도우미가 commands 호출용). */
   onEditorReady?: (editor: Editor | null) => void;
 }
-
-const DEFAULT_HOCUSPOCUS_URL =
-  process.env.NEXT_PUBLIC_HOCUSPOCUS_URL || "ws://localhost:1234";
 
 /** 사용자 ID에서 안정적인 HSL 색상 생성 (커서 색). */
 function userColor(userId: number): string {
@@ -74,7 +72,7 @@ function userColor(userId: number): string {
 
 export default function CollabEditor({
   docId, userId, userName, canWrite,
-  hocuspocusUrl = DEFAULT_HOCUSPOCUS_URL,
+  hocuspocusUrl = getHocuspocusUrl(),
   onEditorReady,
 }: CollabEditorProps) {
   const [status, setStatus] = useState<WebSocketStatus>(WebSocketStatus.Connecting);
