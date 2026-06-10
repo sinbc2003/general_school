@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import { CourseCard } from "@/components/classroom/CourseCard";
 import { CourseGroupedView } from "@/components/classroom/CourseGroupedView";
 import { useToast } from "@/components/ui/Toast";
+import { StudentPickerModal } from "@/components/StudentPickerModal";
 
 interface Course {
   id: number;
@@ -126,7 +127,6 @@ export default function ClassroomAdminPage() {
         <CourseCreateModal
           onClose={() => setShowCreate(false)}
           onSaved={load}
-          currentUserId={user?.id}
         />
       )}
 
@@ -154,19 +154,30 @@ export default function ClassroomAdminPage() {
 
 // ─── 강좌 생성 모달 ───
 function CourseCreateModal({
-  onClose, onSaved, currentUserId,
+  onClose, onSaved,
 }: {
   onClose: () => void;
   onSaved: () => void;
-  currentUserId?: number;
 }) {
-  const [teacherId, setTeacherId] = useState<string>(String(currentUserId ?? ""));
+  const { user } = useAuth();
+  // 담당 교사(owner) — 기본은 본인. 다른 교사는 이름 검색으로 선택(숫자 id 입력 X).
+  const [teacherId, setTeacherId] = useState<number | null>(user?.id ?? null);
+  const [teacherName, setTeacherName] = useState<string>(user?.name ?? "");
+  const [pickTeacher, setPickTeacher] = useState(false);
   const [subject, setSubject] = useState("");
   const [className, setClassName] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+
+  // user 컨텍스트가 늦게 도착해도 본인으로 기본 채움 (teacherId 미설정 시에만)
+  useEffect(() => {
+    if (user && teacherId === null) {
+      setTeacherId(user.id);
+      setTeacherName(user.name);
+    }
+  }, [user]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // class_name 변경 시 name 자동 채우기
   useEffect(() => {
@@ -185,7 +196,7 @@ function CourseCreateModal({
     setSaving(true);
     try {
       await api.post("/api/classroom/courses", {
-        teacher_id: Number(teacherId),
+        teacher_id: teacherId,
         subject: subject.trim(),
         class_name: className.trim() || null,
         name: name.trim(),
@@ -202,6 +213,7 @@ function CourseCreateModal({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between p-4 border-b border-border-default">
@@ -210,14 +222,22 @@ function CourseCreateModal({
         </div>
         <div className="p-5 space-y-3">
           <div>
-            <label className="block text-caption text-text-secondary mb-1">담당 교사 user_id *</label>
-            <input
-              type="number"
-              value={teacherId}
-              onChange={(e) => setTeacherId(e.target.value)}
-              placeholder="본인 또는 다른 교사 ID"
-              className="w-full px-3 py-2 text-body border border-border-default rounded bg-bg-primary"
-            />
+            <label className="block text-caption text-text-secondary mb-1">담당 교사 *</label>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 px-3 py-2 text-body border border-border-default rounded bg-bg-secondary">
+                {teacherName || <span className="text-text-tertiary">선택 안 됨</span>}
+                {teacherId === user?.id && (
+                  <span className="text-caption text-text-tertiary ml-2">(본인)</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickTeacher(true)}
+                className="px-3 py-2 text-caption border border-border-default rounded hover:bg-bg-secondary whitespace-nowrap"
+              >
+                다른 교사 선택
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -275,5 +295,15 @@ function CourseCreateModal({
         </div>
       </div>
     </div>
+
+    <StudentPickerModal
+      open={pickTeacher}
+      onClose={() => setPickTeacher(false)}
+      mode="single"
+      pickerRole="teacher"
+      title="담당 교사 선택"
+      onPick={(t) => { setTeacherId(t.id); setTeacherName(t.name); }}
+    />
+    </>
   );
 }

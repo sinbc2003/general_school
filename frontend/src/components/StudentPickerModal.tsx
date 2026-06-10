@@ -49,6 +49,8 @@ interface Props {
   onPick?: (student: StudentRow) => void | Promise<void>;
   title?: string;
   confirmLabel?: string;
+  /** 검색 대상 — "student"(기본) 또는 "teacher"(teacher+staff). teacher면 학년/반 필터를 숨긴다. */
+  pickerRole?: "student" | "teacher";
 }
 
 const PER_PAGE = 1000;
@@ -61,9 +63,10 @@ function fmtNo(g?: number | null, c?: number | null, n?: number | null): string 
 
 export function StudentPickerModal({
   open, onClose, mode = "multi", excludedUserIds = [], onConfirm, onConfirmNumbers, onPick,
-  title = "학생 선택", confirmLabel = "추가",
+  title = "학생 선택", confirmLabel = "추가", pickerRole = "student",
 }: Props) {
   const isSingle = mode === "single";
+  const isTeacherPicker = pickerRole === "teacher";
   const [grade, setGrade] = useState<number | "">("");
   const [classNumber, setClassNumber] = useState<number | "">("");
   const [search, setSearch] = useState("");
@@ -79,9 +82,14 @@ export function StudentPickerModal({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const p = new URLSearchParams({ role: "student", per_page: String(PER_PAGE) });
-      if (grade !== "") p.set("grade", String(grade));
-      if (classNumber !== "") p.set("class_number", String(classNumber));
+      const p = new URLSearchParams({
+        role: isTeacherPicker ? "teacher,staff" : "student",
+        per_page: String(PER_PAGE),
+      });
+      if (!isTeacherPicker) {
+        if (grade !== "") p.set("grade", String(grade));
+        if (classNumber !== "") p.set("class_number", String(classNumber));
+      }
       if (search.trim()) p.set("search", search.trim());
       const r = await api.get<{ items: StudentRow[] }>(`/api/users/peers?${p}`);
       // 학년·반·번호 순 정렬 (명단 순서대로 보이도록)
@@ -94,7 +102,7 @@ export function StudentPickerModal({
     } catch {
       setResults([]);
     } finally { setLoading(false); }
-  }, [grade, classNumber, search]);
+  }, [grade, classNumber, search, isTeacherPicker]);
 
   // 열려있을 때만 로드. 필터 변경 즉시, 검색어는 250ms 디바운스.
   useEffect(() => {
@@ -174,14 +182,18 @@ export function StudentPickerModal({
     <Modal open={open} onClose={onClose} title={title} icon={<Users size={16} />} maxWidth="lg" dismissable={!saving}>
       {/* 필터 row */}
       <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <select value={grade} onChange={(e) => setGrade(e.target.value ? Number(e.target.value) : "")} className={selCls}>
-          <option value="">전체 학년</option>
-          {[1, 2, 3].map((g) => <option key={g} value={g}>{g}학년</option>)}
-        </select>
-        <select value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} className={selCls}>
-          <option value="">전체 반</option>
-          {Array.from({ length: 15 }, (_, i) => i + 1).map((c) => <option key={c} value={c}>{c}반</option>)}
-        </select>
+        {!isTeacherPicker && (
+          <>
+            <select value={grade} onChange={(e) => setGrade(e.target.value ? Number(e.target.value) : "")} className={selCls}>
+              <option value="">전체 학년</option>
+              {[1, 2, 3].map((g) => <option key={g} value={g}>{g}학년</option>)}
+            </select>
+            <select value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} className={selCls}>
+              <option value="">전체 반</option>
+              {Array.from({ length: 15 }, (_, i) => i + 1).map((c) => <option key={c} value={c}>{c}반</option>)}
+            </select>
+          </>
+        )}
         <div className="relative flex-1 min-w-[140px]">
           <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-tertiary" />
           <input
