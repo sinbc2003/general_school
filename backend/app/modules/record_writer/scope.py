@@ -49,7 +49,7 @@ async def scope_options(
         ).scalars().all()
         co_ids = (
             await db.execute(
-                select(CourseTeacher.course_id).where(CourseTeacher.teacher_id == user.id)
+                select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
             )
         ).scalars().all()
         co_courses = []
