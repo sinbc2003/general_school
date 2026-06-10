@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -22,6 +22,50 @@ import {
 import { api } from "@/lib/api/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+// ── 엑셀 호환 TSV (복사/붙여넣기) ──────────────────────────────────────────
+
+/** TSV 필드 이스케이프 — 탭·줄바꿈·따옴표 포함 시 엑셀식 인용 */
+function tsvEscape(s: string): string {
+  if (/[\t\n\r"]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+/** 엑셀 클립보드 TSV 파싱 — 인용된 셀 안의 줄바꿈 지원 */
+function parseTsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += ch;
+    } else if (ch === '"' && field === "") {
+      inQ = true;
+    } else if (ch === "\t") {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); rows.push(row); row = []; field = "";
+    } else if (ch === "\r") {
+      // \r\n의 \r 무시
+    } else field += ch;
+  }
+  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+  while (rows.length && rows[rows.length - 1].every((f) => f === "")) rows.pop();
+  return rows;
+}
+
+type SelPos = { r: number; c: number };
+function selRect(a: SelPos, f: SelPos) {
+  return {
+    r1: Math.min(a.r, f.r), r2: Math.max(a.r, f.r),
+    c1: Math.min(a.c, f.c), c2: Math.max(a.c, f.c),
+  };
+}
 
 /** 글자수·바이트수 배지 (NEIS 기준 UTF-8 바이트) */
 function CountBadge({ text, charMax }: { text: string; charMax?: number | null }) {
@@ -113,6 +157,134 @@ export default function RecordProjectDetailPage() {
   const [tab, setTab] = useState<"write" | "neis">("write");
   // 인라인 셀 편집 (스프레드시트식) — key: "col:sid" 또는 "final:sid"
   const [inline, setInline] = useState<{ key: string; value: string } | null>(null);
+  // 드래그 블록 선택 — a: 시작(anchor), f: 끝(focus). c: 0..N-1 항목열, N=최종종합
+  const [sel, setSel] = useState<{ a: SelPos; f: SelPos } | null>(null);
+  const selectingRef = useRef(false);
+
+  // 마우스업으로 드래그 종료 (전역)
+  useEffect(() => {
+    const up = () => { selectingRef.current = false; };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
+
+  const startSel = (r: number, c: number, e: React.MouseEvent) => {
+    e.preventDefault(); // 네이티브 텍스트 선택 차단
+    selectingRef.current = true;
+    setSel({ a: { r, c }, f: { r, c } });
+  };
+  const extendSel = (r: number, c: number) => {
+    if (selectingRef.current) setSel((s) => (s ? { ...s, f: { r, c } } : s));
+  };
+  const inSel = (r: number, c: number): boolean => {
+    if (!sel) return false;
+    const { r1, r2, c1, c2 } = selRect(sel.a, sel.f);
+    return r >= r1 && r <= r2 && c >= c1 && c <= c2;
+  };
+
+  /** 선택 좌표의 표시 텍스트 (c === columns.length → 최종 종합) */
+  const cellTextAt = (r: number, c: number): string => {
+    if (!data) return "";
+    const s = data.students[r];
+    if (!s) return "";
+    if (c === data.columns.length) return s.final_text || "";
+    const col = data.columns[c];
+    if (!col) return "";
+    const cell = data.cells[`${col.id}:${s.student_id}`];
+    return cell?.generated_text || cell?.raw_data || "";
+  };
+
+  // Ctrl+C 복사(TSV) + Esc 선택 해제 — 입력 요소 포커스 중엔 무시
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (tab !== "write" || !data || !sel || inline) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+      if (e.key === "Escape") { setSel(null); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const { r1, r2, c1, c2 } = selRect(sel.a, sel.f);
+        const lines: string[] = [];
+        for (let r = r1; r <= r2; r++) {
+          const fields: string[] = [];
+          for (let c = c1; c <= c2; c++) fields.push(tsvEscape(cellTextAt(r, c)));
+          lines.push(fields.join("\t"));
+        }
+        navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, data, tab, inline]);
+
+  // Ctrl+V 붙여넣기 — 엑셀 TSV를 선택 시작점부터 채움
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      if (tab !== "write" || !data || !sel || inline) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+      const text = e.clipboardData?.getData("text/plain");
+      if (!text) return;
+      e.preventDefault();
+      let grid = parseTsv(text);
+      if (!grid.length) return;
+      const { r1, r2, c1, c2 } = selRect(sel.a, sel.f);
+      // 단일 값 + 다중 선택 → 선택 영역 전체 채우기 (엑셀 동작)
+      if (grid.length === 1 && grid[0].length === 1 && (r2 > r1 || c2 > c1)) {
+        const v = grid[0][0];
+        grid = Array.from({ length: r2 - r1 + 1 }, () =>
+          Array.from({ length: c2 - c1 + 1 }, () => v),
+        );
+      }
+      const total = grid.reduce((n, row) => n + row.length, 0);
+      const asGenerated = window.confirm(
+        `붙여넣기: ${grid.length}행 × ${Math.max(...grid.map((g) => g.length))}열 (${total}셀)\n\n` +
+        "확인 = 생성문으로 저장 (학생 공개·최종 종합·NEIS 검증에 사용)\n" +
+        "취소 = 원자료로 저장 (AI 생성의 입력으로 사용)",
+      );
+      const items: any[] = [];
+      const finalUpdates: { sid: number; text: string }[] = [];
+      grid.forEach((rowVals, dr) =>
+        rowVals.forEach((v, dc) => {
+          const r = r1 + dr;
+          const c = c1 + dc;
+          if (r >= data.students.length || c > data.columns.length) return;
+          const stu = data.students[r];
+          if (c === data.columns.length) {
+            finalUpdates.push({ sid: stu.student_id, text: v });
+            return;
+          }
+          const col = data.columns[c];
+          items.push({
+            column_id: col.id,
+            student_id: stu.student_id,
+            ...(asGenerated ? { generated_text: v } : { raw_data: v }),
+          });
+        }),
+      );
+      try {
+        if (items.length) {
+          await api.post(`/api/record-writer/cells/bulk`, {
+            project_id: Number(pid),
+            items,
+          });
+        }
+        for (const f of finalUpdates) {
+          await api.put(`/api/record-writer/projects/${pid}/students/${f.sid}/final-text`, {
+            final_text: f.text,
+          });
+        }
+        await load();
+        alert(`붙여넣기 완료: ${items.length + finalUpdates.length}셀 저장`);
+      } catch (err: any) {
+        alert(`붙여넣기 실패: ${err?.detail || err}`);
+      }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, data, tab, inline, pid]);
   const [composing, setComposing] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -519,7 +691,7 @@ export default function RecordProjectDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {data.students.map((s) => (
+              {data.students.map((s, rIdx) => (
                 <tr key={s.id} className="hover:bg-bg-secondary/40">
                   <td className="sticky left-0 z-10 bg-bg-primary border-b border-r border-border-default px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center justify-between gap-2">
@@ -550,20 +722,29 @@ export default function RecordProjectDetailPage() {
                       </button>
                     </div>
                   </td>
-                  {data.columns.map((c) => {
+                  {data.columns.map((c, cIdx) => {
                     const cell = cellOf(c, s);
                     const text = cell?.generated_text || cell?.raw_data || "";
                     const isGen = !!cell?.generated_text;
                     const ikey = `${c.id}:${s.student_id}`;
                     const editing = inline?.key === ikey;
+                    const selected = inSel(rIdx, cIdx);
                     return (
                       <td
                         key={c.id}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          if (!editing) startSel(rIdx, cIdx, e);
+                        }}
+                        onMouseEnter={() => extendSel(rIdx, cIdx)}
+                        onDoubleClick={() => {
                           if (!editing) setInline({ key: ikey, value: text });
                         }}
-                        className={`border-b border-r border-border-default px-2 py-1.5 align-top ${
-                          editing ? "bg-cream-100/70" : "cursor-text hover:bg-cream-100/50"
+                        className={`border-b border-r border-border-default px-2 py-1.5 align-top select-none ${
+                          editing
+                            ? "bg-cream-100/70"
+                            : selected
+                              ? "bg-accent/10 ring-1 ring-inset ring-accent/40 cursor-cell"
+                              : "cursor-cell hover:bg-cream-100/50"
                         }`}
                       >
                         {editing ? (
@@ -629,13 +810,23 @@ export default function RecordProjectDetailPage() {
                     const fkey = `final:${s.student_id}`;
                     const editing = inline?.key === fkey;
                     const ftext = s.final_text || "";
+                    const fIdx = data.columns.length;
+                    const selected = inSel(rIdx, fIdx);
                     return (
                       <td
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          if (!editing) startSel(rIdx, fIdx, e);
+                        }}
+                        onMouseEnter={() => extendSel(rIdx, fIdx)}
+                        onDoubleClick={() => {
                           if (!editing) setInline({ key: fkey, value: ftext });
                         }}
-                        className={`border-b border-border-default px-2 py-1.5 align-top min-w-[230px] ${
-                          editing ? "bg-purple-50" : "cursor-text hover:bg-purple-50/50 bg-purple-50/20"
+                        className={`border-b border-border-default px-2 py-1.5 align-top min-w-[230px] select-none ${
+                          editing
+                            ? "bg-purple-50"
+                            : selected
+                              ? "bg-accent/10 ring-1 ring-inset ring-accent/40 cursor-cell"
+                              : "cursor-cell hover:bg-purple-50/50 bg-purple-50/20"
                         }`}
                       >
                         {editing ? (
@@ -674,8 +865,9 @@ export default function RecordProjectDetailPage() {
 
       {tab === "write" && (
         <p className="text-caption text-text-tertiary mt-3">
-          <Download size={11} className="inline" /> 자동 수집 → <Sparkles size={11} className="inline" /> AI 일괄 생성 →
-          셀 클릭으로 개별 편집·맞춤법. 종합 항목은 다른 열의 생성 결과를 합쳐 작성합니다. 셀에 글자수·바이트수 표시.
+          <Download size={11} className="inline" /> 자동 수집 → <Sparkles size={11} className="inline" /> AI 일괄 생성.
+          <b className="text-text-secondary"> 드래그로 셀 블록 선택</b> → Ctrl+C 복사 / <b className="text-text-secondary">Ctrl+V로 엑셀 표 붙여넣기</b>
+          (선택 시작점부터 채움). 더블클릭 = 직접 편집, Esc = 선택 해제.
         </p>
       )}
 

@@ -1,6 +1,7 @@
-"""생기부 셀 편집 (수동 입력 / AI 제안 수락)."""
+"""생기부 셀 편집 (수동 입력 / AI 제안 수락 / 엑셀 붙여넣기 벌크)."""
 
 from fastapi import Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,3 +77,72 @@ async def upsert_cell(
     await db.commit()
     await db.refresh(cell)
     return cell_to_dict(cell)
+
+
+class BulkCellItem(BaseModel):
+    column_id: int
+    student_id: int
+    raw_data: str | None = None
+    generated_text: str | None = None
+
+
+class BulkCellsReq(BaseModel):
+    project_id: int
+    items: list[BulkCellItem] = Field(..., max_length=2000)
+
+
+@router.post("/cells/bulk")
+async def bulk_upsert_cells(
+    body: BulkCellsReq,
+    user: User = Depends(require_permission("record.project.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """셀 일괄 upsert — 엑셀 붙여넣기용. 1 요청으로 N셀 (트랜잭션 atomic).
+
+    프로젝트 소속이 아닌 column/student 항목은 skip하고 카운트만 보고
+    (붙여넣기 범위가 그리드 밖으로 넘친 경우 안전 무시).
+    """
+    await get_owned_project(db, user, body.project_id)
+
+    valid_cols = set((await db.execute(
+        select(RecordColumn.id).where(RecordColumn.project_id == body.project_id)
+    )).scalars().all())
+    valid_students = set((await db.execute(
+        select(RecordProjectStudent.student_id).where(
+            RecordProjectStudent.project_id == body.project_id
+        )
+    )).scalars().all())
+
+    existing = {
+        (c.column_id, c.student_id): c
+        for c in (await db.execute(
+            select(RecordCell).where(RecordCell.project_id == body.project_id)
+        )).scalars().all()
+    }
+
+    saved = 0
+    skipped = 0
+    for it in body.items:
+        if it.column_id not in valid_cols or it.student_id not in valid_students:
+            skipped += 1
+            continue
+        cell = existing.get((it.column_id, it.student_id))
+        if not cell:
+            cell = RecordCell(
+                project_id=body.project_id,
+                column_id=it.column_id,
+                student_id=it.student_id,
+            )
+            db.add(cell)
+            existing[(it.column_id, it.student_id)] = cell
+        if it.raw_data is not None:
+            cell.raw_data = it.raw_data
+        if it.generated_text is not None:
+            cell.generated_text = it.generated_text
+        cell.status = "generated" if cell.generated_text else (
+            "collected" if cell.raw_data else "empty"
+        )
+        saved += 1
+
+    await db.commit()
+    return {"saved": saved, "skipped": skipped}
