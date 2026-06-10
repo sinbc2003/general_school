@@ -2,9 +2,15 @@
 
 source_config = {"type": "survey", "survey_id": N} 등.
 지원 type: survey | assignment | artifact | career | club | group
+           | classroom | classroom_submission | coursework
 
 각 소스에서 학생별 텍스트를 뽑아 RecordCell.raw_data + raw_sources에 저장.
 extracted_text가 비어있는 과제는 summary/review_comment fallback.
+
+클래스룸 소스 (general_school 내부 클래스룸 — Google Classroom 아님):
+- classroom            : 범위 강좌의 학생 활동 전부 (과제 제출 + 코스웨어 점수) 통합 수집
+- classroom_submission : 특정 강좌 글(과제)의 제출물 (첨부 문서 plain_text + 피드백 + 점수)
+- coursework           : 특정 문제세트의 학생 점수·정오답 요약
 
 collect_into_cells()는 엔드포인트(열 일괄)와 자동 push(record_autocollect, 단일 학생)가
 공유한다 — 두 경로의 수집 결과가 동일하도록.
@@ -17,6 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.assignment import Assignment, AssignmentSubmission
+from app.models.classroom import Course, CoursePost, CoursePostSubmission
+from app.models.classroom_docs import ClassroomDocument
+from app.models.classroom_sheets import ClassroomSheet
+from app.models.classroom_slides import ClassroomPresentation, ClassroomSlide
 from app.models.classroom_surveys import (
     Survey,
     SurveyAnswer,
@@ -24,6 +34,7 @@ from app.models.classroom_surveys import (
     SurveyResponse,
 )
 from app.models.club import ClubActivity, ClubSubmission
+from app.models.courseware import CourseProblemSet, StudentProblemAttempt
 from app.models.student_record_project import (
     RecordCell,
     RecordColumn,
@@ -236,6 +247,148 @@ async def _collect_group(db, group_id, student_ids) -> dict:
     return out
 
 
+# ── 클래스룸 첨부 텍스트 추출 ──────────────────────────────────────────────
+
+async def _attachment_text(db, att: dict) -> str:
+    """클래스룸 첨부 1건 → 생기부 원자료에 쓸 텍스트.
+
+    협업 문서/슬라이드는 plain_text를, 그 외(시트/HWP/파일/링크)는 제목·파일명만.
+    """
+    if not isinstance(att, dict):
+        return ""
+    t = att.get("type")
+    title = att.get("title") or ""
+    if t == "doc" and att.get("doc_id"):
+        d = await db.get(ClassroomDocument, att["doc_id"])
+        if d and d.plain_text:
+            return f"[문서: {d.title}]\n{d.plain_text.strip()}"
+        return f"[문서: {title}]"
+    if t == "deck" and att.get("deck_id"):
+        d = await db.get(ClassroomPresentation, att["deck_id"])
+        slides = (await db.execute(
+            select(ClassroomSlide.plain_text)
+            .where(ClassroomSlide.presentation_id == att["deck_id"])
+            .order_by(ClassroomSlide.order)
+        )).scalars().all() if d else []
+        body = "\n".join(s.strip() for s in slides if s)
+        return f"[프리젠테이션: {title}]\n{body}".strip() if body else f"[프리젠테이션: {title}]"
+    if t == "sheet":
+        return f"[스프레드시트: {title}]"
+    if t == "hwp":
+        return f"[한컴문서: {title}]"
+    if t == "file":
+        return f"[첨부파일: {att.get('file_name') or title}]"
+    if t == "link" and att.get("url"):
+        return f"[링크: {title} {att['url']}]"
+    return f"[{title}]" if title else ""
+
+
+async def _submission_text(db, sub: CoursePostSubmission) -> str:
+    """과제 제출 1건 → 첨부 본문 + 학생별 사본 + 점수·피드백."""
+    parts: list[str] = []
+    for att in (sub.attachments or []):
+        seg = await _attachment_text(db, att)
+        if seg:
+            parts.append(seg)
+    # 학생별 사본(share_mode=copy) 문서 본문
+    from app.models.classroom import PostAttachmentCopy
+    copies = (await db.execute(
+        select(PostAttachmentCopy).where(
+            PostAttachmentCopy.post_id == sub.post_id,
+            PostAttachmentCopy.student_id == sub.student_id,
+        )
+    )).scalars().all()
+    for cp in copies:
+        if cp.copy_type == "doc":
+            d = await db.get(ClassroomDocument, cp.copy_id)
+            if d and d.plain_text:
+                parts.append(f"[사본: {d.title}]\n{d.plain_text.strip()}")
+    if sub.score is not None:
+        parts.append(f"[점수] {sub.score}")
+    if sub.feedback:
+        parts.append(f"[교사 피드백] {sub.feedback.strip()}")
+    return "\n\n".join(p for p in parts if p)
+
+
+async def _collect_classroom_submission(db, post_id, student_ids) -> dict:
+    """특정 강좌 글(과제)의 학생 제출물 수집."""
+    out: dict[int, tuple[str, list]] = {}
+    post = await db.get(CoursePost, post_id)
+    title = post.title if post else f"과제#{post_id}"
+    subs = (await db.execute(
+        select(CoursePostSubmission).where(
+            CoursePostSubmission.post_id == post_id,
+            CoursePostSubmission.student_id.in_(student_ids),
+        )
+    )).scalars().all()
+    for s in subs:
+        text = await _submission_text(db, s)
+        if text:
+            out[s.student_id] = (text, [{"source": "classroom_submission", "ref_id": post_id, "title": title}])
+    return out
+
+
+async def _collect_coursework(db, set_id, student_ids) -> dict:
+    """특정 문제세트의 학생 점수·정오답 요약."""
+    out: dict[int, tuple[str, list]] = {}
+    ps = await db.get(CourseProblemSet, set_id)
+    title = ps.title if ps else f"문제세트#{set_id}"
+    rows = (await db.execute(
+        select(StudentProblemAttempt).where(
+            StudentProblemAttempt.problem_set_id == set_id,
+            StudentProblemAttempt.student_id.in_(student_ids),
+        )
+    )).scalars().all()
+    byuser: dict[int, list] = {}
+    for a in rows:
+        byuser.setdefault(a.student_id, []).append(a)
+    for sid, attempts in byuser.items():
+        total = len(attempts)
+        correct = sum(1 for a in attempts if a.is_correct)
+        score = sum((a.manual_score if a.manual_score is not None else a.auto_score) or 0 for a in attempts)
+        out[sid] = (
+            f"[{title}] 문항 {total}개 중 정답 {correct}개, 획득점수 {score:g}",
+            [{"source": "coursework", "ref_id": set_id, "title": title}],
+        )
+    return out
+
+
+async def _collect_classroom_all(db, course_id, student_ids) -> dict:
+    """범위 강좌의 학생 활동 전부 — 모든 과제 제출 + 모든 문제세트 점수 통합."""
+    out: dict[int, tuple[list, list]] = {sid: ([], []) for sid in student_ids}
+    if not course_id:
+        return {}
+    # 1) 강좌의 과제 글들
+    posts = (await db.execute(
+        select(CoursePost).where(
+            CoursePost.course_id == course_id,
+            CoursePost.post_type == "assignment_ref",
+        )
+    )).scalars().all()
+    for post in posts:
+        sub_map = await _collect_classroom_submission(db, post.id, student_ids)
+        for sid, (text, srcs) in sub_map.items():
+            out[sid][0].append(f"[과제: {post.title}]\n{text}")
+            out[sid][1].extend(srcs)
+    # 2) 강좌의 문제세트들
+    sets = (await db.execute(
+        select(CourseProblemSet).where(
+            CourseProblemSet.course_id == course_id,
+            CourseProblemSet.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    for ps in sets:
+        cw_map = await _collect_coursework(db, ps.id, student_ids)
+        for sid, (text, srcs) in cw_map.items():
+            out[sid][0].append(text)
+            out[sid][1].extend(srcs)
+    return {
+        sid: ("[클래스룸 활동]\n" + "\n\n".join(lines), srcs)
+        for sid, (lines, srcs) in out.items()
+        if lines
+    }
+
+
 async def collect_into_cells(
     db: AsyncSession,
     project: RecordProject,
@@ -269,6 +422,17 @@ async def collect_into_cells(
     elif src_type == "group":
         group_id = cfg.get("group_id") or (project.scope_ref_id if project.scope_type == "group" else None)
         collected = await _collect_group(db, group_id, student_ids)
+    elif src_type == "classroom_submission":
+        if not cfg.get("post_id"):
+            return 0
+        collected = await _collect_classroom_submission(db, cfg["post_id"], student_ids)
+    elif src_type == "coursework":
+        if not cfg.get("set_id"):
+            return 0
+        collected = await _collect_coursework(db, cfg["set_id"], student_ids)
+    elif src_type == "classroom":
+        course_id = cfg.get("course_id") or (project.scope_ref_id if project.scope_type == "course" else None)
+        collected = await _collect_classroom_all(db, course_id, student_ids)
     else:
         return 0
 
@@ -322,9 +486,34 @@ async def source_candidates(
             select(Assignment).where(Assignment.semester_id == p.semester_id)
         )
     ).scalars().all()
+
+    # 클래스룸 과제 글 + 문제세트 (범위 강좌 기준) — "클래스룸 활동" 수집 소스
+    classroom_posts: list[dict] = []
+    coursework_sets: list[dict] = []
+    course_id = p.scope_ref_id if p.scope_type == "course" else None
+    if course_id:
+        posts = (await db.execute(
+            select(CoursePost).where(
+                CoursePost.course_id == course_id,
+                CoursePost.post_type == "assignment_ref",
+            )
+        )).scalars().all()
+        classroom_posts = [{"id": cp.id, "title": cp.title} for cp in posts]
+        sets = (await db.execute(
+            select(CourseProblemSet).where(
+                CourseProblemSet.course_id == course_id,
+                CourseProblemSet.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        coursework_sets = [{"id": s.id, "title": s.title} for s in sets]
+
     return {
         "surveys": [{"id": s.id, "title": s.title} for s in surveys],
         "assignments": [{"id": a.id, "title": f"{a.subject} · {a.title}"} for a in asgs],
+        "classroom_posts": classroom_posts,
+        "coursework_sets": coursework_sets,
+        # 범위가 강좌면 "클래스룸 활동 전체" 통합 수집 가능
+        "classroom_course_id": course_id,
     }
 
 

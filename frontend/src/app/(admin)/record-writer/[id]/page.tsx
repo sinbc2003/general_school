@@ -70,6 +70,9 @@ const SOURCE_LABELS: Record<string, string> = {
   career: "진로",
   club: "동아리",
   group: "그룹",
+  classroom: "클래스룸 활동",
+  classroom_submission: "클래스룸 과제",
+  coursework: "문제세트",
 };
 
 export default function RecordProjectDetailPage() {
@@ -504,9 +507,14 @@ function ColumnModal({
   const [srcId, setSrcId] = useState<string>(
     column?.source_config?.survey_id?.toString() ??
       column?.source_config?.assignment_id?.toString() ??
+      column?.source_config?.post_id?.toString() ??
+      column?.source_config?.set_id?.toString() ??
       ""
   );
-  const [cands, setCands] = useState<{ surveys: any[]; assignments: any[] } | null>(null);
+  const [cands, setCands] = useState<{
+    surveys: any[]; assignments: any[];
+    classroom_posts?: any[]; coursework_sets?: any[]; classroom_course_id?: number | null;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -530,7 +538,19 @@ function ColumnModal({
         return;
       }
       source_config = { type: "assignment", assignment_id: Number(srcId) };
-    } else if (["artifact", "career", "club", "group"].includes(srcType)) {
+    } else if (srcType === "classroom_submission") {
+      if (!srcId) {
+        alert("클래스룸 과제를 선택하세요");
+        return;
+      }
+      source_config = { type: "classroom_submission", post_id: Number(srcId) };
+    } else if (srcType === "coursework") {
+      if (!srcId) {
+        alert("문제세트를 선택하세요");
+        return;
+      }
+      source_config = { type: "coursework", set_id: Number(srcId) };
+    } else if (["artifact", "career", "club", "group", "classroom"].includes(srcType)) {
       source_config = { type: srcType };
     }
     setSaving(true);
@@ -585,12 +605,21 @@ function ColumnModal({
         className={`${INP} mb-2`}
       >
         <option value="none">없음 (수동 입력)</option>
-        <option value="survey">설문 응답</option>
-        <option value="assignment">과제 제출</option>
-        <option value="artifact">학생 산출물</option>
-        <option value="career">진로 설계</option>
-        <option value="club">동아리 활동</option>
-        <option value="group">그룹 활동</option>
+        <optgroup label="클래스룸">
+          <option value="classroom">클래스룸 활동 전체 (이 강좌)</option>
+          <option value="classroom_submission">클래스룸 과제 제출</option>
+          <option value="coursework">문제세트 점수</option>
+        </optgroup>
+        <optgroup label="설문·제출">
+          <option value="survey">설문 응답</option>
+          <option value="assignment">과제 제출 (학교 단위)</option>
+        </optgroup>
+        <optgroup label="학생별 누적">
+          <option value="artifact">학생 산출물</option>
+          <option value="career">진로 설계</option>
+          <option value="club">동아리 활동</option>
+          <option value="group">그룹 활동</option>
+        </optgroup>
       </select>
       {srcType === "survey" && (
         <select value={srcId} onChange={(e) => setSrcId(e.target.value)} className={`${INP} mb-3`}>
@@ -611,6 +640,33 @@ function ColumnModal({
             </option>
           ))}
         </select>
+      )}
+      {srcType === "classroom_submission" && (
+        <select value={srcId} onChange={(e) => setSrcId(e.target.value)} className={`${INP} mb-3`}>
+          <option value="">클래스룸 과제 선택</option>
+          {(cands?.classroom_posts || []).map((p) => (
+            <option key={p.id} value={p.id}>{p.title}</option>
+          ))}
+        </select>
+      )}
+      {srcType === "coursework" && (
+        <select value={srcId} onChange={(e) => setSrcId(e.target.value)} className={`${INP} mb-3`}>
+          <option value="">문제세트 선택</option>
+          {(cands?.coursework_sets || []).map((s) => (
+            <option key={s.id} value={s.id}>{s.title}</option>
+          ))}
+        </select>
+      )}
+      {(srcType === "classroom_submission" || srcType === "coursework") &&
+        !cands?.classroom_course_id && (
+          <div className="text-[11px] text-amber-600 mb-3 -mt-1">
+            이 생기부의 범위가 강좌가 아니라 후보가 없습니다. 강좌 범위 프로젝트에서 사용하세요.
+          </div>
+        )}
+      {srcType === "classroom" && (
+        <div className="text-[11px] text-text-tertiary mb-3 -mt-1">
+          이 강좌의 모든 과제 제출물(첨부 문서 본문·점수·피드백)과 문제세트 점수를 한 번에 모읍니다.
+        </div>
       )}
       {["artifact", "career", "club", "group"].includes(srcType) && (
         <div className="text-[11px] text-text-tertiary mb-3 -mt-1">

@@ -13,7 +13,7 @@ RECORD_PRESETS: dict[str, dict] = {
                 "name": "교과 세부능력 및 특기사항",
                 "char_max": 500,
                 "kind": "normal",
-                "source_config": {"type": "assignment"},
+                "source_config": {"type": "classroom"},
                 "system_prompt": (
                     "이 교과 수업에서 관찰된 학생의 학습 태도·탐구 과정·성취·성장을 "
                     "교과 세부능력 및 특기사항 형식으로 작성하라. 수업 활동·과제·발표 등 "
