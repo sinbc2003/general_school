@@ -101,6 +101,11 @@ production/
 `scripts/setup-production.sh` (프로젝트 최상위)가 이 디렉터리의 템플릿을 이용해
 `/etc/systemd/system/`과 `/etc/nginx/sites-available/`에 설치.
 
+> **보안 런북 — 키 로테이션 (defense-in-depth)**: 배포 시 부팅 검사(ENV=production
+> 디폴트 키 차단)와 **무관하게** `scripts/generate-prod-keys.sh`로 모든 키
+> (JWT_SECRET / ENCRYPTION_MASTER_KEY / HOCUSPOCUS_INTERNAL_TOKEN)를 반드시 교체할 것.
+> dev 기본값은 git 히스토리에 존재하므로 repo 접근자는 누구나 알 수 있는 값이다.
+
 ---
 
 ## 자원 권장

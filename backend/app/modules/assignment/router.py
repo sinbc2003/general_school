@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.files import DEFAULT_STORAGE_ROOT
-from app.core.permissions import require_permission
+from app.core.permissions import is_admin, require_permission
 from app.core.semester import (
     get_active_semester_id_or_404,
     resolve_semester_id,
@@ -268,6 +268,24 @@ async def submit_assignment(
     return {"id": sub.id, "status": sub.status.value, "filename": display_filename}
 
 
+async def _assert_assignment_reviewer(
+    db: AsyncSession, user: User, aid: int,
+) -> Assignment:
+    """과제 단위 인가 — 등록 교사 본인 또는 admin만 제출물 조회·채점.
+
+    review 권한만으로는 다른 교사의 과제 제출물(학생 개인정보)을 열람할 수
+    없게 한다. created_by_id가 NULL인 레거시 과제는 admin만.
+    """
+    a = await db.get(Assignment, aid)
+    if not a:
+        raise HTTPException(404, "과제를 찾을 수 없습니다")
+    if is_admin(user):
+        return a
+    if a.created_by_id and a.created_by_id == user.id:
+        return a
+    raise HTTPException(403, "본인이 등록한 과제만 조회·채점할 수 있습니다")
+
+
 @router.get("/{aid}/submissions")
 async def list_submissions(
     aid: int,
@@ -280,6 +298,7 @@ async def list_submissions(
 
     학교 단위 운영 시 한 과제당 1000명+ 제출 가능 → 폭증 방지.
     """
+    await _assert_assignment_reviewer(db, user, aid)
     total = (await db.execute(
         select(func.count(AssignmentSubmission.id))
         .where(AssignmentSubmission.assignment_id == aid)
@@ -313,6 +332,7 @@ async def review_submission(
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ):
+    await _assert_assignment_reviewer(db, user, aid)
     sub = (await db.execute(
         select(AssignmentSubmission)
         .where(AssignmentSubmission.id == sid, AssignmentSubmission.assignment_id == aid)

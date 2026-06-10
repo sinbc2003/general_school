@@ -38,8 +38,7 @@ STORAGE_BASE = DEFAULT_STORAGE_ROOT / "hwps"
 MAX_FILE_BYTES = POLICY_HWP.max_size_bytes
 
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 async def _resolve_permission(

@@ -23,8 +23,7 @@ from app.models.user import User
 VALID_SCOPES = {"course", "homeroom", "club", "group", "research", "manual"}
 
 
-def is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin  # SSOT (re-export)
 
 
 async def get_owned_project(db: AsyncSession, user: User, pid: int) -> RecordProject:

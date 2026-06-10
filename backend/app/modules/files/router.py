@@ -25,7 +25,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -225,7 +225,6 @@ async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
     # 과제 제출 파일: storage/classroom/submissions/{file} → CoursePostSubmission.attachments
     # 접근: 제출 학생 본인 OR 강좌 교사(owner/co_teacher) OR admin
     if path.startswith("classroom/submissions/"):
-        from sqlalchemy import Text, cast
         from app.models import CourseTeacher
         from app.models.classroom import CoursePost, CoursePostSubmission
         candidates = (await db.execute(
@@ -264,13 +263,13 @@ async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
                 return
         raise HTTPException(403, "권한 없음")
 
-    # CoursePost.attachments(JSON list)에 file_url이 포함된 글이 있는지 OR file_url 컬럼 직접 매칭
-    # JSON에서 file_url 검색은 DB 종속이라 단순화: 모든 post의 attachments를 in-app로 검사.
-    # 첨부가 많지 않다는 가정. 향후 성능 이슈 시 jsonb 인덱스 추가.
+    # CoursePost.attachments(JSON list)에 file_url이 포함된 글이 있는지 OR file_url 컬럼 직접 매칭.
+    # DB측 file_url 문자열 prefilter로 후보를 좁히고(전체 테이블 ORM 로드 방지),
+    # 최종 정확 매칭은 아래 Python에서 (직렬화 공백 무관 + 보안 정확성 보존).
     candidate_posts = (await db.execute(
         select(CoursePost).where(
             (CoursePost.file_url == file_url)
-            | CoursePost.attachments.is_not(None)
+            | cast(CoursePost.attachments, Text).like(f"%{file_url}%")
         )
     )).scalars().all()
 
@@ -388,6 +387,36 @@ async def _guard_past_research(db: AsyncSession, user: User, path: str) -> None:
     raise HTTPException(403, "권한 없음")
 
 
+async def _guard_contest(db: AsyncSession, user: User, path: str) -> None:
+    """storage/contests/{file} — 대회 제출 파일.
+
+    접근: 제출 학생 본인 OR contest.manage.results 권한 OR admin.
+    매칭 row 없으면 404 (path 추측 차단).
+    """
+    from app.models.contest import ContestSubmission
+
+    candidates = [f"/storage/{path}", f"storage/{path}"]
+    sub = None
+    for cand in candidates:
+        sub = (await db.execute(
+            select(ContestSubmission).where(ContestSubmission.file_path == cand)
+        )).scalar_one_or_none()
+        if sub:
+            break
+    if not sub:
+        raise HTTPException(404)
+
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    if sub.user_id == user.id:
+        return
+    from app.core.permissions import resolve_permissions
+    perms = await resolve_permissions(db, user)
+    if "contest.manage.results" in perms:
+        return
+    raise HTTPException(403, "권한 없음")
+
+
 async def _guard_group_submission(db: AsyncSession, user: User, path: str) -> None:
     """storage/group_submissions/{uuid}.ext — 학생 그룹 산출물.
 
@@ -435,6 +464,7 @@ _GUARDS = {
     "courseware": _guard_courseware,
     "past_research": _guard_past_research,
     "group_submissions": _guard_group_submission,
+    "contests": _guard_contest,
 }
 
 

@@ -16,8 +16,7 @@ from app.models.user import User
 from app.services.attachment_share import attachment_share_access
 
 
-def is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin  # SSOT (re-export)
 
 
 def deck_to_dict(d: ClassroomPresentation, *, owner_name: str | None = None,

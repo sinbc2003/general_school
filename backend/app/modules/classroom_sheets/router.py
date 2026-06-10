@@ -73,8 +73,7 @@ class SnapshotIn(BaseModel):
 
 # ── helpers ──
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 def _to_dict(s: ClassroomSheet, *, owner_name: str | None = None) -> dict:

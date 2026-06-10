@@ -5,7 +5,7 @@
 router 객체는 router.py에서 공유. router.py 끝의 'from . import cohort'로 등록.
 """
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,11 +82,21 @@ async def graduate_students(
 @router.get("/_cohort/graduates")
 async def list_graduates(
     graduation_year: int | None = None,
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("user.manage.view")),
     db: AsyncSession = Depends(get_db),
 ):
-    """졸업생 목록. graduation_year는 AdmissionsRecord.graduation_year 매칭 시도."""
-    q = select(User).where(User.role == "student", User.status == "graduated").order_by(User.name)
+    """졸업생 목록 (페이지네이션 — 수년 누적 시 폭증 방지).
+
+    graduation_year는 AdmissionsRecord.graduation_year 매칭 시도.
+    """
+    q = (
+        select(User)
+        .where(User.role == "student", User.status == "graduated")
+        .order_by(User.name)
+        .offset(offset).limit(limit)
+    )
     rows = (await db.execute(q)).scalars().all()
 
     # AdmissionsRecord 매핑

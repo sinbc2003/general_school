@@ -130,9 +130,10 @@ export function HwpEditor({
       editorRef.current = null;
       if (containerRef.current) containerRef.current.innerHTML = "";
     };
-    // initialFilePath 변경 시에만 재마운트 (hwpId 같이 바뀌면 자동)
+    // initialFilePath/Format 변경(저장 후 새 경로) 시에도 재로드.
+    // API_URL은 모듈 상수라 의존성 제외.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hwpId, retryNonce]);
+  }, [hwpId, initialFilePath, initialFileFormat, retryNonce]);
 
   // ── 저장 ───────────────────────────────────────────────────
   const save = useCallback(async () => {

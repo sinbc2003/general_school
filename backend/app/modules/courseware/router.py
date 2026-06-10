@@ -57,8 +57,7 @@ router = APIRouter(prefix="/api/courseware", tags=["courseware"])
 # 헬퍼
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 async def _assert_course_member(

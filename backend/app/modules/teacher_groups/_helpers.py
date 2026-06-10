@@ -12,8 +12,7 @@ from app.models.user import User
 UPLOAD_DIR = str(DEFAULT_STORAGE_ROOT / "group_submissions")
 
 
-def is_admin(u: User) -> bool:
-    return u.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin  # SSOT (re-export)
 
 
 async def is_department_lead(db: AsyncSession, u: User) -> bool:

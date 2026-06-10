@@ -85,7 +85,7 @@ from app.models.department import Department
 # ── Classroom (구글 클래스룸 식 수업 운영) ──
 from app.models.classroom import (
     Course, CourseStudent, CoursePost, CoursePostComment,
-    PostAttachmentCopy, CourseChatbot,
+    PostAttachmentCopy, CourseChatbot, CoursePostSubmission,
 )
 from app.models.course_teacher import CourseTeacher
 from app.models.user_favorite_course import UserFavoriteCourse
@@ -193,7 +193,7 @@ __all__ = [
     "Department",
     # Classroom
     "Course", "CourseStudent", "CoursePost", "CoursePostComment",
-    "PostAttachmentCopy", "CourseChatbot",
+    "PostAttachmentCopy", "CourseChatbot", "CoursePostSubmission",
     "CourseTeacher", "UserFavoriteCourse",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",

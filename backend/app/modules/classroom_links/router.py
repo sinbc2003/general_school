@@ -67,8 +67,7 @@ async def _generate_unique_slug(db: AsyncSession, *, base_length: int = 6) -> st
     raise RuntimeError("slug 생성 실패 (16자 한도 도달)")
 
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 async def _assert_target_ownership(

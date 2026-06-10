@@ -51,8 +51,7 @@ router = APIRouter(prefix="/api/classroom", tags=["classroom"])
 # ── helpers ────────────────────────────────────────────────
 
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 def _course_to_dict(c: Course, student_count: int = 0) -> dict:
@@ -255,16 +254,19 @@ async def list_my_archived_courses(
 @router.get("/courses/all")
 async def list_all_courses(
     semester_id: int | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("classroom.course.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """관리자: 학기 전체 강좌."""
+    """관리자: 학기 전체 강좌 (페이지네이션 — 대규모 학교 응답 폭증 방지)."""
     if not _is_admin(user):
         raise HTTPException(403, "관리자만 전체 강좌 조회 가능")
     sid = semester_id or await get_active_semester_id_or_404(db)
     rows = (await db.execute(
         select(Course).where(Course.semester_id == sid)
         .order_by(Course.subject, Course.class_name, Course.name)
+        .offset(offset).limit(limit)
     )).scalars().all()
 
     counts: dict[int, int] = {}
@@ -289,7 +291,7 @@ async def list_all_courses(
         d = _course_to_dict(c, counts.get(c.id, 0))
         d["teacher_name"] = teachers.get(c.teacher_id)
         items.append(d)
-    return {"items": items}
+    return {"items": items, "limit": limit, "offset": offset}
 
 
 @router.post("/courses")

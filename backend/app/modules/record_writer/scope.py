@@ -37,38 +37,38 @@ async def scope_options(
         "research_count": 0,
     }
 
-    # ── 강좌 (owner + co_teacher) ──
-    course_filter = [Course.semester_id == semester_id]
+    # ── 강좌 (owner + co_teacher) ── 컬럼 제한 select (full ORM 로드 회피 — 1500명 운영)
+    course_cols = select(Course.id, Course.subject, Course.class_name)
     if admin:
-        courses = (await db.execute(select(Course).where(*course_filter))).scalars().all()
+        course_rows = (await db.execute(
+            course_cols.where(Course.semester_id == semester_id)
+        )).all()
     else:
-        owned = (
-            await db.execute(
-                select(Course).where(Course.semester_id == semester_id, Course.teacher_id == user.id)
+        owned = (await db.execute(
+            course_cols.where(
+                Course.semester_id == semester_id, Course.teacher_id == user.id
             )
-        ).scalars().all()
+        )).all()
         co_ids = (
             await db.execute(
                 select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
             )
         ).scalars().all()
-        co_courses = []
+        co_rows = []
         if co_ids:
-            co_courses = (
-                await db.execute(
-                    select(Course).where(
-                        Course.id.in_(co_ids), Course.semester_id == semester_id
-                    )
+            co_rows = (await db.execute(
+                course_cols.where(
+                    Course.id.in_(co_ids), Course.semester_id == semester_id
                 )
-            ).scalars().all()
-        courses = list(owned) + list(co_courses)
+            )).all()
+        course_rows = list(owned) + list(co_rows)
     seen: set[int] = set()
-    for c in courses:
-        if c.id in seen:
+    for cid, subject, class_name in course_rows:
+        if cid in seen:
             continue
-        seen.add(c.id)
-        cls = getattr(c, "class_name", None) or ""
-        out["courses"].append({"id": c.id, "label": f"{c.subject} {cls}".strip()})
+        seen.add(cid)
+        cls = class_name or ""
+        out["courses"].append({"id": cid, "label": f"{subject} {cls}".strip()})
 
     # ── 담임/부담임 학급 ──
     mine = (
@@ -84,29 +84,28 @@ async def scope_options(
             if v and v.strip():
                 out["homerooms"].append(v.strip())
 
-    # ── 동아리 (advisor) ──
-    club_q = select(Club).where(Club.semester_id == semester_id)
+    # ── 동아리 (advisor) ── 컬럼 제한
+    club_q = select(Club.id, Club.name).where(Club.semester_id == semester_id)
     if not admin:
         club_q = club_q.where(Club.advisor_id == user.id)
-    clubs = (await db.execute(club_q)).scalars().all()
-    out["clubs"] = [{"id": c.id, "label": c.name} for c in clubs]
+    out["clubs"] = [
+        {"id": cid, "label": name}
+        for cid, name in (await db.execute(club_q)).all()
+    ]
 
-    # ── 그룹 (owner + member) ──
+    # ── 그룹 (owner + member) ── 컬럼 제한
+    group_cols = select(TeacherGroup.id, TeacherGroup.name)
     if admin:
-        groups = (
-            await db.execute(
-                select(TeacherGroup).where(TeacherGroup.semester_id == semester_id)
-            )
-        ).scalars().all()
+        group_rows = (await db.execute(
+            group_cols.where(TeacherGroup.semester_id == semester_id)
+        )).all()
     else:
-        owned_g = (
-            await db.execute(
-                select(TeacherGroup).where(
-                    TeacherGroup.semester_id == semester_id,
-                    TeacherGroup.owner_id == user.id,
-                )
+        owned_g = (await db.execute(
+            group_cols.where(
+                TeacherGroup.semester_id == semester_id,
+                TeacherGroup.owner_id == user.id,
             )
-        ).scalars().all()
+        )).all()
         member_gids = (
             await db.execute(
                 select(TeacherGroupMember.group_id).where(
@@ -114,23 +113,21 @@ async def scope_options(
                 )
             )
         ).scalars().all()
-        member_groups = []
+        member_rows = []
         if member_gids:
-            member_groups = (
-                await db.execute(
-                    select(TeacherGroup).where(
-                        TeacherGroup.id.in_(member_gids),
-                        TeacherGroup.semester_id == semester_id,
-                    )
+            member_rows = (await db.execute(
+                group_cols.where(
+                    TeacherGroup.id.in_(member_gids),
+                    TeacherGroup.semester_id == semester_id,
                 )
-            ).scalars().all()
-        groups = list(owned_g) + list(member_groups)
+            )).all()
+        group_rows = list(owned_g) + list(member_rows)
     gseen: set[int] = set()
-    for g in groups:
-        if g.id in gseen:
+    for gid, gname in group_rows:
+        if gid in gseen:
             continue
-        gseen.add(g.id)
-        out["groups"].append({"id": g.id, "label": g.name})
+        gseen.add(gid)
+        out["groups"].append({"id": gid, "label": gname})
 
     # ── 연구 담당 학생 수 ──
     research_q = select(func.count(ResearchSupervision.id)).where(

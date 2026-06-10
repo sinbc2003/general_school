@@ -49,6 +49,14 @@ SUPER_ADMIN_ONLY_KEYS = {
     "system.updates.apply",
 }
 
+# 모듈 공용 admin 판정 SSOT — 각 모듈에서 로컬 _is_admin 복붙 금지, 이걸 import.
+ADMIN_ROLES = {"super_admin", "designated_admin"}
+
+
+def is_admin(user: User) -> bool:
+    """super_admin 또는 designated_admin 여부 (동기, DB 불필요)."""
+    return user.role in ADMIN_ROLES
+
 # 지정관리자 모드 — Setting 키 'permissions.designated_admin_mode'
 #  "full"   : SUPER_ADMIN_ONLY 제외 모든 권한 자동 (디폴트, 기존 동작)
 #  "scoped" : 일반 역할처럼 매트릭스에서 명시 부여한 권한만

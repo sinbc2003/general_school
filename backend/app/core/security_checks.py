@@ -34,6 +34,13 @@ def check_production_secrets() -> None:
     for name, default_value, severity in _CHECKS:
         current = getattr(settings, name, None)
         if current == default_value:
+            # env_seed 모드에서는 SUPER_ADMIN_PASSWORD가 실제 로그인 비번이 됨
+            # → production이면 critical로 승격 (first_signup 기본 모드는 무관)
+            if (
+                name == "SUPER_ADMIN_PASSWORD"
+                and getattr(settings, "BOOTSTRAP_MODE", "first_signup") == "env_seed"
+            ):
+                severity = "critical"
             if severity == "critical":
                 critical_violations.append(name)
             else:

@@ -14,8 +14,7 @@ from app.models.classroom_surveys import Survey, SurveyQuestion
 from app.models.user import User
 
 
-def is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin  # SSOT (re-export)
 
 
 def can_manage(user: User, survey: Survey) -> bool:

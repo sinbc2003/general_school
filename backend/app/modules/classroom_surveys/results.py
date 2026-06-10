@@ -40,6 +40,7 @@ async def get_results(
     responses = (await db.execute(
         select(SurveyResponse).where(SurveyResponse.survey_id == sid)
         .order_by(desc(SurveyResponse.submitted_at))
+        .limit(2000)  # 전교생(1500) 상한 — 응답 폭증 시 OOM 방어
     )).scalars().all()
     response_ids = [r.id for r in responses]
     answers = []
@@ -135,6 +136,7 @@ async def export_results_csv(
     responses = (await db.execute(
         select(SurveyResponse).where(SurveyResponse.survey_id == sid)
         .order_by(SurveyResponse.submitted_at)
+        .limit(2000)  # 전교생(1500) 상한 — 응답 폭증 시 OOM 방어
     )).scalars().all()
     response_ids = [r.id for r in responses]
     answers = []
@@ -221,6 +223,7 @@ async def export_results_xlsx(
     responses = (await db.execute(
         select(SurveyResponse).where(SurveyResponse.survey_id == sid)
         .order_by(SurveyResponse.submitted_at)
+        .limit(2000)  # 전교생(1500) 상한 — 응답 폭증 시 OOM 방어
     )).scalars().all()
     response_ids = [r.id for r in responses]
     answers = []

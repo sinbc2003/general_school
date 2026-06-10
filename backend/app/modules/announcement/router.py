@@ -21,8 +21,7 @@ from app.modules.announcement.schemas import AnnouncementCreate, AnnouncementUpd
 router = APIRouter(prefix="/api/announcements", tags=["announcements"])
 
 
-def _is_admin(user: User) -> bool:
-    return user.role in ("super_admin", "designated_admin")
+from app.core.permissions import is_admin as _is_admin  # SSOT
 
 
 def _can_edit(user: User, post: Announcement) -> bool:

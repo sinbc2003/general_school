@@ -6,11 +6,11 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import ADMIN_ROLES, is_admin as _is_admin  # SSOT (re-export)
 from app.models.user import User
 
 
 VALID_ROLES = {"super_admin", "designated_admin", "teacher", "staff", "student"}
-ADMIN_ROLES = {"super_admin", "designated_admin"}
 
 _PHONE_NONDIGIT = re.compile(r"\D")
 
@@ -24,10 +24,6 @@ def phone_to_initial_password(phone: str | None) -> str | None:
         return None
     digits = _PHONE_NONDIGIT.sub("", phone)
     return digits or None
-
-
-def _is_admin(u: User) -> bool:
-    return u.role in ADMIN_ROLES
 
 
 async def _count_active_super_admins(
