@@ -82,6 +82,9 @@ interface AssignmentModalProps {
   initial?: AssignmentModalInitial;
   /** 모드 표시 — 'edit' | 'duplicate' | undefined(신규) */
   mode?: "edit" | "duplicate";
+  /** 만들기 메뉴 진입 — mount 시 해당 자료를 즉석 생성해 자동 첨부
+   *  (chatbot은 picker 자동 오픈). 게시하면 수업 과제에 글로 나타난다. */
+  autoAttach?: "doc" | "deck" | "sheet" | "survey" | "hwp" | "chatbot";
   onClose: () => void;
   onSaved: (postId: number) => void;
 }
@@ -143,7 +146,7 @@ const KIND_META: Record<CreateKind, { icon: any; iconBg: string; iconColor: stri
 };
 
 export function AssignmentModal({
-  cid, kind, studentCount, existingTopics, courseName, initial, mode, onClose, onSaved,
+  cid, kind, studentCount, existingTopics, courseName, initial, mode, autoAttach, onClose, onSaved,
 }: AssignmentModalProps) {
   const meta = KIND_META[kind];
 
@@ -203,12 +206,17 @@ export function AssignmentModal({
     return () => document.removeEventListener("mousedown", onDown);
   }, [createMenuOpen]);
 
-  const createAndAttach = async (def: (typeof CREATE_ATTACH_DEFS)[number]) => {
+  const createAndAttach = async (
+    def: (typeof CREATE_ATTACH_DEFS)[number],
+    opts: { openEditor: boolean } = { openEditor: true },
+  ) => {
     if (creatingType) return;
     setCreateMenuOpen(false);
     setCreatingType(def.type);
-    // popup blocker 회피 — 사용자 제스처 동기 시점에 창을 먼저 열고 URL은 나중에
-    const win = window.open("", "_blank");
+    // popup blocker 회피 — 사용자 제스처 동기 시점에 창을 먼저 열고 URL은 나중에.
+    // (만들기 메뉴 진입의 자동 첨부는 제스처 체인이 끊겨 차단되므로 openEditor=false —
+    //  첨부 행 제목 링크로 편집기를 연다.)
+    const win = opts.openEditor ? window.open("", "_blank") : null;
     try {
       const res = await api.post<{ id: number; title?: string }>(def.endpoint, def.body(cid));
       const idKey = `${def.type}_id`;
@@ -223,6 +231,28 @@ export function AssignmentModal({
     } finally {
       setCreatingType(null);
     }
+  };
+
+  // 만들기 메뉴 진입 (autoAttach) — mount 시 1회 자동 생성·첨부.
+  // ref 가드: React StrictMode dev 이중 effect로 자료가 2개 생기는 것 방지.
+  const didAutoAttachRef = useRef(false);
+  useEffect(() => {
+    if (!autoAttach || didAutoAttachRef.current) return;
+    didAutoAttachRef.current = true;
+    if (autoAttach === "chatbot") {
+      setShowChatbotPicker(true);
+      return;
+    }
+    const def = CREATE_ATTACH_DEFS.find((d) => d.type === autoAttach);
+    if (def) createAndAttach(def, { openEditor: false });
+  }, [autoAttach]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 첨부 행 제목 → 편집기 링크 (드라이브 자료만) */
+  const editorHref = (a: AttachmentItem): string | null => {
+    const id = a.doc_id ?? a.deck_id ?? a.sheet_id ?? a.survey_id ?? a.hwp_id;
+    if (!id) return null;
+    const def = CREATE_ATTACH_DEFS.find((d) => d.type === a.type);
+    return def ? def.openHref(cid, id) : null;
   };
 
   const addChatbot = (bot: { chatbot_id: number; title: string }) => {
@@ -481,6 +511,16 @@ export function AssignmentModal({
                         )}
                         {a.url ? (
                           <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
+                            {a.title}
+                          </a>
+                        ) : editorHref(a) ? (
+                          <a
+                            href={editorHref(a)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-caption text-accent hover:underline flex-1 truncate"
+                            title="새 탭에서 편집"
+                          >
                             {a.title}
                           </a>
                         ) : a.file_name ? (

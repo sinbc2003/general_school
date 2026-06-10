@@ -71,7 +71,7 @@ const MENU_GROUPS: MenuItem[][] = [
     {
       kind: "doc",
       label: "협업 문서",
-      desc: "실시간 동시 편집 문서",
+      desc: "새 문서를 자료 글로 게시 (동시 편집)",
       icon: FileText,
       iconBg: "#fef3c7",
       iconColor: "#a16207",
@@ -79,7 +79,7 @@ const MENU_GROUPS: MenuItem[][] = [
     {
       kind: "deck",
       label: "프리젠테이션",
-      desc: "슬라이드 협업 제작",
+      desc: "새 슬라이드를 자료 글로 게시",
       icon: Presentation,
       iconBg: "#fff7ed",
       iconColor: "#c2410c",
@@ -87,7 +87,7 @@ const MENU_GROUPS: MenuItem[][] = [
     {
       kind: "survey",
       label: "설문지",
-      desc: "응답 수집 + 단축 링크 / QR",
+      desc: "새 설문을 자료 글로 게시 (응답 수집)",
       icon: ClipboardList,
       iconBg: "#fce7f3",
       iconColor: "#be185d",
@@ -97,7 +97,7 @@ const MENU_GROUPS: MenuItem[][] = [
     {
       kind: "chatbot",
       label: "챗봇",
-      desc: "강좌 맞춤 AI 챗봇",
+      desc: "강좌 챗봇을 골라 자료 글로 게시",
       icon: Bot,
       iconBg: "#e0f2fe",
       iconColor: "#0369a1",

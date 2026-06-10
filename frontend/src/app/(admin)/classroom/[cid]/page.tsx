@@ -53,6 +53,10 @@ export default function CourseDetailAdminPage() {
   // 만들기 메뉴 — 게시물 재사용 / 퀴즈 과제 (코스웨어 문제 세트)
   const [showReuse, setShowReuse] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
+  // 만들기 메뉴에서 문서/덱/설문/챗봇 선택 시 — 자료 글에 자동 첨부 (게시하면 수업 과제에 표시)
+  const [modalAutoAttach, setModalAutoAttach] = useState<
+    "doc" | "deck" | "survey" | "chatbot" | undefined
+  >();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,18 +112,18 @@ export default function CourseDetailAdminPage() {
       setModalKind(kind);
       setModalInitial(undefined);
       setModalMode(undefined);
+      setModalAutoAttach(undefined);
     } else if (kind === "quiz") {
       setShowQuiz(true);
     } else if (kind === "reuse") {
       setShowReuse(true);
-    } else if (kind === "doc") {
-      router.push(`/classroom/${cid}/docs`);
-    } else if (kind === "deck") {
-      router.push(`/classroom/${cid}/decks`);
-    } else if (kind === "survey") {
-      router.push(`/classroom/${cid}/surveys`);
-    } else if (kind === "chatbot") {
-      setActiveTab("chatbots");
+    } else if (kind === "doc" || kind === "deck" || kind === "survey" || kind === "chatbot") {
+      // Google Classroom 식 — 자료 글 작성 화면 + 해당 자료 자동 첨부.
+      // 게시하면 수업 과제 탭에 글로 나타난다 (도구 페이지 단독 생성은 기존 링크 사용).
+      setModalKind("material");
+      setModalInitial(undefined);
+      setModalMode(undefined);
+      setModalAutoAttach(kind);
     }
   };
 
@@ -172,6 +176,7 @@ export default function CourseDetailAdminPage() {
     setModalKind(null);
     setModalInitial(undefined);
     setModalMode(undefined);
+    setModalAutoAttach(undefined);
   };
 
   const deletePost = async (pid: number) => {
@@ -299,6 +304,7 @@ export default function CourseDetailAdminPage() {
           courseName={course.name}
           initial={modalInitial}
           mode={modalMode}
+          autoAttach={modalAutoAttach}
           onClose={closeModal}
           onSaved={() => {
             const noun = modalKind === "assignment" ? "과제" : "자료";
