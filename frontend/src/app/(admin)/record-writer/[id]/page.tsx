@@ -45,6 +45,8 @@ interface StudentRow {
   display_order: number;
   is_published: boolean;
   final_text: string | null;
+  /** 학생 본인 확인 — confirmed(이상없음) | revision_requested(수정요청) */
+  ack: { status: string; comment: string | null } | null;
 }
 interface Column {
   id: number;
@@ -521,7 +523,20 @@ export default function RecordProjectDetailPage() {
                 <tr key={s.id} className="hover:bg-bg-secondary/40">
                   <td className="sticky left-0 z-10 bg-bg-primary border-b border-r border-border-default px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-body text-text-primary">{s.name}</span>
+                      <span className="text-body text-text-primary inline-flex items-center gap-1">
+                        {s.name}
+                        {s.ack?.status === "confirmed" && (
+                          <span title="학생이 '이상없음' 확인함" className="text-emerald-600 text-[11px]">✓</span>
+                        )}
+                        {s.ack?.status === "revision_requested" && (
+                          <span
+                            title={`학생 수정 요청${s.ack.comment ? `: ${s.ack.comment}` : ""}`}
+                            className="text-amber-600 text-[11px]"
+                          >
+                            ⚠
+                          </span>
+                        )}
+                      </span>
                       <button
                         onClick={() => togglePublish(s)}
                         title={s.is_published ? "공개됨 — 학생이 열람 가능" : "비공개 (클릭해 공개)"}

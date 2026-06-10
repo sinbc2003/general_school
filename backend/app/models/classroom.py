@@ -166,6 +166,11 @@ class CoursePost(Base):
     # 형식 검증은 schemas Pydantic에서 진행.
     attachments: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
+    # 마감 24시간 전 미제출자 리마인더 발송 시각 (None=미발송, 1회 발송 마크)
+    due_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

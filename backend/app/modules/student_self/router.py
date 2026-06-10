@@ -21,3 +21,4 @@ from app.modules.student_self import career_plans  # noqa: E402, F401
 from app.modules.student_self import discovery  # noqa: E402, F401
 from app.modules.student_self import submissions  # noqa: E402, F401
 from app.modules.student_self import enrollment  # noqa: E402, F401
+from app.modules.student_self import confirmations  # noqa: E402, F401

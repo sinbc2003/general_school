@@ -337,12 +337,28 @@ async def list_submissions(
         )).scalars().all()
     }
 
+    # 학생 '이상없음' 확인 상태 (kind=submission, ref_key=제출물 id)
+    from app.models.confirmation import StudentConfirmation
+    sub_ids = [str(s.id) for s in subs.values()]
+    acks: dict[str, StudentConfirmation] = {}
+    if sub_ids:
+        acks = {
+            c.ref_key: c
+            for c in (await db.execute(
+                select(StudentConfirmation).where(
+                    StudentConfirmation.kind == "submission",
+                    StudentConfirmation.ref_key.in_(sub_ids),
+                )
+            )).scalars().all()
+        }
+
     items = []
     counts = {"turned_in": 0, "returned": 0, "assigned": 0}
     for cs, u in students:
         sub = subs.get(cs.student_id)
         status = sub.status if sub else "assigned"
         counts[status] = counts.get(status, 0) + 1
+        ack = acks.get(str(sub.id)) if sub else None
         items.append({
             "student_id": cs.student_id,
             "name": u.name,
@@ -355,6 +371,7 @@ async def list_submissions(
             "score": sub.score if sub else None,
             "feedback": sub.feedback if sub else None,
             "attachments": (sub.attachments or []) if sub else [],
+            "ack": {"status": ack.status, "comment": ack.comment} if ack else None,
         })
     # 학년-반-번호 순
     items.sort(key=lambda x: (

@@ -38,6 +38,17 @@ async def get_project_full(
             .order_by(RecordProjectStudent.display_order)
         )
     ).all()
+    # 학생 '이상없음' 확인 상태 (kind=record, ref_key=프로젝트 id)
+    from app.models.confirmation import StudentConfirmation
+    acks = {
+        c.student_id: {"status": c.status, "comment": c.comment}
+        for c in (await db.execute(
+            select(StudentConfirmation).where(
+                StudentConfirmation.kind == "record",
+                StudentConfirmation.ref_key == str(pid),
+            )
+        )).scalars().all()
+    }
     students = [
         {
             "id": r.id,
@@ -46,6 +57,7 @@ async def get_project_full(
             "display_order": r.display_order,
             "is_published": r.is_published,
             "final_text": r.final_text,
+            "ack": acks.get(r.student_id),
         }
         for r, name in srows
     ]

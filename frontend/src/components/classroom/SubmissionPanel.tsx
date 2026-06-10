@@ -466,6 +466,8 @@ interface SubmissionRow {
   score: number | null;
   feedback: string | null;
   attachments: Attachment[];
+  /** 학생 '이상없음' 확인 (반환 후) */
+  ack?: { status: string; comment: string | null } | null;
 }
 
 export function SubmissionsSection({ post }: { post: PostDetail }) {
@@ -582,6 +584,19 @@ function SubmissionTeacherRow({
         {row.score != null && (
           <span className="text-[10.5px] text-violet-700 inline-flex items-center gap-0.5">
             <Award size={10} /> {row.score}점
+          </span>
+        )}
+        {row.ack?.status === "confirmed" && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="학생이 '이상없음' 확인">
+            학생 확인 ✓
+          </span>
+        )}
+        {row.ack?.status === "revision_requested" && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
+            title={row.ack.comment || ""}
+          >
+            수정 요청 ⚠
           </span>
         )}
         <span className="flex-1" />

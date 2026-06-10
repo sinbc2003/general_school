@@ -113,6 +113,63 @@ async def _notify_scheduler_failure(error_type: str, error_msg: str) -> None:
         log.exception("_notify_scheduler_failure top-level failure error_type=%s", error_type)
 
 
+async def _send_classroom_due_reminders(db: AsyncSession) -> int:
+    """클래스룸 과제(assignment_ref) 마감 23~25시간 전 — 미제출 수강생에게 1회 알림.
+
+    미제출 = CoursePostSubmission이 없거나 status가 turned_in/returned가 아닌 학생.
+    발송 후 CoursePost.due_reminder_sent_at 마크 (정확히 1회).
+    """
+    from app.models.classroom import Course, CoursePost, CoursePostSubmission, CourseStudent
+    from app.services.notification import notify_users
+
+    now = datetime.now(timezone.utc)
+    low = now + timedelta(hours=WINDOW_LOW_HOURS)
+    high = now + timedelta(hours=WINDOW_HIGH_HOURS)
+
+    posts = (await db.execute(
+        select(CoursePost).where(
+            CoursePost.post_type == "assignment_ref",
+            CoursePost.due_date.is_not(None),
+            CoursePost.due_date >= low,
+            CoursePost.due_date <= high,
+            CoursePost.due_reminder_sent_at.is_(None),
+        )
+    )).scalars().all()
+
+    sent = 0
+    for p in posts:
+        course = await db.get(Course, p.course_id)
+        if not course or not course.is_active:
+            p.due_reminder_sent_at = now  # 비활성 강좌 — 재시도 안 함
+            continue
+        student_ids = set((await db.execute(
+            select(CourseStudent.student_id).where(
+                CourseStudent.course_id == p.course_id,
+                CourseStudent.status == "active",
+            )
+        )).scalars().all())
+        done_ids = set((await db.execute(
+            select(CoursePostSubmission.student_id).where(
+                CoursePostSubmission.post_id == p.id,
+                CoursePostSubmission.status.in_(["turned_in", "returned"]),
+            )
+        )).scalars().all())
+        targets = list(student_ids - done_ids)
+        if targets:
+            try:
+                sent += await notify_users(
+                    db, user_ids=targets,
+                    type="classroom.assignment.due_soon",
+                    title=f"[{course.name}] 과제 마감 임박: {p.title}",
+                    body="마감이 24시간 안으로 다가왔습니다. 아직 제출하지 않았어요.",
+                    link_url=f"/s/classroom/{p.course_id}/posts/{p.id}",
+                )
+            except Exception:  # noqa: BLE001
+                log.warning("classroom due reminder 발송 실패 post=%s", p.id)
+        p.due_reminder_sent_at = now
+    return sent
+
+
 async def _send_due_reminders(db: AsyncSession) -> int:
     """한 번 실행 — 발송된 알림 수 반환.
 
@@ -536,6 +593,8 @@ async def _scheduler_loop() -> None:
     tasks = [
         ("due_reminders", _send_due_reminders,
          lambda n: f"마감 임박 reminder {n}건 발송" if n > 0 else ""),
+        ("classroom_due_reminders", _send_classroom_due_reminders,
+         lambda n: f"클래스룸 과제 마감 reminder {n}건 발송" if n > 0 else ""),
         ("trash_purge", _maybe_purge_trash, None),  # 내부에서 log
         ("expired_users", _disable_expired_users, None),  # 내부에서 log
         ("revision_purge", _maybe_purge_old_revisions, None),  # 내부에서 log
