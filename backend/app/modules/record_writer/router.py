@@ -21,4 +21,5 @@ from app.modules.record_writer import cells  # noqa: E402, F401
 from app.modules.record_writer import collect  # noqa: E402, F401
 from app.modules.record_writer import generate  # noqa: E402, F401
 from app.modules.record_writer import similarity  # noqa: E402, F401
+from app.modules.record_writer import verify  # noqa: E402, F401
 from app.modules.record_writer import student_view  # noqa: E402, F401

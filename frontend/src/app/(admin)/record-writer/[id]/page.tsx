@@ -89,6 +89,7 @@ export default function RecordProjectDetailPage() {
   const [colEdit, setColEdit] = useState<Column | "new" | null>(null);
   const [models, setModels] = useState<ModelOpt[]>([]);
   const [model, setModel] = useState<{ provider: string; model_id: string } | null>(null);
+  const [tab, setTab] = useState<"write" | "neis">("write");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -270,7 +271,26 @@ export default function RecordProjectDetailPage() {
         </div>
       </div>
 
-      {data.students.length === 0 ? (
+      {/* 탭 — 작성 / NEIS 검증 */}
+      <div className="flex items-center gap-1 border-b border-border-default mb-4">
+        {([["write", "작성"], ["neis", "NEIS 검증"]] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`px-4 py-2 text-caption border-b-2 -mb-px transition ${
+              tab === k
+                ? "border-accent text-accent font-medium"
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "neis" ? (
+        <NeisPanel pid={pid} />
+      ) : data.students.length === 0 ? (
         <div className="p-8 text-center text-text-tertiary text-caption border border-dashed border-border-default rounded-lg">
           대상 학생이 없습니다. &quot;학생 동기화&quot;를 눌러보세요.
         </div>
@@ -404,6 +424,19 @@ export default function RecordProjectDetailPage() {
                             {!cell.generated_text && cell.raw_data && (
                               <span className="text-[9px] px-1 bg-yellow-100 text-yellow-700 rounded">원자료</span>
                             )}
+                            {isGen && (() => {
+                              const cc = text.length;
+                              const bc = new TextEncoder().encode(text).length;
+                              const over = c.char_max != null && cc > c.char_max;
+                              return (
+                                <span
+                                  className={`text-[9px] px-1 rounded ${over ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}
+                                  title={`${cc}자 / ${bc}바이트${c.char_max ? ` (한도 ${c.char_max}자)` : ""}`}
+                                >
+                                  {cc}자·{bc}B
+                                </span>
+                              );
+                            })()}
                             {cell.similarity_flag != null && cell.similarity_flag >= 0.6 && (
                               <span className="text-[9px] px-1 bg-red-100 text-red-700 rounded">
                                 유사 {Math.round(cell.similarity_flag * 100)}%
@@ -421,10 +454,12 @@ export default function RecordProjectDetailPage() {
         </div>
       )}
 
-      <p className="text-caption text-text-tertiary mt-3">
-        <Download size={11} className="inline" /> 자동 수집 → <Sparkles size={11} className="inline" /> AI 일괄 생성 →
-        셀 클릭으로 개별 편집·맞춤법. 종합 항목은 다른 열의 생성 결과를 합쳐 작성합니다.
-      </p>
+      {tab === "write" && (
+        <p className="text-caption text-text-tertiary mt-3">
+          <Download size={11} className="inline" /> 자동 수집 → <Sparkles size={11} className="inline" /> AI 일괄 생성 →
+          셀 클릭으로 개별 편집·맞춤법. 종합 항목은 다른 열의 생성 결과를 합쳐 작성합니다. 셀에 글자수·바이트수 표시.
+        </p>
+      )}
 
       {colEdit && (
         <ColumnModal
@@ -450,6 +485,107 @@ export default function RecordProjectDetailPage() {
             load();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function NeisPanel({ pid }: { pid: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [ran, setRan] = useState(false);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await api.get(`/api/record-writer/projects/${pid}/neis-check`);
+      setData(d);
+      setRan(true);
+    } catch (e: any) {
+      alert(`검증 실패: ${e?.detail || e}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [pid]);
+
+  const SEV: Record<string, { label: string; cls: string }> = {
+    high: { label: "금지 가능성 높음", cls: "bg-red-100 text-red-700" },
+    review: { label: "검토 필요", cls: "bg-amber-100 text-amber-700" },
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-caption text-text-tertiary">
+          생성된 생기부 문장에서 NEIS 기재 금지 가능 항목(어학시험·대학명·교외수상·부모정보 등)과
+          글자수 초과를 일괄 점검합니다. 휴리스틱이므로 최종 판단은 교사가 합니다.
+        </p>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="px-3 py-1.5 bg-accent text-white rounded text-caption inline-flex items-center gap-1 disabled:opacity-50 flex-shrink-0"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <GitCompare size={14} />}
+          {ran ? "다시 검사" : "NEIS 검사 실행"}
+        </button>
+      </div>
+
+      {!ran ? (
+        <div className="p-10 text-center text-text-tertiary text-caption border border-dashed border-border-default rounded-lg">
+          &quot;NEIS 검사 실행&quot;을 눌러 점검하세요.
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2 mb-3 flex-wrap text-caption">
+            <span className="px-2.5 py-1 bg-bg-secondary rounded">검사 셀 {data.summary.total_cells}</span>
+            <span className="px-2.5 py-1 bg-red-50 text-red-700 rounded">위반 셀 {data.summary.flagged_cells}</span>
+            <span className="px-2.5 py-1 bg-red-50 text-red-700 rounded">금지높음 {data.summary.high}</span>
+            <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded">검토 {data.summary.review}</span>
+            <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded">글자초과 {data.summary.over_char}</span>
+          </div>
+          {data.items.length === 0 ? (
+            <div className="p-8 text-center text-green-700 text-caption border border-green-200 bg-green-50 rounded-lg">
+              ✓ 발견된 NEIS 금지 항목·글자수 초과가 없습니다.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {data.items.map((it: any, i: number) => (
+                <div key={i} className="border border-border-default rounded-lg p-3">
+                  <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                    <div className="text-body text-text-primary">
+                      <span className="font-medium">{it.student_name}</span>
+                      <span className="text-text-tertiary mx-1.5">·</span>
+                      <span className="text-text-secondary">{it.column_name}</span>
+                    </div>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        it.over_char ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {it.char_count}자 / {it.byte_count}B
+                      {it.char_max ? ` (한도 ${it.char_max}자)` : ""}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {it.over_char && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded">글자수 초과</span>
+                    )}
+                    {it.findings.map((f: any, j: number) => (
+                      <span
+                        key={j}
+                        className={`text-[10px] px-1.5 py-0.5 rounded ${SEV[f.severity]?.cls || "bg-gray-100"}`}
+                        title={`${SEV[f.severity]?.label}: ${f.terms.join(", ")}`}
+                      >
+                        {f.label}: {f.terms.join(", ")}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-caption text-text-tertiary line-clamp-2">{it.excerpt}…</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
