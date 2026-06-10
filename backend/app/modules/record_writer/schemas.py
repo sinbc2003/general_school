@@ -62,3 +62,16 @@ class SpellcheckReq(BaseModel):
 
 class PublishReq(BaseModel):
     published: bool = True
+
+
+class ComposeFinalReq(BaseModel):
+    """행 단위 최종 종합(final_text) 일괄 생성."""
+    provider: str | None = None
+    model_id: str | None = None
+    char_min: int | None = Field(None, ge=0, le=3000)
+    char_max: int | None = Field(None, ge=1, le=5000)
+    only_student_ids: list[int] | None = None
+
+
+class FinalTextUpdate(BaseModel):
+    final_text: str | None = None

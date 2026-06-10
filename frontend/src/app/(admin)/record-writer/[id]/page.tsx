@@ -16,8 +16,27 @@ import {
   GitCompare,
   Eye,
   EyeOff,
+  Maximize2,
+  FileDown,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+/** 글자수·바이트수 배지 (NEIS 기준 UTF-8 바이트) */
+function CountBadge({ text, charMax }: { text: string; charMax?: number | null }) {
+  const cc = text.length;
+  const bc = new TextEncoder().encode(text).length;
+  const over = charMax != null && cc > charMax;
+  return (
+    <span
+      className={`text-[9px] px-1 rounded ${over ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}
+      title={`${cc}자 / ${bc}바이트${charMax ? ` (한도 ${charMax}자)` : ""}`}
+    >
+      {cc}자·{bc}B
+    </span>
+  );
+}
 
 interface StudentRow {
   id: number;
@@ -90,6 +109,91 @@ export default function RecordProjectDetailPage() {
   const [models, setModels] = useState<ModelOpt[]>([]);
   const [model, setModel] = useState<{ provider: string; model_id: string } | null>(null);
   const [tab, setTab] = useState<"write" | "neis">("write");
+  // 인라인 셀 편집 (스프레드시트식) — key: "col:sid" 또는 "final:sid"
+  const [inline, setInline] = useState<{ key: string; value: string } | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // 인라인 저장 — 일반 셀은 generated_text(있으면) 아니면 raw_data, final은 final_text
+  const saveInline = async () => {
+    if (!inline || !data) return;
+    const { key, value } = inline;
+    setInline(null);
+    try {
+      if (key.startsWith("final:")) {
+        const sid = Number(key.slice(6));
+        await api.put(`/api/record-writer/projects/${pid}/students/${sid}/final-text`, {
+          final_text: value,
+        });
+      } else {
+        const [colId, sid] = key.split(":").map(Number);
+        const cell = data.cells[`${colId}:${sid}`];
+        const body: any = { project_id: Number(pid), column_id: colId, student_id: sid };
+        if (cell?.generated_text != null && cell.generated_text !== "") {
+          body.generated_text = value;
+        } else {
+          body.raw_data = value;
+        }
+        await api.put(`/api/record-writer/cells`, body);
+      }
+      await load();
+    } catch (e: any) {
+      alert(`저장 실패: ${e?.detail || e}`);
+    }
+  };
+
+  const composeFinal = async () => {
+    if (!model) {
+      alert("상단에서 AI 모델을 선택하세요.");
+      return;
+    }
+    const minS = window.prompt("최종 종합 최소 글자 수 (비우면 제한 없음)", "");
+    if (minS === null) return;
+    const maxS = window.prompt("최종 종합 최대 글자 수 (비우면 제한 없음)", "500");
+    if (maxS === null) return;
+    if (!confirm("모든 학생의 항목 생성문을 통합해 '최종 종합'을 일괄 생성합니다. 기존 최종 종합은 덮어씁니다."))
+      return;
+    setComposing(true);
+    try {
+      const r = await api.post(`/api/record-writer/projects/${pid}/compose-final`, {
+        provider: model.provider,
+        model_id: model.model_id,
+        char_min: minS.trim() ? Number(minS) : null,
+        char_max: maxS.trim() ? Number(maxS) : null,
+      });
+      await load();
+      let msg = `최종 종합 ${r.generated}명 생성 (총 ${r.total}명, $${r.cost_usd})`;
+      if (r.errors?.length) msg += `\n실패 ${r.errors.length}건`;
+      alert(msg);
+    } catch (e: any) {
+      alert(`생성 실패: ${e?.detail || e}`);
+    } finally {
+      setComposing(false);
+    }
+  };
+
+  const exportXlsx = async () => {
+    setExporting(true);
+    try {
+      await api.ensureFreshToken().catch(() => false);
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      const res = await fetch(`${API_URL}/api/record-writer/projects/${pid}/export.xlsx`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `생기부_${data?.name || pid}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert(`내보내기 실패: ${e?.message || e}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -263,6 +367,22 @@ export default function RecordProjectDetailPage() {
             {checkingSim ? <Loader2 size={14} className="animate-spin" /> : <GitCompare size={14} />} 유사도 검사
           </button>
           <button
+            onClick={composeFinal}
+            disabled={composing}
+            title="모든 항목 생성문을 학생별 하나의 최종 종합으로 통합 생성"
+            className="px-3 py-1.5 border border-purple-300 text-purple-700 rounded text-caption inline-flex items-center gap-1 disabled:opacity-50"
+          >
+            {composing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} 최종 종합
+          </button>
+          <button
+            onClick={exportXlsx}
+            disabled={exporting}
+            title="엑셀(.xlsx) 내보내기 — NEIS 붙여넣기용"
+            className="px-3 py-1.5 border border-border-default rounded text-caption inline-flex items-center gap-1 disabled:opacity-50"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} 엑셀
+          </button>
+          <button
             onClick={() => setColEdit("new")}
             className="px-3 py-1.5 bg-accent text-white rounded text-caption inline-flex items-center gap-1"
           >
@@ -376,10 +496,24 @@ export default function RecordProjectDetailPage() {
                   );
                 })}
                 {data.columns.length === 0 && (
-                  <th className="border-b border-border-default px-4 py-2 text-caption text-text-tertiary font-normal">
+                  <th className="border-b border-r border-border-default px-4 py-2 text-caption text-text-tertiary font-normal">
                     &quot;항목 추가&quot;로 첫 열을 만드세요
                   </th>
                 )}
+                <th className="border-b border-border-default px-3 py-2 text-left min-w-[230px] bg-purple-50/40">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-body text-purple-900">최종 종합</span>
+                    <button
+                      onClick={composeFinal}
+                      disabled={composing}
+                      title="모든 항목을 학생별 하나의 서술로 통합 생성"
+                      className="p-1 hover:bg-bg-primary rounded text-purple-600 disabled:opacity-50"
+                    >
+                      {composing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-purple-700/70 mt-0.5 font-normal">행 단위 통합 (행특·종합)</div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -405,48 +539,117 @@ export default function RecordProjectDetailPage() {
                     const cell = cellOf(c, s);
                     const text = cell?.generated_text || cell?.raw_data || "";
                     const isGen = !!cell?.generated_text;
+                    const ikey = `${c.id}:${s.student_id}`;
+                    const editing = inline?.key === ikey;
                     return (
                       <td
                         key={c.id}
-                        onClick={() => setCellEdit({ col: c, stu: s })}
-                        className="border-b border-r border-border-default px-2 py-1.5 align-top cursor-pointer hover:bg-cream-100/50"
+                        onClick={() => {
+                          if (!editing) setInline({ key: ikey, value: text });
+                        }}
+                        className={`border-b border-r border-border-default px-2 py-1.5 align-top ${
+                          editing ? "bg-cream-100/70" : "cursor-text hover:bg-cream-100/50"
+                        }`}
                       >
-                        <div
-                          className={`text-caption line-clamp-3 ${isGen ? "text-text-primary" : "text-text-tertiary"}`}
-                        >
-                          {text || <span className="text-text-tertiary/50">비어 있음</span>}
-                        </div>
-                        {cell && (
-                          <div className="flex items-center gap-1 mt-1 flex-wrap">
-                            {cell.generated_text && (
-                              <span className="text-[9px] px-1 bg-green-100 text-green-700 rounded">생성</span>
-                            )}
-                            {!cell.generated_text && cell.raw_data && (
-                              <span className="text-[9px] px-1 bg-yellow-100 text-yellow-700 rounded">원자료</span>
-                            )}
-                            {isGen && (() => {
-                              const cc = text.length;
-                              const bc = new TextEncoder().encode(text).length;
-                              const over = c.char_max != null && cc > c.char_max;
-                              return (
-                                <span
-                                  className={`text-[9px] px-1 rounded ${over ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}
-                                  title={`${cc}자 / ${bc}바이트${c.char_max ? ` (한도 ${c.char_max}자)` : ""}`}
-                                >
-                                  {cc}자·{bc}B
-                                </span>
-                              );
-                            })()}
-                            {cell.similarity_flag != null && cell.similarity_flag >= 0.6 && (
-                              <span className="text-[9px] px-1 bg-red-100 text-red-700 rounded">
-                                유사 {Math.round(cell.similarity_flag * 100)}%
-                              </span>
-                            )}
+                        {editing ? (
+                          <div>
+                            <textarea
+                              autoFocus
+                              value={inline.value}
+                              onChange={(e) => setInline({ key: ikey, value: e.target.value })}
+                              onBlur={saveInline}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") setInline(null);
+                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveInline();
+                              }}
+                              rows={5}
+                              className="w-full text-caption border border-accent rounded p-1.5 bg-bg-primary resize-y outline-none"
+                            />
+                            <div className="flex items-center justify-between mt-0.5">
+                              <CountBadge text={inline.value} charMax={c.char_max} />
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setInline(null);
+                                  setCellEdit({ col: c, stu: s });
+                                }}
+                                title="전체 편집 (원자료·AI·맞춤법)"
+                                className="text-text-tertiary hover:text-accent p-0.5"
+                              >
+                                <Maximize2 size={12} />
+                              </button>
+                            </div>
                           </div>
+                        ) : (
+                          <>
+                            <div
+                              className={`text-caption line-clamp-3 ${isGen ? "text-text-primary" : "text-text-tertiary"}`}
+                            >
+                              {text || <span className="text-text-tertiary/50">비어 있음</span>}
+                            </div>
+                            {cell && (
+                              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                {cell.generated_text && (
+                                  <span className="text-[9px] px-1 bg-green-100 text-green-700 rounded">생성</span>
+                                )}
+                                {!cell.generated_text && cell.raw_data && (
+                                  <span className="text-[9px] px-1 bg-yellow-100 text-yellow-700 rounded">원자료</span>
+                                )}
+                                {isGen && <CountBadge text={text} charMax={c.char_max} />}
+                                {cell.similarity_flag != null && cell.similarity_flag >= 0.6 && (
+                                  <span className="text-[9px] px-1 bg-red-100 text-red-700 rounded">
+                                    유사 {Math.round(cell.similarity_flag * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
                     );
                   })}
+                  {/* 최종 종합 (행 단위 final_text) */}
+                  {(() => {
+                    const fkey = `final:${s.student_id}`;
+                    const editing = inline?.key === fkey;
+                    const ftext = s.final_text || "";
+                    return (
+                      <td
+                        onClick={() => {
+                          if (!editing) setInline({ key: fkey, value: ftext });
+                        }}
+                        className={`border-b border-border-default px-2 py-1.5 align-top min-w-[230px] ${
+                          editing ? "bg-purple-50" : "cursor-text hover:bg-purple-50/50 bg-purple-50/20"
+                        }`}
+                      >
+                        {editing ? (
+                          <div>
+                            <textarea
+                              autoFocus
+                              value={inline.value}
+                              onChange={(e) => setInline({ key: fkey, value: e.target.value })}
+                              onBlur={saveInline}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") setInline(null);
+                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveInline();
+                              }}
+                              rows={5}
+                              className="w-full text-caption border border-purple-400 rounded p-1.5 bg-bg-primary resize-y outline-none"
+                            />
+                            <CountBadge text={inline.value} />
+                          </div>
+                        ) : ftext ? (
+                          <>
+                            <div className="text-caption text-text-primary line-clamp-3">{ftext}</div>
+                            <div className="mt-1"><CountBadge text={ftext} /></div>
+                          </>
+                        ) : (
+                          <span className="text-caption text-text-tertiary/50">비어 있음</span>
+                        )}
+                      </td>
+                    );
+                  })()}
                 </tr>
               ))}
             </tbody>

@@ -26,7 +26,9 @@ from app.models.student_record_project import (
 from app.models.user import User
 from app.modules.record_writer._helpers import get_owned_project
 from app.modules.record_writer.router import router
-from app.modules.record_writer.schemas import GenerateReq, SpellcheckReq
+from app.modules.record_writer.schemas import (
+    ComposeFinalReq, FinalTextUpdate, GenerateReq, SpellcheckReq,
+)
 from app.services.llm.base import LLMMessage
 from app.services.llm.registry import get_adapter
 
@@ -261,6 +263,128 @@ async def generate_column(
         "cost_usd": round(stats["cost"], 4),
         "errors": stats["errors"][:10],
     }
+
+
+@router.post("/projects/{pid}/compose-final")
+async def compose_final(
+    pid: int,
+    body: ComposeFinalReq,
+    user: User = Depends(require_permission("record.auto_generate")),
+    db: AsyncSession = Depends(get_db),
+):
+    """행 단위 최종 종합 일괄 생성 — 학생별로 모든 항목 생성문을 하나로 통합해
+    RecordProjectStudent.final_text에 저장 (참조 앱의 '종합(바이트조정)' 열 대응)."""
+    p = await get_owned_project(db, user, pid)
+
+    provider, model_id = await _resolve_model(db, body.provider, body.model_id)
+    if not provider or not model_id:
+        raise HTTPException(400, "AI 모델이 지정되지 않았습니다.")
+    adapter = await get_adapter(db, provider)
+    if adapter is None:
+        raise HTTPException(400, f"'{provider}' API 키가 등록/활성화되지 않았습니다.")
+    in_price, out_price = await _model_prices(db, provider, model_id)
+
+    rows = (
+        await db.execute(
+            select(RecordProjectStudent).where(RecordProjectStudent.project_id == pid)
+        )
+    ).scalars().all()
+    if body.only_student_ids:
+        keep = set(body.only_student_ids)
+        rows = [r for r in rows if r.student_id in keep]
+    if not rows:
+        return {"generated": 0, "total": 0, "cost_usd": 0.0, "errors": []}
+
+    all_cols = (
+        await db.execute(
+            select(RecordColumn).where(RecordColumn.project_id == pid)
+            .order_by(RecordColumn.display_order)
+        )
+    ).scalars().all()
+    all_cells = (
+        await db.execute(select(RecordCell).where(RecordCell.project_id == pid))
+    ).scalars().all()
+    cells_idx = {(c.column_id, c.student_id): c for c in all_cells}
+
+    rng = ""
+    if body.char_min or body.char_max:
+        if body.char_max:
+            rng = f"공백 포함 {body.char_min or 0}자 이상 {body.char_max}자 이하로 작성."
+        else:
+            rng = f"공백 포함 {body.char_min}자 이상으로 작성."
+    system_text = "\n\n".join(filter(None, [
+        _BASE_RULES,
+        "[작성 형태] 아래 항목별 생활기록부 문장들을 하나의 매끄러운 최종 서술로 "
+        "통합하라. 항목 머리말 없이 자연스럽게 이어지는 단일 문단. 핵심 의미는 "
+        "유지하되 중복은 제거하고, 학생의 역량과 성장이 드러나게 재구성.",
+        f"[분량] {rng}" if rng else "",
+        f"[학교 공통 지침]\n{p.global_prompt.strip()}" if (p.global_prompt or "").strip() else "",
+        "출력은 생활기록부 문장만. 머리말·설명·따옴표 없이 본문만.",
+    ]))
+
+    def user_text_for(sid: int) -> str:
+        parts = []
+        for oc in all_cols:
+            cell = cells_idx.get((oc.id, sid))
+            t = (cell.generated_text if cell else "") or ""
+            if t.strip():
+                parts.append(f"[{oc.name}]\n{t.strip()}")
+        return "\n\n".join(parts)
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+    stats = {"cost": 0.0, "generated": 0, "errors": []}
+
+    async def _one(row: RecordProjectStudent):
+        ut = user_text_for(row.student_id)
+        if not ut.strip():
+            return
+        async with sem:
+            r = await _generate_one(adapter, model_id, system_text, ut, in_price, out_price)
+        if r["error"] and not r["text"]:
+            stats["errors"].append({"student_id": row.student_id, "error": r["error"]})
+            return
+        row.final_text = r["text"]
+        stats["cost"] += r["cost"]
+        stats["generated"] += 1
+
+    await asyncio.gather(*[_one(r) for r in rows])
+    await log_action(
+        db, user, "record.compose_final",
+        detail=f"생기부 #{pid} 최종 종합 생성 {stats['generated']}명 (${stats['cost']:.4f})",
+        is_sensitive=True,
+    )
+    await db.commit()
+    return {
+        "generated": stats["generated"],
+        "total": len(rows),
+        "cost_usd": round(stats["cost"], 4),
+        "errors": stats["errors"][:10],
+    }
+
+
+@router.put("/projects/{pid}/students/{student_id}/final-text")
+async def update_final_text(
+    pid: int,
+    student_id: int,
+    body: FinalTextUpdate,
+    user: User = Depends(require_permission("record.project.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """최종 종합 수동 편집 저장."""
+    await get_owned_project(db, user, pid)
+    row = (
+        await db.execute(
+            select(RecordProjectStudent).where(
+                RecordProjectStudent.project_id == pid,
+                RecordProjectStudent.student_id == student_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "학생을 찾을 수 없습니다")
+    row.final_text = (body.final_text or "").strip() or None
+    await db.commit()
+    return {"ok": True, "final_text": row.final_text}
 
 
 _SPELL_SYSTEM = (
