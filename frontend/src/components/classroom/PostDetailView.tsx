@@ -602,8 +602,13 @@ function LiveQuizAttachmentRow({ a, isStudent }: { a: Attachment; isStudent: boo
         window.location.href = `/tools/quiz/${info.id}/host`;
         return;
       }
-      if (info.status === "ended" || !info.pin) {
+      if (info.status === "ended") {
         alert("이미 종료된 퀴즈입니다.");
+        setBusy(false);
+        return;
+      }
+      if (!info.pin) {
+        alert("이 퀴즈에 접근 권한이 없습니다.");
         setBusy(false);
         return;
       }

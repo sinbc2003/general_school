@@ -2383,3 +2383,32 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 ### 참고
 - **클래스룸 과제 vs 과제관리(/assignment)**: 별개 시스템 — 클래스룸=강좌 수강생 대상 수업 과제(제출·채점·사본), 과제관리=학년 단위 수행평가 수합(파일명 정규화+생기부 자동연결). 라벨 개명("수행평가 수합") 후보
 - 마이그레이션: `0efbef10eec8`(submissions) → `3a1b2c9d8e7f`(private comments) → `5b2c3d4a9e1f`(confirmations + classroom_posts.due_reminder_sent_at)
+
+---
+
+## 2026-06-10~11 세션 — 업무 및 수업 도구 (에듀테크 4종 자체 구현)
+
+> 사이드바 '수업' 다음 새 카테고리 + /tools 허브 + 도구 4종. 전부 B(pubedu.com) 배포.
+> 다음 세션: [HANDOFF_NEXT_SESSION.md](HANDOFF_NEXT_SESSION.md) ("이어서" 트리거).
+
+### 구조 (새 도구 컨벤션)
+- 모듈 `app/modules/tool_<name>/` (router+permissions+schemas) + 모델 `app/models/tool_<name>.py` + 수동 멱등 alembic
+- **Yjs 쓰는 도구는 라우터 prefix를 `/api/classroom/<복수형>`으로** — hocuspocus가 `{FASTAPI}/api/classroom/{resourcePath}/{id}/permission|yjs-snapshot` 규약으로 호출 (tool_board가 예시)
+- 권한: `tools.<name>.host|manage` 교사 자동 부여. 학생 참여는 인증+가드만 (권한 키 없음)
+- 클래스룸 연동: Attachment type 추가 (`live_quiz`/`word_deck`/`board`) + 피커 모달 + PostDetailView 렌더러. **강좌 글 첨부 = 학생 접근 권한** (LIKE prefilter + Python 매칭 — attachment_share 패턴 복사, 도구별 `_has_classroom_attachment`)
+
+### 도구 4종
+1. **라이브 퀴즈 (Kahoot형)** — 코스웨어 CourseProblemSet 재사용 (자동채점 가능 문제만 세션 생성 시 snapshot). 6자리 PIN+QR 입장, 2초 폴링 상태머신 lobby→question→reveal→…→ended, Kahoot식 속도점수 1000×(1-(t/limit)/2) (서버 시각 기준 ms_taken), 호스트 자동공개(시간종료/전원제출), 리더보드·포디움. 모델 LiveQuizSession/Player/Answer (`7c4d1e8f2a3b`). grade_answer(services/courseware_grader) 재사용. 교사 `/tools/quiz`, 학생 `/s/quiz/[pin]`
+2. **단어장 (ClassCard형)** — WordDeck/WordCard/WordStudyState (`8e5f2a9b3c1d`). 라이트너 box 1~5 (정답+1/오답 1로 리셋), 학습 3모드 (플래시카드/4지선다/스펠 타이핑) = `components/wordbook/StudyView.tsx` 교사·학생 공유. CSV import (UTF-8/CP949, 헤더 자동 skip) + 양식 다운로드. box 낮은순→오답많은순→오래안본순 출제. 교사 `/tools/wordbook`, 학생 `/s/wordbook`
+3. **보드 (Padlet형)** — ToolBoard (`9f6a3b4c5d2e`). 카드는 DB가 아닌 **Yjs Y.Map("cards")** (hocuspocus `board-{id}`, auth.ts TargetKind 'board' 추가). 카드 단위 LWW. 컬럼 레이아웃(settings.columns), 권한: owner/admin/강좌멤버/글첨부/public 전부 읽기+쓰기(참여형), archived는 읽기만. yjs-snapshot 내부토큰 endpoint는 sheets 패턴 복사. 교사 `/tools/board`, 학생 `/s/board/[bid]`
+4. **수업 소도구** (`/tools/mini`) — 이름뽑기 룰렛(슬롯머신 감속), 모둠 편성(모둠수/인원 기준), 타이머(WebAudio 비프+점멸), 신호등(키보드 1/2/3). 백엔드 0 — 명단은 `GET /api/classroom/courses/{cid}` 학생목록 재사용
+
+### 검증
+- `tests/test_edutools.py` 13개: 퀴즈 풀플로우(마스킹·중복제출 409·점수·분포)+IDOR / 단어장 라이트너(2→3→1)·CSV·**첨부=접근권한** / 보드 권한매트릭스·보관 readonly·yjs-snapshot 토큰 roundtrip
+- 멀티에이전트 검수 (6차원 탐색 → finding별 3-lens 반박검증) — 확정건 수정 반영
+- 검증 스크립트: `scripts/check_frontend.sh` + `check_{quiz,wordbook,board}_backend.sh`
+
+### 참고
+- routes 595 → 629. 새 권한 3종(`tools.quiz.host`/`tools.wordbook.manage`/`tools.board.manage`) grant_default_roles 자동 부여
+- 메뉴 footgun: 학교가 /system/menu에서 카테고리를 저장한 적 있으면 DB 설정이 default 카테고리를 덮음 → 새 메뉴 안 보이면 메뉴 관리에서 재추가
+- 라이브 퀴즈 PIN은 진행 중 세션 간 유일 (ended는 보존). 익명 게스트는 v2 (nickname 컬럼 준비됨)

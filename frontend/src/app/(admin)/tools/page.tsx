@@ -54,7 +54,7 @@ const TOOLS: ToolDef[] = [
     description: "이름 뽑기 룰렛, 모둠 자동 편성, 타이머·신호등 — 작고 빠른 것들",
     icon: Dices,
     href: "/tools/mini",
-    ready: false,
+    ready: true,
     accent: "from-emerald-500 to-teal-500",
   },
 ];

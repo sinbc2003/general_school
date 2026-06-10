@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import Text as SaText, cast, func as sa_func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -331,7 +332,10 @@ async def add_cards_bulk(
     return {"ok": True, "added": len(items)}
 
 
-_CSV_HEADER_TOKENS = {"term", "단어", "word", "meaning", "뜻", "의미"}
+# 헤더 판정: 1열 AND 2열이 모두 헤더 토큰일 때만 skip.
+# (1열만 보면 "word" 같은 정상 단어 행을 헤더로 오인할 수 있음)
+_CSV_TERM_TOKENS = {"term", "단어", "word"}
+_CSV_MEANING_TOKENS = {"meaning", "뜻", "의미"}
 
 
 @router.post("/decks/{did}/cards/_import")
@@ -354,7 +358,11 @@ async def import_cards_csv(
             raise HTTPException(400, "인코딩을 읽을 수 없습니다 (UTF-8 또는 CP949)")
 
     rows = list(csv.reader(io.StringIO(text)))
-    if rows and rows[0] and rows[0][0].strip().lower() in _CSV_HEADER_TOKENS:
+    if (
+        rows and len(rows[0]) >= 2
+        and rows[0][0].strip().lower() in _CSV_TERM_TOKENS
+        and rows[0][1].strip().lower() in _CSV_MEANING_TOKENS
+    ):
         rows = rows[1:]
 
     items: list[CardIn] = []
@@ -526,6 +534,10 @@ async def record_progress(
         s.box = 1
         s.wrong_count = (s.wrong_count or 0) + 1
     s.last_seen = datetime.now(timezone.utc)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # 동시 더블 요청 — 먼저 만든 쪽이 UNIQUE 선점. 학습 흐름엔 영향 없음.
+        raise HTTPException(409, "동시 요청 — 다시 시도하세요")
 
     return {"ok": True, "box": s.box}

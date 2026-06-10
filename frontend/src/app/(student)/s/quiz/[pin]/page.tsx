@@ -300,14 +300,20 @@ export default function QuizPlayPage() {
                     value={numValue}
                     onChange={(e) => setNumValue(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && numValue !== "") submit({ value: parseFloat(numValue) });
+                      if (e.key === "Enter") {
+                        const v = parseFloat(numValue);
+                        if (Number.isFinite(v)) submit({ value: v });
+                      }
                     }}
                     placeholder="숫자 입력"
                     autoFocus
                     className="flex-1 px-4 py-3 border-2 border-border-default focus:border-violet-500 rounded-xl outline-none text-body"
                   />
                   <button
-                    onClick={() => submit({ value: parseFloat(numValue) })}
+                    onClick={() => {
+                      const v = parseFloat(numValue);
+                      if (Number.isFinite(v)) submit({ value: v });
+                    }}
                     disabled={numValue === "" || submitting}
                     className="px-5 py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl font-semibold"
                   >

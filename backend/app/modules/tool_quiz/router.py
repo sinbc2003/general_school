@@ -30,7 +30,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import Text as SaText, cast, func as sa_func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_action
@@ -39,8 +40,8 @@ from app.core.config import settings as app_settings
 from app.core.database import get_db
 from app.core.permissions import is_admin, require_permission
 from app.models import (
-    Course, CourseProblemSet, LiveQuizAnswer, LiveQuizPlayer,
-    LiveQuizSession, Problem, User,
+    Course, CoursePost, CourseProblemSet, CourseStudent,
+    LiveQuizAnswer, LiveQuizPlayer, LiveQuizSession, Problem, User,
 )
 from app.modules.classroom.teachers import is_course_editor_or_admin
 from app.modules.tool_quiz.schemas import (
@@ -173,6 +174,51 @@ def _leaderboard(players: list[LiveQuizPlayer], top: int) -> list[dict]:
 
 def _join_url(pin: str) -> str:
     return f"{app_settings.FRONTEND_URL}/s/quiz/{pin}"
+
+
+async def _attached_in_user_courses(
+    db: AsyncSession, user: User, quiz_id: int,
+) -> bool:
+    """이 퀴즈가 사용자 소속 강좌(수강생/owner/공동교사) 글에 첨부됐는지.
+
+    info 엔드포인트의 PIN 노출 범위 — sid 열거로 타 수업 PIN을 얻는 것 차단.
+    (attachment_share 패턴: JSON→text LIKE prefilter + Python 매칭)
+    """
+    from app.models import CourseTeacher
+
+    student_ids = (await db.execute(
+        select(CourseStudent.course_id).where(
+            CourseStudent.student_id == user.id,
+            CourseStudent.status == "active",
+        )
+    )).scalars().all()
+    owner_ids = (await db.execute(
+        select(Course.id).where(Course.teacher_id == user.id)
+    )).scalars().all()
+    co_ids = (await db.execute(
+        select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+    )).scalars().all()
+    course_ids = set(student_ids) | set(owner_ids) | set(co_ids)
+    if not course_ids:
+        return False
+    rows = (await db.execute(
+        select(CoursePost.attachments).where(
+            CoursePost.course_id.in_(course_ids),
+            CoursePost.attachments.isnot(None),
+            cast(CoursePost.attachments, SaText).like('%"live_quiz_id"%'),
+        )
+    )).scalars().all()
+    for atts in rows:
+        if not isinstance(atts, list):
+            continue
+        for a in atts:
+            if (
+                isinstance(a, dict)
+                and a.get("type") == "live_quiz"
+                and a.get("live_quiz_id") == quiz_id
+            ):
+                return True
+    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -441,18 +487,23 @@ async def session_info(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """클래스룸 첨부 클릭용 — 세션 요약 (인증 사용자 누구나).
+    """클래스룸 첨부 클릭용 — 세션 요약.
 
-    PIN은 수업 중 공개 정보 (화면·QR로 공유)라 인증 사용자에게 노출 OK.
+    PIN 노출 범위: host/admin 또는 이 퀴즈가 첨부된 강좌의 멤버만.
+    (sid 열거로 타 수업 PIN을 얻는 것 차단 — 구두 공유 PIN 입장은 /s/quiz 직접 입력)
     종료된 세션은 pin 미노출.
     """
     s = await _get_session_or_404(db, sid)
+    is_host = s.host_id == user.id or is_admin(user)
+    can_see_pin = s.status != "ended" and (
+        is_host or await _attached_in_user_courses(db, user, s.id)
+    )
     return {
         "id": s.id,
         "title": s.title,
         "status": s.status,
-        "pin": s.pin if s.status != "ended" else None,
-        "is_host": s.host_id == user.id or is_admin(user),
+        "pin": s.pin if can_see_pin else None,
+        "is_host": is_host,
     }
 
 
@@ -629,7 +680,12 @@ async def submit_answer(
     )
     db.add(ans)
     pl.score = (pl.score or 0.0) + points
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # 동시 더블클릭 — pre-check를 둘 다 통과한 경우 UNIQUE가 잡음.
+        # (get_db가 transaction rollback — score 증가도 함께 원복됨)
+        raise HTTPException(409, "이미 제출했습니다")
 
     return {
         "ok": True,
