@@ -86,6 +86,7 @@ from app.models.department import Department
 from app.models.classroom import (
     Course, CourseStudent, CoursePost, CoursePostComment,
     PostAttachmentCopy, CourseChatbot, CoursePostSubmission,
+    PostPrivateComment,
 )
 from app.models.course_teacher import CourseTeacher
 from app.models.user_favorite_course import UserFavoriteCourse
@@ -194,6 +195,7 @@ __all__ = [
     # Classroom
     "Course", "CourseStudent", "CoursePost", "CoursePostComment",
     "PostAttachmentCopy", "CourseChatbot", "CoursePostSubmission",
+    "PostPrivateComment",
     "CourseTeacher", "UserFavoriteCourse",
     # Classroom Docs
     "ClassroomDocument", "DocumentMember", "DocumentRevision",

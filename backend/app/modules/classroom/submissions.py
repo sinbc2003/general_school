@@ -37,7 +37,8 @@ from app.core.permissions import require_permission
 from app.core.semester import get_active_semester_id_or_404
 from app.core.upload import POLICY_CLASSROOM, check_extension, validate_upload
 from app.models.classroom import (
-    Course, CoursePost, CoursePostSubmission, CourseStudent, PostAttachmentCopy,
+    Course, CoursePost, CoursePostSubmission, CourseStudent,
+    PostAttachmentCopy, PostPrivateComment,
 )
 from app.models.user import User
 from app.modules.classroom.router import router
@@ -360,6 +361,119 @@ async def list_submissions(
         x["grade"] or 99, x["class_number"] or 99, x["student_number"] or 9999, x["name"],
     ))
     return {"items": items, "counts": counts, "total": len(items)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 비공개 댓글 — 학생 ↔ 교사 1:1 (Google Classroom Private comments)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class PrivateCommentCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=3000)
+    # 교사가 답할 때 대상 학생 (학생 본인 호출 시 무시)
+    student_id: int | None = None
+
+
+async def _resolve_private_thread(
+    db: AsyncSession, user: User, pid: int, student_id: int | None,
+) -> tuple[CoursePost, Course, int, bool]:
+    """비공개 댓글 스레드 접근 해석 → (post, course, thread_student_id, is_teacher).
+
+    학생: 본인 스레드만 (active 수강생). 교사(editor/admin): student_id 필수.
+    """
+    p, course = await _get_assignment_post(db, pid)
+    if await is_course_editor_or_admin(db, course, user):
+        if not student_id:
+            raise HTTPException(400, "student_id가 필요합니다 (교사)")
+        cs = (await db.execute(
+            select(CourseStudent).where(
+                CourseStudent.course_id == course.id,
+                CourseStudent.student_id == student_id,
+                CourseStudent.status == "active",
+            )
+        )).scalar_one_or_none()
+        if not cs:
+            raise HTTPException(404, "이 강좌의 수강생이 아닙니다")
+        return p, course, student_id, True
+    await _assert_active_student(db, course, user)
+    return p, course, user.id, False
+
+
+@router.get("/posts/{pid}/private-comments")
+async def list_private_comments(
+    pid: int,
+    student_id: int | None = None,
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    p, course, sid, _ = await _resolve_private_thread(db, user, pid, student_id)
+    rows = (await db.execute(
+        select(PostPrivateComment, User.name)
+        .join(User, User.id == PostPrivateComment.author_id, isouter=True)
+        .where(
+            PostPrivateComment.post_id == pid,
+            PostPrivateComment.student_id == sid,
+        )
+        .order_by(PostPrivateComment.created_at, PostPrivateComment.id)
+        .limit(200)
+    )).all()
+    return {
+        "items": [
+            {
+                "id": c.id,
+                "author_id": c.author_id,
+                "author_name": name,
+                "is_student_author": c.author_id == c.student_id,
+                "content": c.content,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c, name in rows
+        ]
+    }
+
+
+@router.post("/posts/{pid}/private-comments")
+async def create_private_comment(
+    pid: int, body: PrivateCommentCreate, request: Request,
+    user: User = Depends(require_permission("classroom.post.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    p, course, sid, is_teacher = await _resolve_private_thread(db, user, pid, body.student_id)
+    c = PostPrivateComment(
+        post_id=pid, student_id=sid, author_id=user.id,
+        content=body.content.strip(),
+    )
+    db.add(c)
+    await db.flush()
+    await db.refresh(c)  # server_default created_at 채움
+    await log_action(
+        db, user, "classroom.private_comment.create",
+        target=f"post:{pid} student:{sid}", request=request,
+    )
+    # 알림 (best-effort): 학생 작성 → 교사들 / 교사 작성 → 학생
+    try:
+        from app.services.notification import notify_users
+        if is_teacher:
+            targets, link = [sid], f"/s/classroom/{course.id}/posts/{p.id}"
+        else:
+            targets = [uid for uid in {p.author_id, course.teacher_id} if uid]
+            link = f"/classroom/{course.id}/posts/{p.id}"
+        await notify_users(
+            db, user_ids=targets,
+            type="classroom_private_comment",
+            title=f"비공개 댓글: {p.title}",
+            body=body.content.strip()[:200],
+            link_url=link,
+            source_user_id=user.id,
+        )
+    except Exception:
+        pass
+    return {
+        "id": c.id, "author_id": c.author_id, "author_name": user.name,
+        "is_student_author": c.author_id == sid,
+        "content": c.content,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
 
 
 @router.post("/posts/{pid}/submissions/{student_id}/return")

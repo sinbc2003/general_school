@@ -289,6 +289,35 @@ class PostAttachmentCopy(Base):
     )
 
 
+class PostPrivateComment(Base):
+    """과제 비공개 댓글 — 학생 ↔ 교사 1:1 스레드 (Google Classroom Private comments).
+
+    수업 댓글(CoursePostComment, 강좌 전체 공개)과 별개. 스레드는 (post_id,
+    student_id) 단위 — 그 학생과 강좌 교사들만 읽고 쓸 수 있다.
+    author_id = 실제 작성자 (학생 본인 또는 강좌 교사).
+    """
+    __tablename__ = "classroom_post_private_comments"
+    __table_args__ = (
+        Index("ix_post_private_comments_thread", "post_id", "student_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_posts.id", ondelete="CASCADE"), nullable=False,
+    )
+    # 스레드 주인 학생
+    student_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+
+
 class CoursePostSubmission(Base):
     """클래스룸 과제 제출 — Google Classroom '내 과제' (Turn in).
 

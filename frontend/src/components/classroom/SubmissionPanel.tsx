@@ -17,6 +17,7 @@ import {
 import { api } from "@/lib/api/client";
 import { downloadSecure } from "@/lib/api/download";
 import { DrivePicker } from "./DrivePicker";
+import { PrivateComments } from "./PrivateComments";
 import type { Attachment, PostDetail } from "./PostDetailView";
 
 interface CopyItem {
@@ -654,6 +655,9 @@ function SubmissionTeacherRow({
               돌려주기
             </button>
           </div>
+
+          {/* 비공개 댓글 — 이 학생과의 1:1 스레드 */}
+          <PrivateComments postId={post.id} studentId={row.student_id} variant="inline" />
         </div>
       )}
     </div>

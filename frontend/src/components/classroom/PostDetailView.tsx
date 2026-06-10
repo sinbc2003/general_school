@@ -22,6 +22,7 @@ import { downloadSecure } from "@/lib/api/download";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { MySubmissionCard, SubmissionsSection } from "./SubmissionPanel";
+import { PrivateComments } from "./PrivateComments";
 
 export type ShareMode = "view" | "edit" | "copy";
 
@@ -75,10 +76,8 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
   const isNotice = post.post_type === "notice";
   const Icon = isAssignment ? ClipboardList : isMaterial ? Folder : ClipboardList;
 
-  const iconBg = isAssignment ? "#fef3c7" : isMaterial ? "#dcfce7" : "#dbeafe";
-  const iconColor = isAssignment ? "#a16207" : isMaterial ? "#15803d" : "#1d4ed8";
-
-  const kindLabel = isAssignment ? "과제" : isMaterial ? "자료" : "공지";
+  // Google Classroom 테마색 — 과제 amber, 자료 green, 공지 blue
+  const iconColor = isAssignment ? "#b8860b" : isMaterial ? "#15803d" : "#1d4ed8";
 
   // 학생 + 과제 → Google Classroom 식 2단 (좌 본문 / 우 sticky '내 과제')
   const studentAssignment = isAssignment && isStudentViewer;
@@ -97,82 +96,72 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
       <div className={studentAssignment ? "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start" : ""}>
       <div className="min-w-0">
 
-      {/* 헤더 카드 */}
-      <div className="bg-bg-primary border border-border-default rounded-xl p-5 mb-4">
-        <div className="flex items-start gap-3">
-          <div
-            className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: iconBg, color: iconColor }}
-          >
-            <Icon size={22} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span
-                className="text-[10.5px] px-2 py-0.5 rounded font-medium uppercase tracking-wide"
-                style={{ backgroundColor: iconBg, color: iconColor }}
-              >
-                {kindLabel}
-              </span>
-              {post.topic && (
-                <span className="text-[10.5px] px-2 py-0.5 bg-cream-200 text-text-secondary rounded inline-flex items-center gap-1">
-                  <Hash size={9} /> {post.topic}
+      {/* 헤더 — Google Classroom 식 플랫 (카드·배지 없음) */}
+      <div className="flex items-start gap-4 px-1">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1.5"
+          style={{ backgroundColor: iconColor }}
+        >
+          <Icon size={20} className="text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-[28px] leading-snug font-normal text-text-primary break-words">
+            {post.title}
+          </h1>
+          <div className="text-caption text-text-secondary mt-1 flex items-center gap-1.5 flex-wrap">
+            {post.author_name && <span>{post.author_name}</span>}
+            {post.author_name && <span className="text-text-tertiary">·</span>}
+            <span className="text-text-tertiary">
+              {post.created_at && new Date(post.created_at).toLocaleString("ko-KR", { dateStyle: "long", timeStyle: "short" })}
+            </span>
+            {post.topic && (
+              <>
+                <span className="text-text-tertiary">·</span>
+                <span className="inline-flex items-center gap-0.5 text-text-tertiary">
+                  <Hash size={10} /> {post.topic}
                 </span>
-              )}
-            </div>
-            <h1 className="text-title font-bold text-text-primary">{post.title}</h1>
-            <div className="text-caption text-text-tertiary mt-1 flex items-center gap-3 flex-wrap">
-              {post.author_name && (
-                <span className="inline-flex items-center gap-1">
-                  <UserIcon size={11} /> {post.author_name}
-                </span>
-              )}
-              <span>
-                게시일 {post.created_at && new Date(post.created_at).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
-              </span>
-            </div>
-            {(post.due_date || post.max_score != null) && (
-              <div className="flex items-center gap-3 mt-3">
-                {post.due_date && (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 rounded text-caption text-status-error">
-                    <Calendar size={12} />
-                    기한 {new Date(post.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}
-                  </div>
-                )}
-                {post.max_score != null && (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded text-caption text-amber-800">
-                    <Award size={12} /> {post.max_score}점
-                  </div>
-                )}
-              </div>
+              </>
             )}
           </div>
+          {(post.max_score != null || post.due_date || isAssignment) && (
+            <div className="flex items-center justify-between gap-3 mt-2.5 flex-wrap">
+              <div className="text-body text-text-secondary">
+                {post.max_score != null ? `${post.max_score}점` : isAssignment ? "점수 없음" : ""}
+              </div>
+              {isAssignment && (
+                <div
+                  className={`text-caption ${
+                    post.due_date && new Date(post.due_date) < new Date()
+                      ? "text-status-error"
+                      : "text-text-secondary"
+                  }`}
+                >
+                  {post.due_date
+                    ? `기한: ${new Date(post.due_date).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}`
+                    : "기한 없음"}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 본문 */}
+      {/* 헤더 아래 컬러 구분선 (Google 테마선) */}
+      <div className="mt-3 mb-5 border-b-2" style={{ borderColor: iconColor }} />
+
+      {/* 안내문 — 플랫 (라벨·카드 없음) */}
       {post.content && post.content !== post.title && (
-        <div className="bg-bg-primary border border-border-default rounded-xl p-5 mb-4">
-          <div className="text-[11.5px] font-semibold text-text-tertiary uppercase tracking-wide mb-2">
-            안내
-          </div>
-          <div className="text-body text-text-primary whitespace-pre-wrap leading-relaxed">
-            {post.content}
-          </div>
+        <div className="text-body text-text-primary whitespace-pre-wrap leading-relaxed mb-5 px-1">
+          {post.content}
         </div>
       )}
 
-      {/* 첨부 */}
+      {/* 첨부 — Google 식 2열 카드 그리드 (라벨 없음) */}
       {post.attachments.length > 0 && (
-        <div className="bg-bg-primary border border-border-default rounded-xl p-5">
-          <div className="text-[11.5px] font-semibold text-text-tertiary uppercase tracking-wide mb-3">
-            첨부 ({post.attachments.length})
-          </div>
-          <div className="space-y-2">
-            {post.attachments.map((a, i) => (
-              <AttachmentRow key={i} a={a} postId={post.id} attIdx={i} courseId={post.course_id} />
-            ))}
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          {post.attachments.map((a, i) => (
+            <AttachmentRow key={i} a={a} postId={post.id} attIdx={i} courseId={post.course_id} />
+          ))}
         </div>
       )}
 
@@ -194,10 +183,11 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
 
       </div>{/* /좌측 본문 */}
 
-      {/* 내 과제 — 학생 제출 (Google Classroom 우측 사이드바) */}
+      {/* 내 과제 + 비공개 댓글 — 학생 우측 사이드바 (Google Classroom) */}
       {studentAssignment && (
-        <aside className="lg:sticky lg:top-4">
+        <aside className="lg:sticky lg:top-4 space-y-4">
           <MySubmissionCard post={post} />
+          <PrivateComments postId={post.id} variant="card" />
         </aside>
       )}
       </div>{/* /grid */}
@@ -271,7 +261,7 @@ function CommentsSection({ postId }: { postId: number }) {
     user && (c.author_id === user.id || ["super_admin", "designated_admin", "teacher"].includes(user.role));
 
   return (
-    <div className="mt-6 bg-bg-primary border border-border-default rounded-xl p-5">
+    <div className="mt-6 pt-5 border-t border-border-default px-1">
       <div className="flex items-center gap-2 mb-3 text-text-secondary">
         <MessageCircle size={16} />
         <span className="text-body font-medium">수업 댓글</span>
