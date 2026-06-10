@@ -287,3 +287,48 @@ class PostAttachmentCopy(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
+
+
+class CoursePostSubmission(Base):
+    """클래스룸 과제 제출 — Google Classroom '내 과제' (Turn in).
+
+    상태 흐름:
+      assigned (기본 — 학생이 첨부만 모은 상태, row가 없을 수도 있음)
+      → turned_in (제출. 제출 취소하면 assigned로 복귀)
+      → returned (교사가 점수·피드백과 함께 돌려줌. 이후 학생은 수정 불가,
+                  교사가 다시 돌려주기 전까지)
+
+    attachments: 글 첨부와 동일 JSON 형식 (file/link/doc/sheet/deck/hwp).
+    학생별 사본(PostAttachmentCopy)은 lookup으로 자동 포함되므로 중복 저장 안 함.
+    파일 업로드는 storage/classroom/submissions/ 하위 (files 가드에서 검증).
+    """
+    __tablename__ = "classroom_post_submissions"
+    __table_args__ = (
+        UniqueConstraint("post_id", "student_id", name="uq_post_submission_per_student"),
+        Index("ix_post_submissions_post", "post_id", "status"),
+        Index("ix_post_submissions_student", "student_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_posts.id", ondelete="CASCADE"), nullable=False,
+    )
+    student_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    # assigned | turned_in | returned
+    status: Mapped[str] = mapped_column(String(20), default="assigned", nullable=False)
+    attachments: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    turned_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    graded_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False,
+    )

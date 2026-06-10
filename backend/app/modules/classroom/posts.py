@@ -142,6 +142,23 @@ async def list_course_posts(
 
     items = [_post_to_dict(p, authors.get(p.author_id)) for p in rows]
     await _enrich_attachment_titles(db, items)
+
+    # 과제 글 제출 수 (turned_in + returned) — 수업 과제 탭 "제출함" 표시용
+    assignment_ids = [p.id for p in rows if p.post_type == "assignment_ref"]
+    if assignment_ids:
+        from app.models.classroom import CoursePostSubmission
+        counts = dict((await db.execute(
+            select(CoursePostSubmission.post_id, func.count())
+            .where(
+                CoursePostSubmission.post_id.in_(assignment_ids),
+                CoursePostSubmission.status.in_(["turned_in", "returned"]),
+            )
+            .group_by(CoursePostSubmission.post_id)
+        )).all())
+        for d in items:
+            if d["post_type"] == "assignment_ref":
+                d["turned_in_count"] = counts.get(d["id"], 0)
+
     return {"limit": limit, "offset": offset, "items": items}
 
 

@@ -16,7 +16,7 @@ additive fallback으로만 호출한다 — 기존 접근을 절대 축소하지
 from sqlalchemy import Text, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.classroom import Course, CoursePost, CourseStudent
+from app.models.classroom import Course, CoursePost, CoursePostSubmission, CourseStudent
 from app.models.course_teacher import CourseTeacher
 from app.models.user import User
 
@@ -81,4 +81,28 @@ async def attachment_share_access(
             if mode == "view":
                 best = "view"
             # copy는 권한 부여 안 함 (학생별 사본 흐름 별도)
+
+    # ── 과제 제출 첨부 — 강좌 교사는 학생이 제출에 첨부한 자료를 열람·코멘트(edit) ──
+    teacher_course_ids = set(owner_ids) | set(co_ids)
+    if teacher_course_ids:
+        sub_rows = (await db.execute(
+            select(CoursePostSubmission.attachments)
+            .join(CoursePost, CoursePost.id == CoursePostSubmission.post_id)
+            .where(
+                CoursePost.course_id.in_(teacher_course_ids),
+                CoursePostSubmission.attachments.is_not(None),
+                cast(CoursePostSubmission.attachments, Text).like(f'%"{id_key}"%'),
+            )
+        )).scalars().all()
+        for atts in sub_rows:
+            if not isinstance(atts, list):
+                continue
+            for a in atts:
+                if (
+                    isinstance(a, dict)
+                    and a.get("type") == att_type
+                    and a.get(id_key) == resource_id
+                ):
+                    return "edit"
+
     return best

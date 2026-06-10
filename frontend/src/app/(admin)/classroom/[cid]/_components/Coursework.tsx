@@ -328,7 +328,9 @@ function CourseworkItem({
             {isAssignment && (
               <div className="flex items-stretch gap-0 text-center">
                 <div className="px-5 border-l border-border-default">
-                  <div className="text-[26px] font-light text-text-primary leading-tight">—</div>
+                  <div className="text-[26px] font-light text-text-primary leading-tight">
+                    {post.turned_in_count ?? 0}
+                  </div>
                   <div className="text-[11.5px] text-text-tertiary mt-1">제출함</div>
                 </div>
                 <div className="px-5 border-l border-border-default">

@@ -222,6 +222,48 @@ async def _guard_classroom(db: AsyncSession, user: User, path: str) -> None:
             return
         raise HTTPException(403, "권한 없음")
 
+    # 과제 제출 파일: storage/classroom/submissions/{file} → CoursePostSubmission.attachments
+    # 접근: 제출 학생 본인 OR 강좌 교사(owner/co_teacher) OR admin
+    if path.startswith("classroom/submissions/"):
+        from sqlalchemy import Text, cast
+        from app.models import CourseTeacher
+        from app.models.classroom import CoursePost, CoursePostSubmission
+        candidates = (await db.execute(
+            select(CoursePostSubmission).where(
+                CoursePostSubmission.attachments.is_not(None),
+                # 직렬화 공백 무관 prefilter — 실제 매칭은 아래 Python에서
+                cast(CoursePostSubmission.attachments, Text).like(f"%{file_url}%"),
+            )
+        )).scalars().all()
+        matched_sub = None
+        for s in candidates:
+            for a in (s.attachments or []):
+                if isinstance(a, dict) and a.get("file_url") == file_url:
+                    matched_sub = s
+                    break
+            if matched_sub:
+                break
+        if not matched_sub:
+            raise HTTPException(404)
+        if user.role in ("super_admin", "designated_admin"):
+            return
+        if matched_sub.student_id == user.id:
+            return
+        post = await db.get(CoursePost, matched_sub.post_id)
+        course = await db.get(Course, post.course_id) if post else None
+        if course:
+            if course.teacher_id == user.id:
+                return
+            ct = (await db.execute(
+                select(CourseTeacher).where(
+                    CourseTeacher.course_id == course.id,
+                    CourseTeacher.user_id == user.id,
+                )
+            )).scalar_one_or_none()
+            if ct:
+                return
+        raise HTTPException(403, "권한 없음")
+
     # CoursePost.attachments(JSON list)에 file_url이 포함된 글이 있는지 OR file_url 컬럼 직접 매칭
     # JSON에서 file_url 검색은 DB 종속이라 단순화: 모든 post의 attachments를 in-app로 검사.
     # 첨부가 많지 않다는 가정. 향후 성능 이슈 시 jsonb 인덱스 추가.

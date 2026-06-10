@@ -39,6 +39,8 @@ export interface Post {
   topic: string | null;
   attachments: Attachment[];
   created_at: string | null;
+  /** 과제 글만 — turned_in + returned 제출 수 (목록 API가 계산) */
+  turned_in_count?: number;
 }
 
 export interface CourseDetail {

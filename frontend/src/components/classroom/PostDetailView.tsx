@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { downloadSecure } from "@/lib/api/download";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
+import { MySubmissionCard, SubmissionsSection } from "./SubmissionPanel";
 
 export type ShareMode = "view" | "edit" | "copy";
 
@@ -67,6 +68,8 @@ interface PostDetailViewProps {
 }
 
 export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailViewProps) {
+  const { user } = useAuth();
+  const isStudentViewer = user?.role === "student";
   const isAssignment = post.post_type === "assignment_ref";
   const isMaterial = post.post_type === "material";
   const isNotice = post.post_type === "notice";
@@ -166,6 +169,12 @@ export function PostDetailView({ post, baseHref = "/classroom" }: PostDetailView
           </div>
         </div>
       )}
+
+      {/* 내 과제 — 학생 제출 (Google Classroom Turn-in) */}
+      {isAssignment && isStudentViewer && <MySubmissionCard post={post} />}
+
+      {/* 제출 현황 + 돌려주기 (교사 전용 — 비담당은 API 403 → 자동 숨김) */}
+      {isAssignment && !isStudentViewer && <SubmissionsSection post={post} />}
 
       {/* 학생별 사본 채점 섹션 (교사 전용) */}
       <CopiesSection post={post} />
