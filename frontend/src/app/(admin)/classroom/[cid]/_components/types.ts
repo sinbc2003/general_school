@@ -10,13 +10,19 @@ export interface Student {
 }
 
 export interface Attachment {
-  type: "link" | "file" | "doc" | "survey";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot";
   title: string;
   url?: string;
   file_url?: string;
   file_name?: string;
   doc_id?: number;
   survey_id?: number;
+  sheet_id?: number;
+  deck_id?: number;
+  hwp_id?: number;
+  chatbot_id?: number;
+  /** 파일 공유 옵션 (doc/sheet/deck/hwp) — view | edit | copy */
+  share_mode?: "view" | "edit" | "copy";
 }
 
 export interface Post {

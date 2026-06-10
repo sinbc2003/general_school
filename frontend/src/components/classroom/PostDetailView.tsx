@@ -606,7 +606,7 @@ function AttachmentRowImpl({ a, isStudent = false, courseId }: { a: Attachment; 
         doc: { href: (id) => `/docs/${id}`, label: "문서", emoji: "📄" },
         sheet: { href: (id) => `/sheets/${id}`, label: "스프레드시트", emoji: "📊" },
         deck: { href: (id) => `/docs/decks/${id}`, label: "프리젠테이션", emoji: "🖼️" },
-        survey: { href: (id) => `/docs/forms/${id}`, label: "설문지", emoji: "📋" },
+        survey: { href: (id) => `/classroom/${courseId}/surveys/${id}`, label: "설문지", emoji: "📋" },
         hwp: { href: (id) => `/hwps/${id}`, label: "한컴 문서", emoji: "📝" },
       };
   if (a.type in driveTypeMap) {

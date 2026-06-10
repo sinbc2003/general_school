@@ -13,6 +13,7 @@ from app.models.classroom_slides import (
     ClassroomPresentation, ClassroomSlide, PresentationMember,
 )
 from app.models.user import User
+from app.services.attachment_share import attachment_share_access
 
 
 def is_admin(user: User) -> bool:
@@ -95,6 +96,13 @@ async def resolve_permission(
                 "can_share": False,
                 "role": m.role,
             }
+
+    # 글 첨부 share_mode (Google Classroom '파일 공유 옵션') — additive.
+    share = await attachment_share_access(db, user, "deck", deck.id)
+    if share == "edit":
+        return {"can_read": True, "can_write": True, "can_share": False, "role": "editor"}
+    if share == "view":
+        return {"can_read": True, "can_write": False, "can_share": False, "role": "viewer"}
 
     if deck.access_mode == "link_public":
         return {"can_read": True, "can_write": False, "can_share": False, "role": "viewer"}

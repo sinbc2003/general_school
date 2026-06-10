@@ -23,6 +23,7 @@ from app.core.files import write_bytes_async, ensure_dir_async, unlink_async
 from app.core.permissions import require_permission
 from app.core.quota import adjust_quota, consume_quota, release_quota
 from app.core.upload import POLICY_HWP, validate_upload
+from app.services.attachment_share import attachment_share_access
 from app.models.classroom import Course, CourseStudent
 from app.models.classroom_hwp import ClassroomHwp, HwpMember
 from app.models.user import User
@@ -83,6 +84,18 @@ async def _resolve_permission(
                 "can_share": is_teacher,
                 "role": "teacher" if is_teacher else "student",
             }
+
+    # 글 첨부 share_mode (Google Classroom '파일 공유 옵션') — additive fallback.
+    share = await attachment_share_access(db, user, "hwp", h.id)
+    if share == "edit":
+        return {
+            "can_read": True,
+            "can_write": not h.is_archived,
+            "can_share": False,
+            "role": "editor",
+        }
+    if share == "view":
+        return {"can_read": True, "can_write": False, "can_share": False, "role": "viewer"}
 
     return {"can_read": False, "can_write": False, "can_share": False, "role": None}
 

@@ -26,6 +26,8 @@ import { ReadOnlyBanner } from "@/components/classroom/ReadOnlyBanner";
 import { PeopleTab } from "@/components/classroom/PeopleTab";
 import { CourseChatbots } from "@/components/classroom/CourseChatbots";
 import { StreamTab } from "./_components/StreamTab";
+import { ReusePostModal, type ReusablePost } from "@/components/classroom/ReusePostModal";
+import { ProblemSetCreateModal } from "@/components/courseware/ProblemSetCreateModal";
 import type { Post, CourseDetail } from "./_components/types";
 
 export default function CourseDetailAdminPage() {
@@ -48,6 +50,9 @@ export default function CourseDetailAdminPage() {
   const [modalKind, setModalKind] = useState<CreateKind | null>(null);
   const [modalInitial, setModalInitial] = useState<AssignmentModalInitial | undefined>();
   const [modalMode, setModalMode] = useState<"edit" | "duplicate" | undefined>();
+  // 만들기 메뉴 — 게시물 재사용 / 퀴즈 과제 (코스웨어 문제 세트)
+  const [showReuse, setShowReuse] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,11 +108,35 @@ export default function CourseDetailAdminPage() {
       setModalKind(kind);
       setModalInitial(undefined);
       setModalMode(undefined);
+    } else if (kind === "quiz") {
+      setShowQuiz(true);
+    } else if (kind === "reuse") {
+      setShowReuse(true);
     } else if (kind === "doc") {
       router.push(`/classroom/${cid}/docs`);
+    } else if (kind === "deck") {
+      router.push(`/classroom/${cid}/decks`);
     } else if (kind === "survey") {
       router.push(`/classroom/${cid}/surveys`);
+    } else if (kind === "chatbot") {
+      setActiveTab("chatbots");
     }
+  };
+
+  // 게시물 재사용 — 다른 강좌 글을 duplicate 모드로 prefill (기한은 비움, 제목 유지)
+  const handleReusePick = (post: ReusablePost) => {
+    setShowReuse(false);
+    const k: CreateKind = post.post_type === "assignment_ref" ? "assignment" : "material";
+    setModalKind(k);
+    setModalInitial({
+      title: post.title,
+      content: post.content,
+      max_score: post.max_score,
+      due_date: null,
+      topic: post.topic,
+      attachments: post.attachments,
+    });
+    setModalMode("duplicate");
   };
 
   const handleEdit = (post: Post) => {
@@ -267,6 +296,7 @@ export default function CourseDetailAdminPage() {
           kind={modalKind}
           studentCount={course.students.length}
           existingTopics={Array.from(new Set(posts.map((p) => p.topic).filter(Boolean) as string[]))}
+          courseName={course.name}
           initial={modalInitial}
           mode={modalMode}
           onClose={closeModal}
@@ -277,6 +307,27 @@ export default function CourseDetailAdminPage() {
             setActiveTab("coursework");
             load();
             toast.show(`${noun} ${verb}`, "success");
+          }}
+        />
+      )}
+
+      {/* 게시물 재사용 (Google Classroom 식) */}
+      {showReuse && (
+        <ReusePostModal
+          currentCid={cid}
+          onClose={() => setShowReuse(false)}
+          onPick={handleReusePick}
+        />
+      )}
+
+      {/* 퀴즈 과제 — 코스웨어 문제 세트 생성 */}
+      {showQuiz && (
+        <ProblemSetCreateModal
+          cid={cid}
+          onClose={() => setShowQuiz(false)}
+          onCreated={(psid) => {
+            setShowQuiz(false);
+            router.push(`/classroom/${cid}/courseware/${psid}`);
           }}
         />
       )}

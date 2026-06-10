@@ -41,6 +41,7 @@ from app.models.classroom_surveys import (
     Survey, SurveyAnswer, SurveyQuestion, SurveyResponse,
 )
 from app.models.user import User
+from app.services.attachment_share import attachment_share_access
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/classroom/sheets", tags=["classroom-sheets"])
@@ -126,6 +127,13 @@ async def _resolve_permission(db: AsyncSession, user: User, sh: ClassroomSheet) 
                 "can_read": True, "can_write": m.role == "editor",
                 "can_share": False, "role": m.role,
             }
+
+    # 글 첨부 share_mode (Google Classroom '파일 공유 옵션') — additive.
+    share = await attachment_share_access(db, user, "sheet", sh.id)
+    if share == "edit":
+        return {"can_read": True, "can_write": True, "can_share": False, "role": "editor"}
+    if share == "view":
+        return {"can_read": True, "can_write": False, "can_share": False, "role": "viewer"}
 
     if sh.access_mode == "link_public":
         return {"can_read": True, "can_write": False, "can_share": False, "role": "viewer"}

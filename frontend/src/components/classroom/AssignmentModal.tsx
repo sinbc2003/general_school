@@ -22,10 +22,11 @@
  * 동일 컴포넌트로 "과제" / "자료" 두 모드 모두 처리 (kind prop).
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
   Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive, Bot,
+  Plus, Presentation, Table2, FileType,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { DrivePicker } from "./DrivePicker";
@@ -75,6 +76,8 @@ interface AssignmentModalProps {
   studentCount: number;
   /** 기존 주제 list (자동완성용) */
   existingTopics: string[];
+  /** 우측 사이드바 "수업" 표시용 강좌명 (없으면 #cid) */
+  courseName?: string;
   /** 편집/복제 모드의 prefill. 없으면 신규 생성. */
   initial?: AssignmentModalInitial;
   /** 모드 표시 — 'edit' | 'duplicate' | undefined(신규) */
@@ -82,6 +85,51 @@ interface AssignmentModalProps {
   onClose: () => void;
   onSaved: (postId: number) => void;
 }
+
+/** 첨부 "만들기" — 새 자료를 즉석 생성해 첨부 (Google Classroom 만들기 서브메뉴).
+ *  doc/deck/sheet/hwp는 standalone(specific_users)으로 만들어 share_mode가
+ *  학생 접근을 결정 (Google과 동일 의미). 설문은 강좌 소속으로 생성. */
+const CREATE_ATTACH_DEFS: {
+  type: AttachmentItem["type"];
+  label: string;
+  icon: any;
+  bg: string;
+  color: string;
+  endpoint: string;
+  body: (cid: number) => Record<string, any>;
+  openHref: (cid: number, id: number) => string;
+}[] = [
+  {
+    type: "doc", label: "문서", icon: FileText, bg: "#dbeafe", color: "#1d4ed8",
+    endpoint: "/api/classroom/docs",
+    body: () => ({ title: "제목 없는 문서", access_mode: "specific_users" }),
+    openHref: (_c, id) => `/docs/${id}`,
+  },
+  {
+    type: "deck", label: "프리젠테이션", icon: Presentation, bg: "#fef3c7", color: "#a16207",
+    endpoint: "/api/classroom/decks",
+    body: () => ({ title: "제목 없는 프리젠테이션", access_mode: "specific_users" }),
+    openHref: (_c, id) => `/docs/decks/${id}`,
+  },
+  {
+    type: "sheet", label: "스프레드시트", icon: Table2, bg: "#dcfce7", color: "#15803d",
+    endpoint: "/api/classroom/sheets",
+    body: () => ({ title: "제목 없는 스프레드시트", access_mode: "specific_users" }),
+    openHref: (_c, id) => `/sheets/${id}`,
+  },
+  {
+    type: "survey", label: "설문지", icon: ClipboardCheck, bg: "#ede9fe", color: "#7c3aed",
+    endpoint: "/api/classroom/surveys",
+    body: (cid) => ({ title: "제목 없는 설문지", course_id: cid }),
+    openHref: (cid, id) => `/classroom/${cid}/surveys/${id}`,
+  },
+  {
+    type: "hwp", label: "한컴 문서", icon: FileType, bg: "#e0f2fe", color: "#0369a1",
+    endpoint: "/api/classroom/hwps",
+    body: () => ({ title: "제목 없는 HWP", access_mode: "specific_users" }),
+    openHref: (_c, id) => `/hwps/${id}`,
+  },
+];
 
 const KIND_META: Record<CreateKind, { icon: any; iconBg: string; iconColor: string; title: string; submitLabel: string; postType: "assignment_ref" | "material" }> = {
   assignment: {
@@ -95,7 +143,7 @@ const KIND_META: Record<CreateKind, { icon: any; iconBg: string; iconColor: stri
 };
 
 export function AssignmentModal({
-  cid, kind, studentCount, existingTopics, initial, mode, onClose, onSaved,
+  cid, kind, studentCount, existingTopics, courseName, initial, mode, onClose, onSaved,
 }: AssignmentModalProps) {
   const meta = KIND_META[kind];
 
@@ -138,6 +186,44 @@ export function AssignmentModal({
 
   const [showDrivePicker, setShowDrivePicker] = useState(false);
   const [showChatbotPicker, setShowChatbotPicker] = useState(false);
+
+  // 첨부 "만들기" 서브메뉴 (Google Classroom 식)
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [creatingType, setCreatingType] = useState<string | null>(null);
+  const createMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [createMenuOpen]);
+
+  const createAndAttach = async (def: (typeof CREATE_ATTACH_DEFS)[number]) => {
+    if (creatingType) return;
+    setCreateMenuOpen(false);
+    setCreatingType(def.type);
+    // popup blocker 회피 — 사용자 제스처 동기 시점에 창을 먼저 열고 URL은 나중에
+    const win = window.open("", "_blank");
+    try {
+      const res = await api.post<{ id: number; title?: string }>(def.endpoint, def.body(cid));
+      const idKey = `${def.type}_id`;
+      const item: any = { type: def.type, title: res.title || def.body(cid).title, [idKey]: res.id };
+      if (isShareable(def.type)) item.share_mode = "view";
+      setAttachments((prev) => [...prev, item]);
+      const href = def.openHref(cid, res.id);
+      if (win) win.location.href = href;
+    } catch (e: any) {
+      win?.close();
+      alert(e?.detail || `${def.label} 생성 실패`);
+    } finally {
+      setCreatingType(null);
+    }
+  };
 
   const addChatbot = (bot: { chatbot_id: number; title: string }) => {
     setAttachments([...attachments, { type: "chatbot", title: bot.title, chatbot_id: bot.chatbot_id }]);
@@ -301,16 +387,53 @@ export function AssignmentModal({
                 첨부
               </div>
               <div className="flex items-center gap-4 flex-wrap">
+                <AttachBtn icon={HardDrive} label="내 드라이브" onClick={() => setShowDrivePicker(true)} bg="#ede9fe" color="#7c3aed" />
+                {/* 만들기 — Google Classroom 식: 새 자료 즉석 생성 + 첨부 */}
+                <div ref={createMenuRef} className="relative">
+                  <AttachBtn
+                    icon={creatingType ? Loader2 : Plus}
+                    label={creatingType ? "생성 중..." : "만들기"}
+                    onClick={() => setCreateMenuOpen((v) => !v)}
+                    bg="#fce7f3"
+                    color="#be185d"
+                    spin={!!creatingType}
+                  />
+                  {createMenuOpen && (
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 z-30 bg-bg-primary border border-border-default rounded-lg shadow-lg w-[200px] py-1.5">
+                      {CREATE_ATTACH_DEFS.map((d) => {
+                        const DIcon = d.icon;
+                        return (
+                          <button
+                            key={d.type}
+                            type="button"
+                            onClick={() => createAndAttach(d)}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-bg-secondary text-left"
+                          >
+                            <span
+                              className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0"
+                              style={{ backgroundColor: d.bg, color: d.color }}
+                            >
+                              <DIcon size={14} />
+                            </span>
+                            <span className="text-body text-text-primary">{d.label}</span>
+                          </button>
+                        );
+                      })}
+                      <div className="px-3 pt-1.5 mt-1 border-t border-border-default text-[10.5px] text-text-tertiary">
+                        생성 후 새 탭에서 편집 · 자동 첨부
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <AttachBtn
                   icon={uploading ? Loader2 : Upload}
-                  label={uploading ? "업로드 중..." : "파일"}
+                  label={uploading ? "업로드 중..." : "업로드"}
                   onClick={triggerFilePicker}
                   bg="#e0e7ff"
                   color="#4338ca"
                   spin={uploading}
                 />
                 <AttachBtn icon={LinkIcon} label="링크" onClick={addLink} bg="#dbeafe" color="#1d4ed8" />
-                <AttachBtn icon={HardDrive} label="내 드라이브" onClick={() => setShowDrivePicker(true)} bg="#ede9fe" color="#7c3aed" />
                 <AttachBtn icon={Bot} label="챗봇" onClick={() => setShowChatbotPicker(true)} bg="#e0f2fe" color="#0369a1" />
               </div>
               {showDrivePicker && (
@@ -339,6 +462,9 @@ export function AssignmentModal({
               {attachments.length > 0 && (
                 <div className="mt-4 space-y-1.5">
                   {attachments.map((a, i) => {
+                    const emoji: Record<string, string> = {
+                      doc: "📄", sheet: "📊", deck: "🖼️", survey: "📋", hwp: "📝",
+                    };
                     const Icon = a.type === "file" ? Paperclip
                       : a.type === "chatbot" ? Bot
                       : LinkIcon;
@@ -348,7 +474,11 @@ export function AssignmentModal({
                         key={i}
                         className="flex items-center gap-2 px-3 py-2 border border-border-default rounded hover:bg-bg-secondary group"
                       >
-                        <Icon size={13} className="text-text-tertiary flex-shrink-0" />
+                        {emoji[a.type] ? (
+                          <span className="text-[14px] flex-shrink-0">{emoji[a.type]}</span>
+                        ) : (
+                          <Icon size={13} className="text-text-tertiary flex-shrink-0" />
+                        )}
                         {a.url ? (
                           <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-caption text-accent hover:underline flex-1 truncate">
                             {a.title}
@@ -365,11 +495,11 @@ export function AssignmentModal({
                             value={a.share_mode || "view"}
                             onChange={(e) => setShareMode(i, e.target.value as ShareMode)}
                             className="text-[11px] border border-border-default rounded px-1.5 py-0.5 bg-bg-primary"
-                            title="학생용 공유 모드"
+                            title="파일 공유 옵션"
                           >
-                            <option value="view">보기만</option>
-                            <option value="edit">공동 편집</option>
-                            <option value="copy" disabled>학생별 사본 (곧 지원)</option>
+                            <option value="view">학생에게 보기 권한 제공</option>
+                            <option value="edit">학생에게 수정 권한 제공</option>
+                            <option value="copy">학생별로 사본 제공</option>
                           </select>
                         )}
                         <button
@@ -390,8 +520,8 @@ export function AssignmentModal({
           {/* 우측 사이드바 */}
           <aside className="space-y-4">
             <Field label="수업">
-              <div className="px-3 py-2 border border-border-default rounded text-body bg-bg-primary">
-                현재 강좌 (#{cid})
+              <div className="px-3 py-2 border border-border-default rounded text-body bg-bg-primary truncate">
+                {courseName || `현재 강좌 (#${cid})`}
               </div>
             </Field>
 
