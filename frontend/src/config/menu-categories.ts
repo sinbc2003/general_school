@@ -12,6 +12,7 @@ import {
   Sparkles,
   HardDrive,
   Bell,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -45,6 +46,7 @@ export const iconMap: Record<string, LucideIcon> = {
   Sparkles,
   HardDrive,
   Bell,
+  Wrench,
 };
 
 // admin items = adminMenu의 top-level key들
@@ -85,6 +87,13 @@ export const defaultCategories: MenuCategoriesConfig = {
       icon: "BookOpen",
       // 수업 자료실 + 클래스룸 + 코스웨어 + 대회·과제 + 동아리·연구 + 생활기록부 통합
       items: ["archive", "classroom", "courseware", "contest", "assignment", "club", "research", "record-writer"],
+    },
+    {
+      id: "edutools",
+      name: "업무 및 수업 도구",
+      icon: "Wrench",
+      // 에듀테크 자체 구현 — 라이브 퀴즈(Kahoot형) 등. 허브 /tools
+      items: ["edutools"],
     },
     {
       id: "students",
@@ -130,7 +139,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "class",
       name: "수업",
       icon: "BookOpen",
-      items: ["classroom", "courseware", "wrong-notes", "enrollment-wizard", "my-docs"],
+      items: ["classroom", "courseware", "wrong-notes", "quiz-join", "enrollment-wizard", "my-docs"],
     },
     {
       id: "competition",

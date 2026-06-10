@@ -37,6 +37,7 @@ import {
   Flag,
   Mail,
   LogIn,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -197,6 +198,14 @@ export const adminMenu: MenuItem[] = [
     permission: "classroom.courseware.view",
     excludeRoles: ["student"],
     feature: "courseware",
+  },
+  {
+    key: "edutools",
+    label: "도구 모음",
+    icon: Wrench,
+    path: "/tools",
+    permission: null,
+    excludeRoles: ["student"],
   },
   {
     key: "drive",

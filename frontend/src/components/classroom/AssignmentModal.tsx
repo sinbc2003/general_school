@@ -26,18 +26,19 @@ import { useEffect, useRef, useState } from "react";
 import {
   X, ClipboardList, Folder, FileText, ClipboardCheck, Link as LinkIcon,
   Trash2, Users, Award, Calendar, Hash, Upload, Loader2, Paperclip, HardDrive, Bot,
-  Plus, Presentation, Table2, FileType, ExternalLink,
+  Plus, Presentation, Table2, FileType, ExternalLink, Gamepad2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { DrivePicker } from "./DrivePicker";
 import { ChatbotPickerModal } from "./ChatbotPickerModal";
+import { QuizPickerModal } from "./QuizPickerModal";
 
 export type CreateKind = "assignment" | "material";
 
 type ShareMode = "view" | "edit" | "copy";
 
 interface AttachmentItem {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz";
   title: string;
   url?: string;
   file_url?: string;
@@ -48,6 +49,7 @@ interface AttachmentItem {
   deck_id?: number;
   hwp_id?: number;
   chatbot_id?: number;
+  live_quiz_id?: number;
   /** 학생용 공유 모드. drive 자료(doc/sheet/deck/hwp)만 의미 있음.
    *  link/file/survey/chatbot은 항상 view 강제. copy는 Phase 2 활성화. */
   share_mode?: ShareMode;
@@ -189,6 +191,7 @@ export function AssignmentModal({
 
   const [showDrivePicker, setShowDrivePicker] = useState(false);
   const [showChatbotPicker, setShowChatbotPicker] = useState(false);
+  const [showQuizPicker, setShowQuizPicker] = useState(false);
 
   // 첨부 "만들기" 서브메뉴 (Google Classroom 식)
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -294,6 +297,10 @@ export function AssignmentModal({
 
   const addChatbot = (bot: { chatbot_id: number; title: string }) => {
     setAttachments([...attachments, { type: "chatbot", title: bot.title, chatbot_id: bot.chatbot_id }]);
+  };
+
+  const addQuiz = (q: { live_quiz_id: number; title: string }) => {
+    setAttachments([...attachments, { type: "live_quiz", title: q.title, live_quiz_id: q.live_quiz_id }]);
   };
 
   const addFromDrive = (picked: Array<{ type: string; source_id: number; title: string }>) => {
@@ -502,6 +509,7 @@ export function AssignmentModal({
                 />
                 <AttachBtn icon={LinkIcon} label="링크" onClick={addLink} bg="#dbeafe" color="#1d4ed8" />
                 <AttachBtn icon={Bot} label="챗봇" onClick={() => setShowChatbotPicker(true)} bg="#e0f2fe" color="#0369a1" />
+                <AttachBtn icon={Gamepad2} label="퀴즈" onClick={() => setShowQuizPicker(true)} bg="#f3e8ff" color="#7e22ce" />
               </div>
               {showDrivePicker && (
                 <DrivePicker
@@ -514,6 +522,12 @@ export function AssignmentModal({
                   cid={cid}
                   onClose={() => setShowChatbotPicker(false)}
                   onSelect={addChatbot}
+                />
+              )}
+              {showQuizPicker && (
+                <QuizPickerModal
+                  onClose={() => setShowQuizPicker(false)}
+                  onSelect={addQuiz}
                 />
               )}
               <input
@@ -534,6 +548,7 @@ export function AssignmentModal({
                     };
                     const Icon = a.type === "file" ? Paperclip
                       : a.type === "chatbot" ? Bot
+                      : a.type === "live_quiz" ? Gamepad2
                       : LinkIcon;
                     const shareable = isShareable(a.type);
                     // 드라이브 자료 — 행 어디를 눌러도 새 창에서 편집기 오픈

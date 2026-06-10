@@ -146,6 +146,9 @@ from app.models.student_record_project import (
     RecordProject, RecordProjectStudent, RecordColumn, RecordCell,
 )
 
+# ── Tool: Live Quiz (Kahoot형 라이브 퀴즈 — 업무 및 수업 도구) ──
+from app.models.tool_quiz import LiveQuizSession, LiveQuizPlayer, LiveQuizAnswer
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -230,4 +233,6 @@ __all__ = [
     "TeacherGroup", "TeacherGroupMember", "TeacherGroupStudent", "GroupSubmission",
     # Student Record Project (생활기록부 자동작성)
     "RecordProject", "RecordProjectStudent", "RecordColumn", "RecordCell",
+    # Tool: Live Quiz
+    "LiveQuizSession", "LiveQuizPlayer", "LiveQuizAnswer",
 ]

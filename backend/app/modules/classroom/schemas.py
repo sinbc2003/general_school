@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 PostType = Literal["notice", "material", "assignment_ref"]
 AttachmentType = Literal[
     "link", "file", "doc", "survey", "sheet", "deck", "hwp", "chatbot", "problemset",
+    "live_quiz",
 ]
 
 # 첨부 공유 모드 — Google Classroom 식
@@ -50,6 +51,8 @@ class Attachment(BaseModel):
     hwp_id: int | None = None
     chatbot_id: int | None = None
     problemset_id: int | None = None
+    # 라이브 퀴즈 세션 첨부 — 클릭 시 학생은 /s/quiz/{pin} 입장, 교사는 진행 화면
+    live_quiz_id: int | None = None
     share_mode: ShareMode = "view"
 
 

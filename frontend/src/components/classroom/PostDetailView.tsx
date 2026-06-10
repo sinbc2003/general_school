@@ -27,7 +27,7 @@ import { PrivateComments } from "./PrivateComments";
 export type ShareMode = "view" | "edit" | "copy";
 
 export interface Attachment {
-  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot";
+  type: "link" | "file" | "doc" | "survey" | "sheet" | "deck" | "hwp" | "chatbot" | "live_quiz";
   title: string;
   url?: string;
   file_url?: string;
@@ -38,6 +38,7 @@ export interface Attachment {
   deck_id?: number;
   hwp_id?: number;
   chatbot_id?: number;
+  live_quiz_id?: number;
   /** Google Classroom 식 공유 모드.
    *  - view (default): 보기만
    *  - edit: 학생이 함께 편집 (협업)
@@ -542,7 +543,56 @@ function AttachmentRow({ a, postId, attIdx, courseId }: { a: Attachment; postId:
   if (a.type === "chatbot" && a.chatbot_id) {
     return <ChatbotAttachmentRow a={a} isStudent={isStudent} />;
   }
+  // 라이브 퀴즈 첨부 — 학생은 PIN 입장, 교사(host)는 진행 화면
+  if (a.type === "live_quiz" && a.live_quiz_id) {
+    return <LiveQuizAttachmentRow a={a} isStudent={isStudent} />;
+  }
   return AttachmentRowImpl({ a, isStudent, courseId });
+}
+
+
+function LiveQuizAttachmentRow({ a, isStudent }: { a: Attachment; isStudent: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    if (busy || !a.live_quiz_id) return;
+    setBusy(true);
+    try {
+      const info = await api.get<{
+        id: number; title: string; status: string; pin: string | null; is_host: boolean;
+      }>(`/api/tools/quiz/info/${a.live_quiz_id}`);
+      if (info.is_host && !isStudent) {
+        window.location.href = `/tools/quiz/${info.id}/host`;
+        return;
+      }
+      if (info.status === "ended" || !info.pin) {
+        alert("이미 종료된 퀴즈입니다.");
+        setBusy(false);
+        return;
+      }
+      window.location.href = `/s/quiz/${info.pin}`;
+    } catch (e: any) {
+      alert(e?.detail || e?.message || "퀴즈를 열 수 없습니다");
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
+      className="w-full flex items-center gap-3 px-3 py-2.5 border border-violet-200 bg-violet-50 rounded hover:bg-violet-100 group text-left disabled:opacity-60"
+    >
+      <span className="text-[16px]">🎮</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-body text-violet-800 truncate font-medium">
+          {busy ? "퀴즈 여는 중..." : a.title}
+        </div>
+        <div className="text-[11px] text-violet-700">
+          라이브 퀴즈 — 클릭하면 게임에 입장합니다.
+        </div>
+      </div>
+    </button>
+  );
 }
 
 
