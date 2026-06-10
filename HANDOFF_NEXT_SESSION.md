@@ -1,124 +1,104 @@
-# 다음 세션 인계 — general_school ("이어서" 작업)
+# 다음 세션 인계 — "업무 및 수업 도구" (에듀테크 자체 구현)
 
-> 사용자가 **"이어서"** 라고 하면 이 문서를 읽고 아래 **남은 작업**을 우선순위 순으로 진행한다.
-> (작성: 2026-06-02 / 갱신: 2026-06-02 2차 세션 — B·C·D 전부 완료·B배포. 현재 **필수 남은 작업 없음**, §3 참조)
-
----
-
-## 1. 환경 / 작업 방법
-
-- **코드**: WSL `/home/sinbc/general_school` = GitHub `sinbc2003/general_school` (39모듈 운영코드)
-  - ⚠️ OneDrive의 `teacher_student/general_school`는 **구버전 사본**. 작업은 반드시 WSL repo에서.
-  - 파일 편집은 `\\wsl.localhost\Ubuntu\home\sinbc\general_school\...` 경로로 Read/Edit/Write.
-- **운영 서버 B**: `ssh susung@100.92.66.61` (Tailscale 고정 IP) — Ubuntu, `~/general_school`
-- **배포 흐름**:
-  1. WSL에서 수정 → `git add/commit/push origin main` (커밋 끝에 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`)
-  2. B 배포 (PowerShell에서 ssh):
-     - `cd ~/general_school && git pull --ff-only`
-     - **backend 변경**: `sudo systemctl restart gs-backend`
-     - **frontend 변경**: `cd frontend && npm run build && cp -r .next/static .next/standalone/.next/ && cd .. && sudo systemctl restart gs-frontend` (빌드 1~3분)
-  3. ⚠️ **PowerShell ssh는 따옴표/`|`를 깨먹음** → base64 래핑 필수:
-     ```powershell
-     $s = @'
-     <bash script>
-     '@
-     $b = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s))
-     ssh -o BatchMode=yes susung@100.92.66.61 "echo $b | base64 -d | bash"
-     ```
-  4. push 거부(non-fast-forward) 시: `git pull --rebase origin main && git push`
-- **문법검증**: backend는 `wsl ... python3 -m py_compile <file>`; frontend는 B 빌드에서 검증.
-- **B 동작검증**: `cd backend && ./venv/bin/python3 <<'PY' ... await db.rollback() ... PY` (테스트 데이터 rollback).
-- **현재 B 상태**: 초기화됨(users 0, 첫 회원가입=super_admin), `ENV=production`, **SMTP 미설정**(2FA 코드는 `journalctl -u gs-backend`에 찍힘). 가입 막히면 로그에서 코드 확인.
-- **전체 초기화**(테스트 후): `factory_reset` — `cd backend && ./venv/bin/python3 -c "import asyncio, app.main; from app.core.database import async_session_factory; from app.services.backup import factory_reset; asyncio.run((lambda: ...)())"` 또는 UI `/system/backup` Danger Zone.
+> 사용자가 **"이어서"** 라고 하면 이 문서를 읽고 §3 작업을 바로 시작한다.
+> (작성: 2026-06-10 — 이전 인계분(enrollment 연동 등)은 전부 완료·배포됨)
 
 ---
 
-## 2. 이번 세션 완료 (전부 B+GitHub 배포됨)
+## 1. 환경 / 작업 방법 (요약 — 상세는 CLAUDE.md)
 
-- **enrollment 연동 (클래스룸-학생 매칭 근본수정)** — `create_user`가 현재학기 `SemesterEnrollment` 자동생성 + `POST /api/timetable/enrollments/_set-homeroom` 신규 구현(Step6 담임매핑). 검증: 학급강좌에 학생 매칭 OK.
-- **학기 carry-over** — `SemesterFormModal` 신규생성 시 직전학기 자동선택 (`copy_enrollments` 기본 ON).
-- **버그픽스** — multi-role 필터(`role=teacher,staff` split→`in_`), 전화번호 표준화(`_format_phone`), 교사 xlsx 템플릿+부서 드롭다운, Danger Zone 전체초기화, gs-status 깜빡임 제거, 발신자 표시이름(`from_name`), 사용자등록 템플릿 xlsx 일관화.
-
----
-
-## 3. 남은 작업 (이어서) — ✅ B·C·D 모두 완료 (2026-06-02 2차 세션, B 배포됨)
-
-직전 핸드오프의 B·C·D를 모두 구현하고 GitHub push + 수성고 B 배포(BUILD_OK·gs-frontend active)까지 완료. **남은 필수 작업 없음.**
-
-### ✅ B. 학생 선택 모달 — 완료 (commit f9acb3b)
-- 신규 `frontend/src/components/StudentPickerModal.tsx` (재사용 컴포넌트): 학년/반 필터 + 이름·아이디 검색 + "현재 목록 전체 선택" + 이미등록 학생 "등록됨" 비활성 + 학번 붙여넣기 보조입력(접힘).
-- `GET /api/users/peers?role=student` 사용 — `user.manage.view` 권한 없는 교사도 본인 강좌에 학생 등록 가능(`/api/users`는 권한 필요해서 회피).
-- 클래스룸 강좌상세 `(admin)/classroom/[cid]/page.tsx`의 학번입력 `BulkAddModal` 제거 → StudentPickerModal로 교체. 백엔드 무변경(`CourseStudentBulk`가 user_ids/student_numbers 둘 다 지원).
-
-### ✅ C. 내 정보 드롭다운 연동 — 완료 (commit 3836962)
-- `(admin)/me/setup/page.tsx`: 담임/부담임 = 학급 `<select>`, 수업학년/수업학급 = 체크박스(학급은 선택 학년에서만 활성), 담당과목 = 체크박스. 모두 `enrollment.semester.classes_per_grade`/`subjects` 기반.
-- `auth/teacher-onboarding/page.tsx`와 동일 UX·데이터경로(`GET /api/timetable/my-enrollment`). 자유텍스트(쉼표구분) 입력 제거. 백엔드 무변경(`_semester_to_dict`가 구조 제공).
-
-### ✅ D. 메뉴 순서 — 완료 (commit 8667b54)
-- `frontend/src/config/menu-categories.ts` `defaultCategories.admin`: **알림(공지) → 대시보드 → 드라이브 → 업무(내정보·시간표) → 이하 동일.** 알림·대시보드를 단일항목 카테고리로 승격, `Bell` 아이콘 추가.
-- ⚠️ **시드(기본값)만 변경** — DB에 `menu_categories` 오버라이드가 저장돼 있으면 미적용 → `/system/menu`에서 조정. **B는 현재 오버라이드 없음(null) → 즉시 반영 확인됨.**
-
-### ✅ E. 연구 담당학생 선택 모달 — 완료 (commit 94c0d58)
-- `StudentPickerModal`에 **single 모드** 추가(한 명 클릭 즉시 선택, `onPick(student)`로 전체 row 전달).
-- `(admin)/me/setup` 4번 섹션 + `(admin)/system/research-supervisors` CreateSupervisionModal: 학번/이름 typeahead → **명단 단일선택 모달**로 교체. 직접입력 제거.
-
-### ✅ F. 초기 비밀번호 = 전화번호(숫자만) — 완료 (commit 4bec709)
-- `_helpers.phone_to_initial_password()`: 전화번호에서 비숫자 제거 → 초기 비번.
-- `create_user`: 비번 우선순위 = **명시비번(임시) → 전화번호숫자 → DEFAULT_USER_PASSWORD(폴백)**. 교사·학생 공통, `must_change_password=True` 유지.
-- 마법사 `Step4Teachers`/`Step5Students`: '임시 비번' 칸 추가 — 연락처 없을 때 입력. password는 임시비번만 전송(없으면 백엔드가 phone derive). 연락처·임시 둘 다 없으면 공통기본비번 경고.
-- 검증: 헬퍼 단위테스트 + 해시 라운드트립(연락처로 만든 비번 로그인) B에서 통과. CSV import(`user_csv_io`)는 phone 컬럼 없음 → 그대로(명시 password 칸 사용).
-
-### ✅ G. 비밀번호 초기화 = 전화번호 우선 — 완료 (commit 0ea97bb)
-- `sessions.py reset_password`: **전화번호(숫자만) 있으면 그것으로, 없으면 관리자 지정 비번(body.password)**으로 초기화. 둘 다 없으면 400. `must_change_password=True`. 응답 `{password, source}`(기존 공통 default_password 노출 대체).
-- `/users` 초기화 버튼: 전화번호 있으면 확인→폰번호, 없으면 `prompt`로 임시비번 입력. `UserItem`에 phone 추가.
-- 검증: 3경우(phone/manual/400) B에서 통과. reset 경로의 DEFAULT_USER_PASSWORD 의존 제거.
-
-### ✅ H. CSV 일괄등록도 연락처 기반 초기비번 — 완료 (commit 6fb2ff5)
-- `user_csv_io.py`: CSV/xlsx 템플릿에 **'연락처' 컬럼** 추가(비밀번호 다음). 한글 별칭 매핑.
-- 초기비번 = 명시비번 → 연락처(숫자만) → DEFAULT. `phone`을 User에 저장. 마법사 '엑셀 일괄 등록' + CSV 업로드 모두 적용.
-- 검증 B 통과(연락처→비번, 명시 우선, 무폰→DEFAULT). **→ 등록(마법사 줄입력·CSV)·초기화 전부 "연락처 우선" 일관 완성.**
-- **개선 (commit ceafa70)**: CSV/xlsx 템플릿에서 **'비밀번호' 컬럼 폐지**(연락처가 곧 초기비번), 연락처 예시 '-' 없이(`01012345678`). 마법사 Step4/5 **per-row 임시비번 제거 → 상단 '일괄 임시 비번' 한 칸**(핸드폰 없는 사람 전원에 적용). 연락처 placeholder '-' 없이. import은 password 컬럼 있으면 호환 사용.
-
-### ✅ I. 개설과목 마법사 등록 + me/setup 학급/학년 학생기반 — 완료 (commit 02b5e0d)
-- **마법사 Step3Semesters**: '개설 과목' 등록 UI 추가 → 현재 학기 `subjects`를 `PUT /api/timetable/semesters/{id}/structure`로 저장. me/setup 담당과목 드롭다운의 표준 소스. 자유입력 X, 추가/수정·시스템→학기관리에서도 가능.
-- **me/setup**: 담임/수업 학급 = **등록 학생 명단(학년+반)에서 도출**(+classes_per_grade 합집합), 수업 학년 = 학생 학년. 담당과목 = `semester.subjects`. → 마법사가 classes_per_grade를 안 채우던 문제 해결.
-- **배경**: 마법사 Step1은 grade_count만, classes_per_grade·subjects는 마법사 미수집(확인: B에서 None). 그래서 학급=학생도출, 과목=마법사등록으로 전환.
-- **✅ 교사 템플릿 담당과목 드롭다운 — 완료 (commit c791be1)**: 교사 CSV/xlsx 템플릿에 '담당과목' 컬럼+xlsx 드롭다운(현재학기 개설과목). CSV import가 **모든 임포트 사용자에 현재학기 enrollment 자동생성**(기존엔 미생성=명단누락 버그였음)하고, 교사는 `teaching_subjects` 저장. 미등록 과목은 행 오류로 거부(자유입력 차단). B 검증 통과(수학→OK+enrollment, 체육→거부).
-
-### ✅ J. 과제 마감 1일 전 알림 + 멀티워커 단일실행 가드 — 완료 (commit 31ba0a4, 130147c)
-- **마감 reminder**: `core/notification_scheduler._send_due_reminders` — 마감 **23~25h 전** + is_visible·ACTIVE 과제의 **미제출 학생**에게 종 알림(`assignment.due_reminder`, 링크 `/s/assignment`, 본문 시각 **KST**). 대상 = 같은 학기 active 학생(SemesterEnrollment), `target_grades` 지정 시 해당 학년만. `due_reminder_sent_at` 마크로 과제당 1회.
-  - **고친 버그**: 기존 코드가 대상을 Course/subject 매칭으로 찾았으나 과제(list_assignments)는 강좌 수강 여부로 안 거르고 학기 전체 학생에게 노출 → 매칭 강좌 없으면 **0건 발송(죽은 코드)**. 링크도 `/s/assignments/{id}`(존재X 404) → `/s/assignment`.
-- **멀티워커 가드(중요)**: gunicorn `--workers 9` → lifespan이 워커마다 스케줄러 기동 → reminder **9중복 발송** + github_update_check 동시 INSERT로 `school_config_key_key` unique 충돌(로그 스팸). **Postgres advisory lock(`pg_try_advisory_lock`, key `0x47534E4F54494659`)으로 워커 1개만 cron 실행**. SQLite(dev)는 그대로. → 모든 cron(휴지통 purge·볼륨체크 등)도 9×→1× 정상화. 확인: `SELECT count(*) FROM pg_locks WHERE locktype='advisory'` = 1.
-- **검증 B 통과**: 24h후 마감 테스트과제 → active 고1 5명에 5건 발송, 제목/본문/KST(`06/04 00:21`)/링크/dedup 정확, 정리 후 잔여 0.
-- **범위**: 과제 = **dedicated Assignment 모듈(`/s/assignment`)** 기준. classroom 글(assignment_ref)은 작성 시 이미 알림 발송 + 제출추적 없음 → 별도 reminder 미적용(원하면 CoursePost에 due_reminder_sent_at 컬럼 추가 필요).
-
-### 🟢 운영 배포 상태 (2026-06-02) — 교감 시연용 임시 공개
-- **공개 URL: https://pubedu.com** — Cloudflare named 터널 `gs` (sinbc2023 계정 도메인). `cloudflared` systemd 자동시작, 재부팅 유지.
-  - config `~susung/.cloudflared/config.yml`: `edge-ip-version: "4"` (B의 **IPv6 아웃바운드가 깨져 있어** IPv4 고정 필수 — login cert fetch도 IPv6 끄고 해야 됐음). cert `~susung/.cloudflared/cert.pem`.
-  - `.env`: `GS_PUBLIC_URL=https://pubedu.com` → gs-autoip 도메인모드가 FRONTEND/CORS를 도메인으로 유지(재부팅 안전).
-- **⚠️ `.env SHOW_LOGIN_CODE=true` (임시 데모)** — 로그인 2FA 코드를 화면에 노출(교감 이메일 확인 불필요). **시연 후 반드시 `false` + `gs-backend` 재시작.** 공개 URL + 이 토글 = 2FA 사실상 무력화.
-- **선배연구(past_research)에 학생연구보고서 75건 업로드 완료** (2024~2026, `/_bulk-upload` ZIP, 파일명 자동파싱).
-- 학교 이동 시: 유선 outbound 차단되면 터널 끊김(내부 LAN 접속만 가능). B MAC 화이트리스트 요청하면 터널 유지 + 직접 SSH 복구.
-
-### 참고 (비필수)
-- **me/setup 드롭다운**은 학교 구조(`classes_per_grade`/`subjects`) 설정이 선행돼야 항목이 보임(미설정 시 "관리자에게 요청" 안내) — teacher-onboarding과 동일.
-- **research-supervisors의 교사(담당교사) 선택**은 여전히 typeahead(`/api/users?role=teacher,staff`) — 교사 수가 적어 유지. 필요 시 동일 패턴으로 picker화 가능.
-- ⚠️ **B는 factory_reset됨**(2026-06-02): users 0, 학생/학교구조 없음 → StudentPicker/me/setup 화면 기능검증은 데이터 시드 후 가능. 첫 `/auth/register` = super_admin.
+- **코드**: WSL `/home/sinbc/general_school` = GitHub `sinbc2003/general_school`
+  파일 편집은 `\\wsl.localhost\ubuntu\home\sinbc\general_school\...` 경로로 Read/Edit/Write.
+- **운영 서버 B**: `ssh susung@100.92.66.61` — pubedu.com(Cloudflare 터널)으로 서비스 중.
+- **배포 절차** (매 단계 커밋 후):
+  1. `git add <files> && git commit && git push origin main` (main 직접, PR 안 씀)
+  2. B: pull → (alembic 변경 시 `alembic upgrade head`) → frontend 변경 시
+     `npm run build` (백그라운드 nohup + /tmp/gs-build.done 폴링) → `sudo systemctl restart gs-backend gs-frontend` → `/api/health` 200 확인
+  3. ⚠️ **PowerShell→wsl→ssh 따옴표 깨짐** → `/tmp/스크립트.sh` 작성 후
+     `wsl -d Ubuntu bash -lc 'ssh -o BatchMode=yes susung@100.92.66.61 bash -s < /tmp/스크립트.sh'`
+- **검증 루틴**: frontend `npx tsc --noEmit` / backend boot+routes 체크 스크립트 +
+  `pytest tests/test_convention_invariants.py tests/test_storage_security.py` / alembic은 dev 먼저.
+- **커밋 서명**: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
 ---
 
-## 4. 핵심 데이터 흐름 (반드시 이해)
+## 2. 프로젝트 목표
 
-```
-User(계정)  ──자동──▶  SemesterEnrollment(학기 명단, 모든 기능의 기반)
-                              │
-        ┌─────────────────────┼──────────────────────┐
-   homeroom_class          (시간표)              teaching_subjects
-   (담임 학급)                                    (담당 과목)
-        │
-   course_seed.seed_class_homeroom:
-     학급강좌 owner = enrollment.homeroom_class(담임)
-     학급강좌 학생 = User.grade/class_number 매칭
-```
-- **모든 학생/교사 기능은 enrollment 기반이어야** (직접입력 X, 명단 기반 선택 O).
-- enrollment 운영 4종 완비: ①개별등록→자동명단(`create_user`) ②새학기→이전명단복사(`copy_enrollments`) ③진급(`promote-to`) ④개별수정(enrollment CRUD).
+**'수업'(클래스룸) 카테고리 다음에 사이드바 새 카테고리 "업무 및 수업 도구"를 만들고,
+교사들이 많이 쓰는 에듀테크들을 하나씩 자체 구현한다.**
+핵심 요구 2가지:
+1. 도구마다 독립 사용 가능 (교사가 만들고 학생이 참여)
+2. **만든 것을 클래스룸에 가져와 쓸 수 있어야 함** (첨부 통합 — 아래 §4 규약)
+
+### 구현 후보 (사용자 예시 + 확장)
+| 우선순위 | 도구 | 벤치마크 | 핵심 기능 |
+|---|---|---|---|
+| 1 | 라이브 퀴즈 | Kahoot | 교사가 문제세트로 게임 생성 → PIN/QR로 학생 입장 → 실시간 동시 출제 → 속도+정답 점수 → 리더보드/포디움. **기존 코스웨어 Problem/CourseProblemSet 재사용** (출제·채점 로직 이미 있음) |
+| 2 | 단어장 | ClassCard | 단어 덱(영단어-뜻-예문) CRUD + 엑셀 import → 학습 모드 3종(암기 플래시카드/리콜 4지선다/스펠 타이핑) + 학습 진도·반복(틀린 것 위주) |
+| 3 | 보드 | Padlet | 담벼락(보드)에 포스트잇 카드(텍스트/이미지/링크) — 실시간 동시 편집은 **기존 Yjs/Hocuspocus 인프라 재사용** (doc-/deck-/sheet- 패턴에 board- 추가) |
+| 4+ | 소도구 모음 | Mentimeter/ClassroomScreen | 실시간 투표·워드클라우드(surveys 재활용 가능), 이름 뽑기 룰렛, 모둠 자동 편성, 타이머/신호등 — 작고 빠른 것들 |
+
+순서는 사용자에게 1문항으로 확인 후 시작 (기본 권장: 라이브 퀴즈 → 단어장 → 보드).
+
+---
+
+## 3. 작업 카드 (Phase별 — 각 Phase 커밋+B배포)
+
+### Phase 0: 카테고리/뼈대 (먼저, 30분)
+- `frontend/src/config/admin-menu.ts` — '수업' 카테고리 **다음**에 새 카테고리
+  `"업무 및 수업 도구"` (key: `edutools`) 추가. 학생 메뉴는 도구별로 참여 경로만.
+- 허브 페이지 `/(admin)/tools/page.tsx` — 도구 카드 그리드 (만든 것 목록 + 새로 만들기).
+- 백엔드 모듈 컨벤션: 도구마다 `app/modules/tool_<name>/` (router+permissions+schemas),
+  모델 `app/models/tool_<name>.py` + `models/__init__.py` 등록 + **수동 멱등 alembic**
+  (autogenerate 금지 아님 — 하되 무관 diff 제거. env.py include_object가 인덱스 drop은 막아줌).
+
+### Phase 1: 라이브 퀴즈 (Kahoot형)
+- 모델: `LiveQuizSession(problem_set_id FK, host_id, pin(6자리), status: lobby|question|reveal|ended, current_index, settings)` + `LiveQuizPlayer(session_id, user_id nullable+nickname, score)` + `LiveQuizAnswer(session_id, player_id, problem_id, answer, is_correct, ms_taken, points)`
+- 진행 동기화: **폴링 기반으로 시작** (2초 폴링 — 60명 검증 완료된 부하 수준, WS는 v2).
+  교사 진행 화면(다음 문제/공개/리더보드) + 학생 참여 화면(PIN 입장 → 보기 4버튼).
+- 점수: 정답 기본 1000 × 속도 보정(Kahoot식 `1000*(1 - t/limit/2)`).
+- 채점은 기존 `services/courseware_grader.grade_answer` 재사용.
+- 참여 경로: `/s/quiz/[pin]` (수강생 인증) — 익명 게스트는 v2.
+- 권한: `tools.quiz.host` (교사 default) / 참여는 인증만.
+
+### Phase 2: 단어장 (ClassCard형)
+- 모델: `WordDeck(owner_id, title, lang_pair, is_public)` + `WordCard(deck_id, term, meaning, example, order)` + `WordStudyState(deck_id, user_id, card_id, box(라이트너 1~5), last_seen, wrong_count)`
+- 엑셀/CSV import(단어,뜻,예문) + 학습 3모드 UI + 진도/오답 위주 반복.
+- 드라이브 통합(선택): drive ITEM_TYPES 등록은 v2 — 우선 도구 허브에서만.
+
+### Phase 3: 보드 (Padlet형)
+- 모델: `ToolBoard(owner_id, title, course_id nullable, access_mode, settings)` — 카드 데이터는 **Yjs Y.Array** (Hocuspocus `board-{id}`)로 실시간. backend-hocuspocus/auth.ts에 TargetKind "board" 추가 + yjs-snapshot 엔드포인트 (sheet- 패턴 복사).
+- 카드: {id, text, color, x?, y?, author_name} — 우선 column/grid 레이아웃(자유배치 v2).
+
+### 각 Phase 공통 마무리
+- 클래스룸 연동 (§4) + 알림(필요시) + tsc/pytest/boot + 커밋 + B 배포.
+
+---
+
+## 4. 클래스룸 연동 규약 (도구 → 클래스룸 가져오기)
+
+기존 첨부 시스템에 type을 추가하는 방식 (chatbot 첨부 패턴과 동일):
+1. `backend/app/modules/classroom/schemas.py` `Attachment`에 type 추가
+   (예: `"live_quiz"`, `"word_deck"`, `"board"`) + `<type>_id` 필드.
+2. frontend `AssignmentModal.tsx` `AttachmentItem` + 첨부 버튼/피커
+   (ChatbotPickerModal 패턴 — 본인 도구 목록에서 선택).
+3. `PostDetailView.tsx` `AttachmentRow`에 렌더러 추가 — 학생 클릭 시 동작 정의
+   (live_quiz → 진행 중이면 참여 화면, word_deck → 학습 화면, board → 보드 열기).
+4. 학생 접근 권한: 도구 모델에 course 연결이 없으면
+   `services/attachment_share.py` 패턴(글 첨부 기반 접근) 참고 또는 도구별 가드.
+5. 생기부 수집(선택): `record_writer/collect.py`에 소스 추가하면 도구 활동도 생기부로.
+
+## 5. 재사용 가능한 기존 자산 (먼저 읽으면 좋은 파일)
+- 코스웨어: `app/modules/courseware/` (문제·자동채점), `services/courseware_grader.py`
+- Yjs 실시간: `backend-hocuspocus/src/auth.ts` + `classroom_sheets/router.py`의 yjs-snapshot 3종
+- 피커 패턴: `components/classroom/ChatbotPickerModal.tsx`, `DrivePicker.tsx`
+- 첨부 렌더: `components/classroom/PostDetailView.tsx` AttachmentRow
+- PIN/QR: `classroom_links`(단축링크·QR 이미 있음 — 라이브 퀴즈 입장에 재사용)
+- 멱등 마이그레이션 예시: `alembic/versions/5b2c3d4a9e1f_student_confirmations.py`
+
+## 6. 주의 (이번 세션에서 배운 함정)
+- 모델 모듈명 정확히 (`classroom_hwp` 단수 — 오타 한 번에 posts 전체 500 났었음).
+  새 코드의 모델 속성·모듈 경로는 **반드시 실행 검증** (py_compile로는 못 잡음).
+- alembic autogenerate가 만든 파일에서 무관 drop들 제거 후 적용.
+- PowerShell 인라인 따옴표 금지 — 스크립트 파일 경유.
+- 사이드바 학생 메뉴는 `frontend/src/config/student-menu.ts`.

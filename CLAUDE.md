@@ -2332,3 +2332,54 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - GitHub HEAD: `70cc284`
 - B 운영 상태: production, 5/9 services active, 첫 super_admin 미가입 (사용자 진행 대기)
 - B SSH 일시 끊김 (절전/와이파이 → 사용자 깨우면 git pull로 동기화)
+
+---
+
+## 2026-06-10 세션 — 클래스룸 Google화 완성 + 과제 제출 + 생기부 대강화 + 전체 감사
+
+> 16커밋, routes 577→595, 마이그레이션 3개. 전부 B(pubedu.com) 배포 완료.
+> 다음 세션: **"업무 및 수업 도구"** — [HANDOFF_NEXT_SESSION.md](HANDOFF_NEXT_SESSION.md) ("이어서" 트리거).
+
+### 클래스룸 — Google Classroom fidelity 완성
+- **강좌 생성**: 담당교사 숫자 id 입력 → 이름 검색 선택 (`StudentPickerModal`에 `pickerRole="teacher"` — peers role=teacher,staff)
+- **만들기 메뉴** (CreateMenu): Google 구성 그대로 — 과제/퀴즈 과제(코스웨어 연결)/자료/게시물 재사용(`ReusePostModal` — 다른 강좌 글 duplicate) ─ 협업문서/프리젠테이션/설문지 ─ 챗봇. doc/deck/survey/chatbot 선택 시 **자료 글 작성 화면 + 자동 첨부** (autoAttach prop, StrictMode 이중생성 ref 가드)
+- **첨부 "만들기"**: AssignmentModal에 Google식 서브메뉴 — 문서/시트/덱/설문/HWP 즉석 생성(standalone specific_users)→자동 첨부→새 탭. 첨부 행 전체 클릭=새 창(편집기), share select·휴지통 stopPropagation
+- **파일 공유 옵션 완성**: `services/attachment_share.py` 신규 — 글 첨부 share_mode(view/edit)가 **실제 권한** (docs/sheets/slides/hwps 4개 resolve_permission에 additive 연결; 제출물 첨부는 강좌 교사 edit). copy(학생별 사본) 드롭다운 활성. 라벨 Google 문구
+- **첨부 제목 enrichment**: posts 읽기 응답에서 doc/sheet/deck/survey/hwp 제목을 현재값으로 (`_enrich_attachment_titles`, type별 1쿼리). 모달은 window focus 시 재조회
+- ⚠️ enrichment lazy import 오타(`classroom_hwps`→`classroom_hwp`)로 posts 전체 500 났었음 — 핫픽스 67bc228. **lazy import는 실행 검증 필수**
+
+### 클래스룸 과제 제출 시스템 (Google Turn-in) — 신규
+- 모델 `CoursePostSubmission` (post+student UNIQUE, assigned→turned_in→returned, attachments JSON, score/feedback) + alembic `0efbef10eec8`
+- `classroom/submissions.py`: 학생 GET/PUT my-submission·files 업로드·turn-in·unsubmit / 교사 submissions 현황(counts)·{sid}/return(점수·피드백)
+- 정책: turned_in 중 수정 잠금(취소 후), returned 후 재제출 OK, 기한 후 제출 허용+is_late
+- 학생 UI: 과제 상세 **2단 레이아웃** (좌 본문 플랫 Google 헤더 / 우 sticky **"내 과제"** 카드 — 상태 텍스트, 내 사본 자동 표시, **"+ 추가 또는 생성"**(드라이브/링크/파일+만들기 4종), 제출/완료로 표시/제출 취소/다시 제출)
+- **비공개 댓글** (`PostPrivateComment` + alembic `3a1b2c9d8e7f`): 학생↔교사 1:1 스레드 — 학생 사이드바 카드 + 교사 제출현황 행 내 답글. 양방향 알림
+- files 가드 `classroom/submissions/` + posts 목록 `turned_in_count` + Coursework 탭 "제출함" 실수치
+- **클래스룸 과제 마감 리마인더**: scheduler `classroom_due_reminders` — 23~25h 전 미제출 수강생 1회 알림 (`CoursePost.due_reminder_sent_at`)
+
+### 협업 WebSocket production 수정
+- `lib/collab/hocuspocus-url.ts` — `ws://localhost:1234` 빌드 인라인 제거, **런타임 결정**: dev=`:1234` 직결, production=`ws(s)://현재호스트/yjs` (nginx 프록시). B처럼 IP 바뀌는 서버에서 재빌드 불필요. pubedu.com(Cloudflare 터널)도 wss 101 확인
+
+### 생기부(record_writer) 대강화 — 001 AIteacherAgent 참조 이식 5 Phase
+1. **클래스룸 수집**: collect.py 소스 3종 — `classroom`(강좌 활동 전체: 과제 제출 첨부 문서 본문+사본+점수+피드백 & 문제세트 점수 통합), `classroom_submission`(특정 과제), `coursework`(문제세트). source-candidates 노출, 교과세특 프리셋 기본=classroom
+2. **검증 통합+NEIS 탭**: 셀에 글자·바이트 인라인(초과 빨강). `verify.py` — NEIS 금지항목 휴리스틱(어학시험/대학명/교외수상/부모정보/자격증/브랜드, high|review) + 글자초과 일괄 스캔. 상세 페이지 [작성]/[NEIS 검증] 탭
+3. **스프레드시트 UX**: 더블클릭 인라인 편집(blur 저장/Esc/Ctrl+Enter, ⤢ 전체모달). **"최종 종합" 보라 열** — 행 단위 통합 생성 `POST compose-final`(분량 min/max) + `PUT final-text` 수동. **엑셀 내보내기** `GET export.xlsx`(학번|이름|항목|최종종합, to_thread)
+4. **드래그 블록 선택 + 엑셀 복붙**: 클릭=선택·드래그=블록·더블클릭=편집. Ctrl+C → TSV(인용 처리). **Ctrl+V → 엑셀 표를 선택 시작점부터 채움** (인용 줄바꿈 파싱, 단일값 영역 채우기, 확인=생성문/취소=원자료, 최종종합 열 지원). `POST /cells/bulk` (max 2000, atomic)
+5. **학생 "이상없음" 확인**: 공통 모델 `StudentConfirmation(kind: record|submission|grades, ref_key)` + alembic `5b2c3d4a9e1f`. 학생 **"내 확인"** 페이지 `/s/my-checks` — 생기부(공개분)/수행평가(returned)/성적(학기별 지필) 3섹션 각각 [이상없음]/[수정요청+사유→교사 알림]. 교사: 매트릭스 이름 옆 ✓/⚠ 배지, 제출현황 "학생 확인" 배지. API: `/api/me/confirmations`(upsert)·`/returned-submissions`·`/grades-summary`
+
+### 전체 코드 감사 (50-agent 워크플로, 31건→반박검증→확정 12건 수정) — 866a183
+- HIGH: files/_guard_classroom 전체 스캔→LIKE prefilter · record scope admin 컬럼제한 · HwpEditor useEffect deps · **`is_admin` 12곳 복붙→`app/core/permissions.py` ADMIN_ROLES+is_admin SSOT**
+- MED: assignment 제출물 과제단위 가드(등록교사+admin만) · pagination(courses/all·graduates·survey results) · contests 파일 가드 · **alembic env.py include_object — DB에만 있는 인덱스 autogenerate drop 원천 차단** (이날 실제 당했던 footgun)
+- LOW: 모델 __init__ 등록, env_seed 디폴트비번 production 차단
+- 보류(별도 세션): course-member 헬퍼 통합, useFetchData 훅 — `AUDIT_PROGRESS.md`
+- **B DB에 성능 인덱스 ~40개 누락 발견**(초기 셋업 stamp 우회 흔적) → 멱등 SQL로 직접 적용 + pg_trgm
+
+### 부하 테스트 (B 실측)
+- 60명: 720req 0err, WS 30/30 · **100명 혼합**(실JWT+DB+2.2MB 다운로드): 1500req **0err** 110req/s, p50 486ms, WS 80/80, load 0.88/8코어 — **100명 여유**. 병목은 서버가 아니라 학교에서 터널 경유 시 집 업로드 대역폭 (학교 LAN 직결 권장)
+
+### 알림 매트릭스 (확인 완료)
+글 게시→수강생 / 제출→교사 / 반환→학생 / 비공개댓글 양방향 / 댓글→작성자+참여자 / 마감 24h 리마인더(과제관리+클래스룸 둘 다) / 생기부·수행평가 수정요청→교사
+
+### 참고
+- **클래스룸 과제 vs 과제관리(/assignment)**: 별개 시스템 — 클래스룸=강좌 수강생 대상 수업 과제(제출·채점·사본), 과제관리=학년 단위 수행평가 수합(파일명 정규화+생기부 자동연결). 라벨 개명("수행평가 수합") 후보
+- 마이그레이션: `0efbef10eec8`(submissions) → `3a1b2c9d8e7f`(private comments) → `5b2c3d4a9e1f`(confirmations + classroom_posts.due_reminder_sent_at)
