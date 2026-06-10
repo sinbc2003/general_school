@@ -255,6 +255,43 @@ export function AssignmentModal({
     return def ? def.openHref(cid, id) : null;
   };
 
+  // 새 탭에서 자료 이름을 바꾸고 돌아오면(focus) 첨부 제목 동기화.
+  // 게시된 글은 백엔드가 읽기 시점에 enrichment하므로 여기선 작성 중 화면만 처리.
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  useEffect(() => {
+    const TYPE_ENDPOINT: Record<string, string> = {
+      doc: "/api/classroom/docs",
+      deck: "/api/classroom/decks",
+      sheet: "/api/classroom/sheets",
+      survey: "/api/classroom/surveys",
+      hwp: "/api/classroom/hwps",
+    };
+    const refresh = async () => {
+      const targets = attachmentsRef.current.filter((a) => {
+        const base = TYPE_ENDPOINT[a.type];
+        return base && (a as any)[`${a.type}_id`];
+      });
+      if (targets.length === 0) return;
+      const fresh: Record<string, string> = {};
+      await Promise.all(targets.map(async (a) => {
+        const id = (a as any)[`${a.type}_id`];
+        try {
+          const res = await api.get<{ title?: string }>(`${TYPE_ENDPOINT[a.type]}/${id}`);
+          if (res?.title) fresh[`${a.type}:${id}`] = res.title;
+        } catch { /* 삭제·권한 변경 등 — 제목 유지 */ }
+      }));
+      if (Object.keys(fresh).length === 0) return;
+      setAttachments((prev) => prev.map((a) => {
+        const id = (a as any)[`${a.type}_id`];
+        const t = id ? fresh[`${a.type}:${id}`] : undefined;
+        return t && t !== a.title ? { ...a, title: t } : a;
+      }));
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
+
   const addChatbot = (bot: { chatbot_id: number; title: string }) => {
     setAttachments([...attachments, { type: "chatbot", title: bot.title, chatbot_id: bot.chatbot_id }]);
   };

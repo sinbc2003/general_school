@@ -43,6 +43,69 @@ from app.modules.classroom.teachers import is_course_editor, is_course_editor_or
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 첨부 제목 enrichment — 자료 이름이 바뀌어도 글에서 항상 현재 제목 표시
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _att_title_sources():
+    """type → (모델, id 키). 함수로 lazy import — 모듈 순환 회피."""
+    from app.models.classroom_docs import ClassroomDocument
+    from app.models.classroom_hwps import ClassroomHwp
+    from app.models.classroom_sheets import ClassroomSheet
+    from app.models.classroom_slides import ClassroomPresentation
+    from app.models.classroom_surveys import Survey
+    return {
+        "doc": (ClassroomDocument, "doc_id"),
+        "sheet": (ClassroomSheet, "sheet_id"),
+        "deck": (ClassroomPresentation, "deck_id"),
+        "survey": (Survey, "survey_id"),
+        "hwp": (ClassroomHwp, "hwp_id"),
+    }
+
+
+async def _enrich_attachment_titles(db: AsyncSession, post_dicts: list[dict]) -> None:
+    """post dict들의 attachments title을 자료의 현재 제목으로 교체 (응답 전용).
+
+    첨부 JSON에는 첨부 시점 제목이 박제되는데, 교사가 편집기에서 이름을
+    바꾸면 어긋난다. 저장된 JSON은 건드리지 않고 읽기 응답만 갱신한다.
+    type별 1쿼리 batch — N+1 없음.
+    """
+    sources = _att_title_sources()
+    wanted: dict[str, set[int]] = {}
+    for pd in post_dicts:
+        for a in pd.get("attachments") or []:
+            src = sources.get(a.get("type"))
+            if not src:
+                continue
+            rid = a.get(src[1])
+            if rid:
+                wanted.setdefault(a["type"], set()).add(rid)
+    if not wanted:
+        return
+    titles: dict[tuple[str, int], str] = {}
+    for t, ids in wanted.items():
+        model, _ = sources[t]
+        rows = (await db.execute(
+            select(model.id, model.title).where(model.id.in_(ids))
+        )).all()
+        for rid, title in rows:
+            titles[(t, rid)] = title
+    for pd in post_dicts:
+        atts = pd.get("attachments") or []
+        if not atts:
+            continue
+        # ORM JSON 객체 in-place 변형 금지 — 복사본으로 교체
+        new_atts = []
+        for a in atts:
+            src = sources.get(a.get("type")) if isinstance(a, dict) else None
+            if src:
+                fresh = titles.get((a["type"], a.get(src[1])))
+                if fresh and fresh != a.get("title"):
+                    a = {**a, "title": fresh}
+            new_atts.append(a)
+        pd["attachments"] = new_atts
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 글 (Posts) CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -77,10 +140,9 @@ async def list_course_posts(
         urows = (await db.execute(select(User).where(User.id.in_(author_ids)))).scalars().all()
         authors = {u.id: u.name for u in urows}
 
-    return {
-        "limit": limit, "offset": offset,
-        "items": [_post_to_dict(p, authors.get(p.author_id)) for p in rows],
-    }
+    items = [_post_to_dict(p, authors.get(p.author_id)) for p in rows]
+    await _enrich_attachment_titles(db, items)
+    return {"limit": limit, "offset": offset, "items": items}
 
 
 @router.post("/courses/{cid}/posts")
@@ -166,8 +228,10 @@ async def get_course_post(
         raise HTTPException(404)
     await _assert_course_access(db, user, course)
     author = await db.get(User, p.author_id) if p.author_id else None
+    pd = _post_to_dict(p, author.name if author else None)
+    await _enrich_attachment_titles(db, [pd])
     return {
-        **_post_to_dict(p, author.name if author else None),
+        **pd,
         "course_name": course.name,
         "course_subject": course.subject,
         "course_class_name": course.class_name,
