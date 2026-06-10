@@ -149,6 +149,9 @@ from app.models.student_record_project import (
 # ── Tool: Live Quiz (Kahoot형 라이브 퀴즈 — 업무 및 수업 도구) ──
 from app.models.tool_quiz import LiveQuizSession, LiveQuizPlayer, LiveQuizAnswer
 
+# ── Tool: Wordbook (ClassCard형 단어장 — 업무 및 수업 도구) ──
+from app.models.tool_wordbook import WordDeck, WordCard, WordStudyState
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -235,4 +238,6 @@ __all__ = [
     "RecordProject", "RecordProjectStudent", "RecordColumn", "RecordCell",
     # Tool: Live Quiz
     "LiveQuizSession", "LiveQuizPlayer", "LiveQuizAnswer",
+    # Tool: Wordbook
+    "WordDeck", "WordCard", "WordStudyState",
 ]

@@ -1,0 +1,531 @@
+"""단어장 (ClassCard형) 라우터.
+
+엔드포인트:
+  관리 (tools.wordbook.manage — 교사):
+    GET    /api/tools/wordbook/decks                 — 본인 덱 list (+카드 수)
+    POST   /api/tools/wordbook/decks                 — 덱 생성
+    GET    /api/tools/wordbook/decks/{did}           — 덱 + 카드 전체 (편집용)
+    PUT    /api/tools/wordbook/decks/{did}           — 메타 수정
+    DELETE /api/tools/wordbook/decks/{did}           — 삭제 (카드·진도 CASCADE)
+    POST   /api/tools/wordbook/decks/{did}/cards     — 카드 1개 추가
+    PUT    /api/tools/wordbook/cards/{cid}           — 카드 수정
+    DELETE /api/tools/wordbook/cards/{cid}           — 카드 삭제
+    POST   /api/tools/wordbook/decks/{did}/cards/_bulk   — 일괄 추가 (max 2000)
+    POST   /api/tools/wordbook/decks/{did}/cards/_import — CSV 업로드
+    GET    /api/tools/wordbook/csv-template          — CSV 양식
+
+  학습 (인증 + 접근 가드 — 소유자/admin/공개/강좌 첨부):
+    GET  /api/tools/wordbook/study-home              — 최근 학습 + 공개 덱
+    GET  /api/tools/wordbook/decks/{did}/study       — 카드 + 본인 라이트너 상태
+    POST /api/tools/wordbook/decks/{did}/progress    — 결과 1건 (box 갱신)
+
+라이트너: 맞히면 box+1 (max 5), 틀리면 box=1. 출제 우선순위는 frontend가
+box 오름차순 + last_seen 오래된 순으로 세션 구성.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
+from sqlalchemy import Text as SaText, cast, func as sa_func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.audit import log_action
+from app.core.auth import get_current_user
+from app.core.database import get_db
+from app.core.permissions import is_admin, require_permission
+from app.core.upload import POLICY_CSV, validate_upload
+from app.models import (
+    CoursePost, CourseStudent, User,
+    WordCard, WordDeck, WordStudyState,
+)
+from app.modules.tool_wordbook.schemas import (
+    CardIn, CardUpdate, CardsBulkIn, DeckCreate, DeckUpdate, ProgressIn,
+)
+
+router = APIRouter(prefix="/api/tools/wordbook", tags=["tool-wordbook"])
+
+MAX_CARDS_PER_DECK = 2000
+LEITNER_MAX_BOX = 5
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 헬퍼
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _get_deck_or_404(db: AsyncSession, did: int) -> WordDeck:
+    d = await db.get(WordDeck, did)
+    if not d:
+        raise HTTPException(404, "덱 없음")
+    return d
+
+
+def _assert_owner(d: WordDeck, user: User) -> None:
+    if d.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403, "본인 덱만 편집 가능")
+
+
+async def _has_classroom_attachment(
+    db: AsyncSession, user: User, deck_id: int,
+) -> bool:
+    """본인 소속 강좌 글에 이 덱이 word_deck으로 첨부됐는지 (attachment_share 패턴)."""
+    student_ids = (await db.execute(
+        select(CourseStudent.course_id).where(
+            CourseStudent.student_id == user.id,
+            CourseStudent.status == "active",
+        )
+    )).scalars().all()
+    if not student_ids:
+        return False
+    # JSON→text LIKE는 prefilter — 실제 매칭은 Python에서
+    rows = (await db.execute(
+        select(CoursePost.attachments).where(
+            CoursePost.course_id.in_(set(student_ids)),
+            CoursePost.attachments.isnot(None),
+            cast(CoursePost.attachments, SaText).like('%"word_deck_id"%'),
+        )
+    )).scalars().all()
+    for atts in rows:
+        if not isinstance(atts, list):
+            continue
+        for a in atts:
+            if (
+                isinstance(a, dict)
+                and a.get("type") == "word_deck"
+                and a.get("word_deck_id") == deck_id
+            ):
+                return True
+    return False
+
+
+async def _assert_study_access(
+    db: AsyncSession, user: User, d: WordDeck,
+) -> None:
+    if d.owner_id == user.id or is_admin(user) or d.is_public:
+        return
+    if await _has_classroom_attachment(db, user, d.id):
+        return
+    raise HTTPException(403, "이 단어장에 접근 권한이 없습니다")
+
+
+def _deck_to_dict(d: WordDeck, card_count: int | None = None) -> dict:
+    out = {
+        "id": d.id,
+        "owner_id": d.owner_id,
+        "title": d.title,
+        "description": d.description,
+        "lang_pair": d.lang_pair,
+        "is_public": d.is_public,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+        "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+    }
+    if card_count is not None:
+        out["card_count"] = card_count
+    return out
+
+
+def _card_to_dict(c: WordCard) -> dict:
+    return {
+        "id": c.id,
+        "term": c.term,
+        "meaning": c.meaning,
+        "example": c.example,
+        "sort_order": c.sort_order,
+    }
+
+
+async def _card_counts(db: AsyncSession, deck_ids: list[int]) -> dict[int, int]:
+    if not deck_ids:
+        return {}
+    rows = (await db.execute(
+        select(WordCard.deck_id, sa_func.count(WordCard.id))
+        .where(WordCard.deck_id.in_(deck_ids))
+        .group_by(WordCard.deck_id)
+    )).all()
+    return {r[0]: r[1] for r in rows}
+
+
+async def _next_sort_order(db: AsyncSession, did: int) -> int:
+    mx = (await db.execute(
+        select(sa_func.max(WordCard.sort_order)).where(WordCard.deck_id == did)
+    )).scalar_one()
+    return (mx or 0) + 1
+
+
+async def _assert_card_capacity(db: AsyncSession, did: int, adding: int) -> None:
+    cnt = (await db.execute(
+        select(sa_func.count(WordCard.id)).where(WordCard.deck_id == did)
+    )).scalar_one()
+    if cnt + adding > MAX_CARDS_PER_DECK:
+        raise HTTPException(400, f"덱당 최대 {MAX_CARDS_PER_DECK}개 카드까지 가능합니다")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 관리 (교사)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/decks")
+async def my_decks(
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(
+        select(WordDeck).where(WordDeck.owner_id == user.id)
+        .order_by(WordDeck.updated_at.desc())
+    )).scalars().all()
+    counts = await _card_counts(db, [d.id for d in rows])
+    return {"items": [_deck_to_dict(d, counts.get(d.id, 0)) for d in rows]}
+
+
+@router.post("/decks")
+async def create_deck(
+    body: DeckCreate, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    d = WordDeck(
+        owner_id=user.id,
+        title=body.title,
+        description=body.description,
+        lang_pair=body.lang_pair,
+        is_public=body.is_public,
+    )
+    db.add(d)
+    await db.flush()
+    await log_action(db, user, "tools.wordbook.deck_create", target=f"deck:{d.id}", request=request)
+    return _deck_to_dict(d, 0)
+
+
+@router.get("/decks/{did}")
+async def get_deck(
+    did: int,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """편집용 — 덱 + 카드 전체 (소유자/admin)."""
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    cards = (await db.execute(
+        select(WordCard).where(WordCard.deck_id == did)
+        .order_by(WordCard.sort_order.asc(), WordCard.id.asc())
+    )).scalars().all()
+    return {**_deck_to_dict(d, len(cards)), "cards": [_card_to_dict(c) for c in cards]}
+
+
+@router.put("/decks/{did}")
+async def update_deck(
+    did: int, body: DeckUpdate, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    patch = body.model_dump(exclude_unset=True)
+    for k, v in patch.items():
+        setattr(d, k, v)
+    await db.flush()
+    await db.refresh(d)
+    await log_action(db, user, "tools.wordbook.deck_update", target=f"deck:{did}", request=request)
+    return _deck_to_dict(d)
+
+
+@router.delete("/decks/{did}")
+async def delete_deck(
+    did: int, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    await db.delete(d)  # cards/states CASCADE
+    await db.flush()
+    await log_action(db, user, "tools.wordbook.deck_delete", target=f"deck:{did}", request=request)
+    return {"ok": True}
+
+
+@router.post("/decks/{did}/cards")
+async def add_card(
+    did: int, body: CardIn,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    await _assert_card_capacity(db, did, 1)
+    c = WordCard(
+        deck_id=did,
+        term=body.term.strip(),
+        meaning=body.meaning.strip(),
+        example=(body.example or "").strip() or None,
+        sort_order=await _next_sort_order(db, did),
+    )
+    db.add(c)
+    await db.flush()
+    return _card_to_dict(c)
+
+
+@router.put("/cards/{cid}")
+async def update_card(
+    cid: int, body: CardUpdate,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    c = await db.get(WordCard, cid)
+    if not c:
+        raise HTTPException(404)
+    d = await _get_deck_or_404(db, c.deck_id)
+    _assert_owner(d, user)
+    patch = body.model_dump(exclude_unset=True)
+    for k, v in patch.items():
+        setattr(c, k, v.strip() if isinstance(v, str) else v)
+    await db.flush()
+    return _card_to_dict(c)
+
+
+@router.delete("/cards/{cid}")
+async def delete_card(
+    cid: int,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    c = await db.get(WordCard, cid)
+    if not c:
+        raise HTTPException(404)
+    d = await _get_deck_or_404(db, c.deck_id)
+    _assert_owner(d, user)
+    await db.delete(c)
+    await db.flush()
+    return {"ok": True}
+
+
+@router.post("/decks/{did}/cards/_bulk")
+async def add_cards_bulk(
+    did: int, body: CardsBulkIn, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    items = [i for i in body.items if i.term.strip() and i.meaning.strip()]
+    if not items:
+        raise HTTPException(400, "추가할 카드가 없습니다")
+    await _assert_card_capacity(db, did, len(items))
+    base = await _next_sort_order(db, did)
+    for idx, i in enumerate(items):
+        db.add(WordCard(
+            deck_id=did,
+            term=i.term.strip()[:255],
+            meaning=i.meaning.strip()[:500],
+            example=(i.example or "").strip() or None,
+            sort_order=base + idx,
+        ))
+    await db.flush()
+    await log_action(
+        db, user, "tools.wordbook.cards_bulk_add",
+        target=f"deck:{did} cards:{len(items)}", request=request,
+    )
+    return {"ok": True, "added": len(items)}
+
+
+_CSV_HEADER_TOKENS = {"term", "단어", "word", "meaning", "뜻", "의미"}
+
+
+@router.post("/decks/{did}/cards/_import")
+async def import_cards_csv(
+    did: int, file: UploadFile, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """CSV 업로드 — 열: 단어,뜻,예문(선택). 첫 행이 헤더면 자동 skip."""
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    data = await validate_upload(file, POLICY_CSV)
+
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = data.decode("cp949")  # 한국 Excel 저장 기본
+        except UnicodeDecodeError:
+            raise HTTPException(400, "인코딩을 읽을 수 없습니다 (UTF-8 또는 CP949)")
+
+    rows = list(csv.reader(io.StringIO(text)))
+    if rows and rows[0] and rows[0][0].strip().lower() in _CSV_HEADER_TOKENS:
+        rows = rows[1:]
+
+    items: list[CardIn] = []
+    skipped = 0
+    for r in rows:
+        if len(r) < 2 or not r[0].strip() or not r[1].strip():
+            if any(x.strip() for x in r):
+                skipped += 1
+            continue
+        items.append(CardIn(
+            term=r[0].strip()[:255],
+            meaning=r[1].strip()[:500],
+            example=(r[2].strip()[:2000] if len(r) > 2 and r[2].strip() else None),
+        ))
+        if len(items) > MAX_CARDS_PER_DECK:
+            raise HTTPException(400, f"한 번에 최대 {MAX_CARDS_PER_DECK}행까지")
+
+    if not items:
+        raise HTTPException(400, "가져올 행이 없습니다 (열: 단어,뜻,예문)")
+    await _assert_card_capacity(db, did, len(items))
+
+    base = await _next_sort_order(db, did)
+    for idx, i in enumerate(items):
+        db.add(WordCard(
+            deck_id=did, term=i.term, meaning=i.meaning,
+            example=i.example, sort_order=base + idx,
+        ))
+    await db.flush()
+    await log_action(
+        db, user, "tools.wordbook.cards_import",
+        target=f"deck:{did} added:{len(items)} skipped:{skipped}", request=request,
+    )
+    return {"ok": True, "added": len(items), "skipped": skipped}
+
+
+@router.get("/csv-template")
+async def csv_template(
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+):
+    content = "﻿단어,뜻,예문\napple,사과,I ate an apple.\nrun,달리다,\n"
+    return StreamingResponse(
+        iter([content.encode("utf-8")]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="wordbook_template.csv"'},
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 학습 (인증 + 접근 가드)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/study-home")
+async def study_home(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학생 홈 — 최근 학습한 덱 + 공개 덱."""
+    # 최근 학습 — 본인 state가 있는 덱, 최근 학습순
+    recent_rows = (await db.execute(
+        select(
+            WordStudyState.deck_id,
+            sa_func.max(WordStudyState.last_seen).label("latest"),
+            sa_func.count(WordStudyState.id),
+            sa_func.sum(WordStudyState.wrong_count),
+        )
+        .where(WordStudyState.user_id == user.id)
+        .group_by(WordStudyState.deck_id)
+        .order_by(sa_func.max(WordStudyState.last_seen).desc())
+        .limit(10)
+    )).all()
+    recent_ids = [r[0] for r in recent_rows]
+
+    public_rows = (await db.execute(
+        select(WordDeck).where(WordDeck.is_public == True)  # noqa: E712
+        .order_by(WordDeck.updated_at.desc()).limit(50)
+    )).scalars().all()
+
+    all_ids = list({*recent_ids, *[d.id for d in public_rows]})
+    decks = (await db.execute(
+        select(WordDeck).where(WordDeck.id.in_(all_ids))
+    )).scalars().all() if all_ids else []
+    deck_by_id = {d.id: d for d in decks}
+    counts = await _card_counts(db, all_ids)
+
+    recent_out = []
+    for deck_id, latest, studied_cards, _wrong_sum in recent_rows:
+        d = deck_by_id.get(deck_id)
+        if not d:
+            continue
+        recent_out.append({
+            **_deck_to_dict(d, counts.get(deck_id, 0)),
+            "studied_cards": studied_cards,
+            "last_studied_at": latest.isoformat() if latest else None,
+        })
+
+    return {
+        "recent": recent_out,
+        "public": [
+            _deck_to_dict(d, counts.get(d.id, 0))
+            for d in public_rows
+        ],
+    }
+
+
+@router.get("/decks/{did}/study")
+async def study_deck(
+    did: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학습용 — 카드 전체 + 본인 라이트너 상태."""
+    d = await _get_deck_or_404(db, did)
+    await _assert_study_access(db, user, d)
+
+    cards = (await db.execute(
+        select(WordCard).where(WordCard.deck_id == did)
+        .order_by(WordCard.sort_order.asc(), WordCard.id.asc())
+    )).scalars().all()
+    states = (await db.execute(
+        select(WordStudyState).where(
+            WordStudyState.deck_id == did,
+            WordStudyState.user_id == user.id,
+        )
+    )).scalars().all()
+    state_by_card = {
+        s.card_id: {
+            "box": s.box,
+            "correct_count": s.correct_count,
+            "wrong_count": s.wrong_count,
+            "last_seen": s.last_seen.isoformat() if s.last_seen else None,
+        }
+        for s in states
+    }
+    return {
+        **_deck_to_dict(d, len(cards)),
+        "cards": [_card_to_dict(c) for c in cards],
+        "states": state_by_card,
+    }
+
+
+@router.post("/decks/{did}/progress")
+async def record_progress(
+    did: int, body: ProgressIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """학습 결과 1건 — 라이트너 박스 갱신 (맞히면 +1 max5, 틀리면 1)."""
+    d = await _get_deck_or_404(db, did)
+    await _assert_study_access(db, user, d)
+
+    card = await db.get(WordCard, body.card_id)
+    if not card or card.deck_id != did:
+        raise HTTPException(404, "카드 없음")
+
+    s = (await db.execute(
+        select(WordStudyState).where(
+            WordStudyState.user_id == user.id,
+            WordStudyState.card_id == body.card_id,
+        )
+    )).scalar_one_or_none()
+    if not s:
+        s = WordStudyState(deck_id=did, card_id=body.card_id, user_id=user.id)
+        db.add(s)
+
+    if body.correct:
+        s.box = min(LEITNER_MAX_BOX, (s.box or 1) + 1)
+        s.correct_count = (s.correct_count or 0) + 1
+    else:
+        s.box = 1
+        s.wrong_count = (s.wrong_count or 0) + 1
+    s.last_seen = datetime.now(timezone.utc)
+    await db.flush()
+
+    return {"ok": True, "box": s.box}

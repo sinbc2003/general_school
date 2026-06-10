@@ -46,6 +46,7 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "courseware", label: "문제 풀이", icon: FileQuestion, path: "/s/courseware", permission: null },
   { key: "wrong-notes", label: "오답 노트", icon: NotebookPen, path: "/s/courseware/wrong-notes", permission: null },
   { key: "quiz-join", label: "라이브 퀴즈", icon: Gamepad2, path: "/s/quiz", permission: null },
+  { key: "wordbook", label: "단어장", icon: BookOpen, path: "/s/wordbook", permission: null },
   { key: "enrollment-wizard", label: "수강과목 신청", icon: BookOpen, path: "/s/enrollment-wizard", permission: null },
   { key: "my-drive", label: "내 드라이브", icon: HardDrive, path: "/s/drive", permission: null },
   { key: "my-portfolio", label: "나의 포트폴리오", icon: Briefcase, path: "/s/my-portfolio", permission: null },

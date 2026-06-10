@@ -36,7 +36,7 @@ const TOOLS: ToolDef[] = [
     description: "단어 덱 만들기 + 플래시카드·4지선다·스펠 타이핑 학습, 틀린 단어 위주 반복",
     icon: BookA,
     href: "/tools/wordbook",
-    ready: false,
+    ready: true,
     accent: "from-sky-500 to-cyan-500",
   },
   {
