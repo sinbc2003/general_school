@@ -49,7 +49,7 @@ from app.modules.classroom.teachers import is_course_editor, is_course_editor_or
 def _att_title_sources():
     """type → (모델, id 키). 함수로 lazy import — 모듈 순환 회피."""
     from app.models.classroom_docs import ClassroomDocument
-    from app.models.classroom_hwps import ClassroomHwp
+    from app.models.classroom_hwp import ClassroomHwp
     from app.models.classroom_sheets import ClassroomSheet
     from app.models.classroom_slides import ClassroomPresentation
     from app.models.classroom_surveys import Survey
