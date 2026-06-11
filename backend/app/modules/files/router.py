@@ -452,6 +452,26 @@ async def _guard_group_submission(db: AsyncSession, user: User, path: str) -> No
     raise HTTPException(403, "권한 없음")
 
 
+async def _guard_boards(db: AsyncSession, user: User, path: str) -> None:
+    """storage/boards/{bid}/<file> — 보드(Padlet형) 카드 이미지. 보드 can_read로 보호.
+
+    path는 section 포함 전체 경로 ("boards/{bid}/{fname}").
+    """
+    from app.models import ToolBoard
+    from app.modules.tool_board.router import _resolve_permission
+
+    try:
+        bid = int(path.split("/")[1])
+    except (ValueError, IndexError):
+        raise HTTPException(404)
+    b = await db.get(ToolBoard, bid)
+    if not b or b.deleted_at is not None:
+        raise HTTPException(404)
+    perm = await _resolve_permission(db, user, b)
+    if not perm["can_read"]:
+        raise HTTPException(403)
+
+
 _GUARDS = {
     "artifacts": _guard_artifact,
     "assignments": _guard_assignment,
@@ -465,6 +485,7 @@ _GUARDS = {
     "past_research": _guard_past_research,
     "group_submissions": _guard_group_submission,
     "contests": _guard_contest,
+    "boards": _guard_boards,
 }
 
 

@@ -23,6 +23,10 @@ interface BoardMeta {
   access_mode: string;
   columns: string[];
   background?: string;
+  requires_approval?: boolean;
+  hide_authors?: boolean;
+  new_card_position?: string;
+  default_sort?: string;
   permission: { role: string | null };
 }
 
@@ -160,21 +164,28 @@ function BoardSettingsModal({
   onDeleted: () => void;
 }) {
   const [title, setTitle] = useState(meta.title);
-  const [columnsText, setColumnsText] = useState(meta.columns.join(", "));
+  const [description, setDescription] = useState(meta.description || "");
   const [accessMode, setAccessMode] = useState(meta.access_mode);
   const [background, setBackground] = useState(meta.background || "cream");
+  const [requiresApproval, setRequiresApproval] = useState(!!meta.requires_approval);
+  const [hideAuthors, setHideAuthors] = useState(!!meta.hide_authors);
+  const [newCardPos, setNewCardPos] = useState(meta.new_card_position || "top");
+  const [defaultSort, setDefaultSort] = useState(meta.default_sort || "newest");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     if (!title.trim() || saving) return;
     setSaving(true);
     try {
-      const cols = columnsText.split(",").map((c) => c.trim()).filter(Boolean);
       await api.put(`/api/classroom/boards/${meta.id}`, {
         title: title.trim(),
+        description: description.trim() || null,
         access_mode: accessMode,
-        columns: cols,
         background,
+        requires_approval: requiresApproval,
+        hide_authors: hideAuthors,
+        new_card_position: newCardPos,
+        default_sort: defaultSort,
       });
       onSaved();
     } catch (e: any) {
@@ -202,10 +213,16 @@ function BoardSettingsModal({
             <X size={16} />
           </button>
         </header>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-amber-500"
+          />
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="설명 (보드 제목 아래 표시)"
             className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-amber-500"
           />
 
@@ -232,15 +249,8 @@ function BoardSettingsModal({
             </div>
           </div>
 
-          <div>
-            <div className="text-caption text-text-tertiary mb-1">
-              컬럼 (쉼표 구분 — 컬럼을 줄이면 기존 카드는 첫 컬럼으로)
-            </div>
-            <input
-              value={columnsText}
-              onChange={(e) => setColumnsText(e.target.value)}
-              className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-amber-500"
-            />
+          <div className="text-[11px] text-text-tertiary -mt-2">
+            섹션(컬럼)은 보드 화면에서 직접 추가·이름 수정·삭제할 수 있습니다.
           </div>
           <select
             value={accessMode}
@@ -250,6 +260,35 @@ function BoardSettingsModal({
             <option value="members">멤버만 — 강좌 글에 첨부한 수강생</option>
             <option value="public">전체 공개 — 인증 사용자 누구나 참여</option>
           </select>
+
+          {/* Padlet 동급 설정 */}
+          <div className="space-y-2 border-t border-border-default pt-3">
+            <label className="flex items-center gap-2 text-body cursor-pointer">
+              <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} />
+              승인 후 게시 — 학생 카드는 교사 승인 후 모두에게 표시
+            </label>
+            <label className="flex items-center gap-2 text-body cursor-pointer">
+              <input type="checkbox" checked={hideAuthors} onChange={(e) => setHideAuthors(e.target.checked)} />
+              작성자 익명 표시 — 교사 외에는 이름 대신 "익명"
+            </label>
+            <div className="flex items-center gap-3">
+              <label className="text-caption text-text-secondary flex items-center gap-1.5">
+                새 카드 위치
+                <select value={newCardPos} onChange={(e) => setNewCardPos(e.target.value)} className="px-2 py-1 border border-border-default rounded text-caption bg-bg-primary">
+                  <option value="top">맨 위</option>
+                  <option value="bottom">맨 아래</option>
+                </select>
+              </label>
+              <label className="text-caption text-text-secondary flex items-center gap-1.5">
+                기본 정렬
+                <select value={defaultSort} onChange={(e) => setDefaultSort(e.target.value)} className="px-2 py-1 border border-border-default rounded text-caption bg-bg-primary">
+                  <option value="newest">최신순</option>
+                  <option value="likes">좋아요순</option>
+                  <option value="manual">수동 (드래그)</option>
+                </select>
+              </label>
+            </div>
+          </div>
         </div>
         <footer className="px-5 py-3 border-t border-border-default flex items-center justify-between">
           <button

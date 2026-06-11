@@ -49,6 +49,8 @@ KIND_SUBJECT_TEACHING = "subject_teaching"
 KIND_SUBJECT_ENROLLED_WRAPPER = "subject_enrolled_wrapper"
 KIND_SUBJECT_ENROLLED = "subject_enrolled"
 KIND_ADMIN_OFFICE = "admin_office"
+# 학기 전환 시 이전 학기 자동 폴더를 담는 최상위 보관 폴더 ("1. 2026-1학기")
+KIND_SEMESTER_ARCHIVE = "semester_archive"
 
 # source_kind
 SRC_DEPARTMENT = "department"
@@ -514,6 +516,118 @@ async def sync_all_users_background(semester_id: int | None = None) -> None:
         except Exception:
             await db.rollback()
             log.exception("[folder_seed] 학기전환 bg-sync 실패")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 학기 전환 아카이브 — 이전 학기 자동 폴더를 "{n}. {year}-{term}학기" 보관 폴더로
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def archive_semester_folders(
+    db: AsyncSession, prev_sem: Semester, new_sem: Semester,
+) -> dict[str, int]:
+    """학기 전환(set-current) 시 이전 학기 자동 폴더를 사용자별 최상위
+    보관 폴더("1. 2026-1학기" 식) 안으로 이동.
+
+    - 학기 단위 kind (department/grade_office/subject_*/admin_office):
+      semester_id == prev_sem 인 루트 폴더 전부 이동.
+    - 학년 단위 kind (homeroom/class_belonging, semester_id=None):
+      **연도가 바뀔 때만** 이동 (같은 해 1→2학기엔 계속 사용).
+      연도 식별은 이름 prefix "{year}학년도" (생성 규칙 고정).
+    - 멱등: 이미 부모가 있는 폴더는 건너뜀. 보관 폴더는 UNIQUE 키로 재사용.
+    - 번호 "{n}."은 사용자별 기존 보관 폴더 수 + 1.
+
+    returns: {"users": N, "moved": M}
+    """
+    if prev_sem.id == new_sem.id:
+        return {"users": 0, "moved": 0}
+
+    year_changed = prev_sem.year != new_sem.year
+
+    # 이동 후보 — 루트의 이전 학기 자동 폴더
+    conds = [
+        Folder.parent_id.is_(None),
+        Folder.deleted_at.is_(None),
+        Folder.auto_kind.isnot(None),
+        Folder.auto_kind != KIND_SEMESTER_ARCHIVE,
+        Folder.semester_id == prev_sem.id,
+    ]
+    sem_scoped = (await db.execute(select(Folder).where(*conds))).scalars().all()
+
+    year_scoped: list[Folder] = []
+    if year_changed:
+        year_scoped = (await db.execute(
+            select(Folder).where(
+                Folder.parent_id.is_(None),
+                Folder.deleted_at.is_(None),
+                Folder.auto_kind.in_([KIND_HOMEROOM, KIND_CLASS_BELONGING]),
+                Folder.name.like(f"{prev_sem.year}학년도%"),
+            )
+        )).scalars().all()
+
+    targets = list(sem_scoped) + list(year_scoped)
+    if not targets:
+        return {"users": 0, "moved": 0}
+
+    by_owner: dict[int, list[Folder]] = {}
+    for f in targets:
+        by_owner.setdefault(f.owner_id, []).append(f)
+
+    moved = 0
+    for owner_id, folders in by_owner.items():
+        # 보관 폴더 멱등 확보 (auto_kind=semester_archive + 학기 키)
+        archive = await _find_existing(
+            db, owner_id=owner_id, auto_kind=KIND_SEMESTER_ARCHIVE,
+            semester_id=prev_sem.id, source_kind=SRC_SEMESTER, source_id=prev_sem.id,
+        )
+        if not archive:
+            n = int((await db.execute(
+                select(func.count(Folder.id)).where(
+                    Folder.owner_id == owner_id,
+                    Folder.auto_kind == KIND_SEMESTER_ARCHIVE,
+                    Folder.deleted_at.is_(None),
+                )
+            )).scalar() or 0) + 1
+            archive = Folder(
+                owner_id=owner_id,
+                parent_id=None,
+                name=f"{n}. {prev_sem.year}-{prev_sem.semester}학기",
+                auto_kind=KIND_SEMESTER_ARCHIVE,
+                semester_id=prev_sem.id,
+                source_kind=SRC_SEMESTER,
+                source_id=prev_sem.id,
+                sort_order=await _next_root_sort_order(db, owner_id),
+                is_system_locked=True,
+            )
+            db.add(archive)
+            await db.flush()
+
+        for f in folders:
+            if f.id == archive.id:
+                continue
+            f.parent_id = archive.id
+            moved += 1
+    await db.flush()
+    return {"users": len(by_owner), "moved": moved}
+
+
+async def archive_prev_semester_background(prev_sid: int, new_sid: int) -> None:
+    """백그라운드 태스크용 — 자체 세션으로 이전 학기 폴더 아카이브 + commit."""
+    import logging
+    from app.core.database import async_session_factory
+    log = logging.getLogger(__name__)
+    async with async_session_factory() as db:
+        try:
+            prev = await db.get(Semester, prev_sid)
+            new = await db.get(Semester, new_sid)
+            if not prev or not new:
+                return
+            res = await archive_semester_folders(db, prev, new)
+            await db.commit()
+            log.info("[folder_seed] 학기전환 아카이브 완료: %s", res)
+        except Exception:
+            await db.rollback()
+            log.exception("[folder_seed] 학기전환 아카이브 실패")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ from __future__ import annotations
 import base64
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import Text as SaText, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +67,11 @@ class BoardUpdate(BaseModel):
     # 배경 테마 키 (frontend BOARD_BACKGROUNDS 프리셋) — settings.background에 저장
     background: str | None = Field(default=None, max_length=30)
     is_archived: bool | None = None
+    # ── Padlet 동급 설정 (settings JSON에 머지) ──
+    requires_approval: bool | None = None          # 승인 후 게시 (moderator가 승인)
+    hide_authors: bool | None = None               # 작성자 익명 표시 (moderator 외)
+    new_card_position: str | None = Field(default=None, pattern="^(top|bottom)$")
+    default_sort: str | None = Field(default=None, pattern="^(manual|newest|likes)$")
 
 
 class ShareAdd(BaseModel):
@@ -90,6 +95,10 @@ def _to_dict(b: ToolBoard, *, owner_name: str | None = None) -> dict:
         "access_mode": b.access_mode,
         "columns": (b.settings or {}).get("columns") or DEFAULT_COLUMNS,
         "background": (b.settings or {}).get("background") or "cream",
+        "requires_approval": bool((b.settings or {}).get("requires_approval")),
+        "hide_authors": bool((b.settings or {}).get("hide_authors")),
+        "new_card_position": (b.settings or {}).get("new_card_position") or "top",
+        "default_sort": (b.settings or {}).get("default_sort") or "newest",
         "is_archived": b.is_archived,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         "updated_at": b.updated_at.isoformat() if b.updated_at else None,
@@ -259,6 +268,10 @@ async def update_board(
     background = patch.pop("background", None)
     if background is not None:
         b.settings = {**(b.settings or {}), "background": background.strip()[:30]}
+    # Padlet 동급 설정 — settings JSON에 머지
+    for sk in ("requires_approval", "hide_authors", "new_card_position", "default_sort"):
+        if sk in patch:
+            b.settings = {**(b.settings or {}), sk: patch.pop(sk)}
     if "course_id" in patch and patch["course_id"] is not None:
         course = await db.get(Course, patch["course_id"])
         if not course:
@@ -388,6 +401,70 @@ async def duplicate_board(
     await db.flush()
     await log_action(db, user, "tools.board.duplicate", target=f"board:{bid} -> {copy.id}", request=request)
     return _to_dict(copy, owner_name=user.name)
+
+
+# ── 카드 이미지 업로드 (can_write — 카드 작성자가 직접 올림) ──
+
+@router.post("/{bid}/upload-image")
+async def upload_card_image(
+    bid: int, file: UploadFile,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """카드 첨부 이미지 업로드 — PIL 압축 후 storage/boards/{bid}/ 저장.
+
+    응답 url은 /storage/boards/... — frontend는 인증 fetch(blob)로 표시
+    (files/router.py `_guard_boards`가 보드 can_read로 보호).
+    """
+    import asyncio
+    import io as _io
+    import secrets
+
+    from app.core.files import (
+        DEFAULT_STORAGE_ROOT, ensure_dir_async, write_bytes_async,
+    )
+    from app.core.quota import adjust_quota
+    from app.core.upload import POLICY_IMAGE, validate_upload
+
+    b = await _get_board_or_404(db, bid)
+    perm = await _resolve_permission(db, user, b)
+    if not perm["can_write"]:
+        raise HTTPException(403, "카드 작성 권한이 없습니다")
+
+    data = await validate_upload(file, POLICY_IMAGE)
+
+    def _compress() -> bytes:
+        from PIL import Image
+        img = Image.open(_io.BytesIO(data))
+        img = img.convert("RGB")
+        img.thumbnail((1400, 1400))
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+        return buf.getvalue()
+
+    try:
+        out = await asyncio.to_thread(_compress)
+    except Exception:
+        raise HTTPException(400, "이미지를 처리할 수 없습니다")
+
+    fname = f"{secrets.token_urlsafe(10)}.jpg"
+    rel = f"boards/{bid}/{fname}"
+    full = DEFAULT_STORAGE_ROOT / rel
+    await ensure_dir_async(full.parent)
+    await write_bytes_async(full, out)
+
+    # 보드 소유자 quota에 합산 (best-effort — drive 영구삭제 시 storage_bytes로 환원)
+    old_bytes = b.storage_bytes or 0
+    b.storage_bytes = old_bytes + len(out)
+    await db.flush()
+    try:
+        owner = await db.get(User, b.owner_id)
+        if owner:
+            await adjust_quota(db, owner, old_bytes=old_bytes, new_bytes=b.storage_bytes)
+    except Exception:
+        pass
+
+    return {"url": f"/storage/{rel}", "byte_size": len(out)}
 
 
 # ── 참여 (보드 화면 진입) ──

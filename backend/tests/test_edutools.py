@@ -568,6 +568,72 @@ async def test_board_attachment_semester_gating(
     assert got["permission"]["can_write"] is True
 
 
+async def test_semester_folder_archive(db_session, teacher_user, seed_perms):
+    """학기 전환 시 이전 학기 자동 폴더 → '1. 2026-1학기' 보관 폴더로 이동.
+
+    - 학기 단위 폴더(department)는 항상 이동
+    - 학년 단위 폴더(homeroom)는 연도가 바뀔 때만 이동
+    - 멱등 (재실행 시 moved=0)
+    """
+    from datetime import date as _date
+
+    from sqlalchemy import select as _select
+
+    from app.models import Folder, Semester
+    from app.services.folder_seed import (
+        KIND_SEMESTER_ARCHIVE, archive_semester_folders,
+    )
+
+    def mk_sem(year, term):
+        return Semester(
+            year=year, semester=term, name=f"{year}-{term}",
+            start_date=_date(year, 3, 1), end_date=_date(year, 8, 31),
+        )
+    sem1, sem2, sem3 = mk_sem(2026, 1), mk_sem(2026, 2), mk_sem(2027, 1)
+    db_session.add_all([sem1, sem2, sem3])
+    await db_session.flush()
+
+    dept = Folder(
+        owner_id=teacher_user.id, parent_id=None, name="2026학년도 1학기 수학과",
+        auto_kind="department", semester_id=sem1.id,
+        source_kind="department", source_id=1, sort_order=1, is_system_locked=True,
+    )
+    homeroom = Folder(
+        owner_id=teacher_user.id, parent_id=None, name="2026학년도 2학년 3반 담임",
+        auto_kind="homeroom", semester_id=None,
+        source_kind="class", source_id=203, sort_order=2, is_system_locked=True,
+    )
+    db_session.add_all([dept, homeroom])
+    await db_session.flush()
+
+    # 1→2학기 (같은 해): dept만 이동, homeroom은 계속 사용
+    res = await archive_semester_folders(db_session, sem1, sem2)
+    assert res["moved"] == 1
+    archive1 = (await db_session.execute(_select(Folder).where(
+        Folder.owner_id == teacher_user.id,
+        Folder.auto_kind == KIND_SEMESTER_ARCHIVE,
+        Folder.semester_id == sem1.id,
+    ))).scalar_one()
+    assert archive1.name == "1. 2026-1학기" and archive1.parent_id is None
+    assert dept.parent_id == archive1.id
+    assert homeroom.parent_id is None
+
+    # 멱등 — 재실행 시 이동 없음
+    res2 = await archive_semester_folders(db_session, sem1, sem2)
+    assert res2["moved"] == 0
+
+    # 2학기 → 2027-1학기 (연도 전환): homeroom도 보관됨, 번호 2번
+    res3 = await archive_semester_folders(db_session, sem2, sem3)
+    assert res3["moved"] == 1
+    archive2 = (await db_session.execute(_select(Folder).where(
+        Folder.owner_id == teacher_user.id,
+        Folder.auto_kind == KIND_SEMESTER_ARCHIVE,
+        Folder.semester_id == sem2.id,
+    ))).scalar_one()
+    assert archive2.name == "2. 2026-2학기"
+    assert homeroom.parent_id == archive2.id
+
+
 async def test_drive_integration_trash_restore(
     app_client, auth_headers, teacher_user, seed_perms,
 ):
@@ -626,6 +692,64 @@ async def test_drive_copy_word_deck_clones_cards(
     assert "(복사본)" in copy["title"]
     got = (await app_client.get(f"/api/tools/wordbook/decks/{copy['id']}", headers=t)).json()
     assert len(got["cards"]) == 1 and got["cards"][0]["term"] == "run"
+
+
+async def test_board_image_upload_and_guard(
+    app_client, auth_headers, teacher_user, student_user, seed_perms,
+):
+    """카드 이미지 업로드(can_write) + files 가드(can_read) — 비멤버 차단."""
+    import io as _io
+
+    from PIL import Image
+
+    t = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+    board = await _create_board(app_client, t)  # members 모드
+    bid = board["id"]
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (40, 40), (200, 100, 50)).save(buf, format="PNG")
+    png = buf.getvalue()
+
+    # 비멤버 학생 업로드 → 403
+    res = await app_client.post(
+        f"/api/classroom/boards/{bid}/upload-image",
+        files={"file": ("a.png", png, "image/png")}, headers=s,
+    )
+    assert res.status_code == 403
+
+    # 소유자 업로드 → 200 + url
+    res = await app_client.post(
+        f"/api/classroom/boards/{bid}/upload-image",
+        files={"file": ("a.png", png, "image/png")}, headers=t,
+    )
+    assert res.status_code == 200, res.text
+    url = res.json()["url"]
+    assert url.startswith("/storage/boards/")
+
+    # files 가드: 소유자 다운로드 OK, 비멤버 403
+    api_path = url.replace("/storage/", "/api/files/storage/")
+    assert (await app_client.get(api_path, headers=t)).status_code == 200
+    assert (await app_client.get(api_path, headers=s)).status_code == 403
+
+    # public 전환 → 학생도 읽기 OK
+    await app_client.put(f"/api/classroom/boards/{bid}", json={"access_mode": "public"}, headers=t)
+    assert (await app_client.get(api_path, headers=s)).status_code == 200
+
+
+async def test_board_padlet_settings(app_client, auth_headers, teacher_user, seed_perms):
+    """승인/익명/새카드위치/기본정렬 설정 저장·노출."""
+    t = auth_headers(teacher_user)
+    board = await _create_board(app_client, t)
+    bid = board["id"]
+    res = await app_client.put(f"/api/classroom/boards/{bid}", json={
+        "requires_approval": True, "hide_authors": True,
+        "new_card_position": "bottom", "default_sort": "likes",
+    }, headers=t)
+    assert res.status_code == 200, res.text
+    got = (await app_client.get(f"/api/classroom/boards/{bid}", headers=t)).json()
+    assert got["requires_approval"] is True and got["hide_authors"] is True
+    assert got["new_card_position"] == "bottom" and got["default_sort"] == "likes"
 
 
 async def test_board_yjs_snapshot_internal_token(

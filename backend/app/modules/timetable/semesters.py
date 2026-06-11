@@ -233,12 +233,21 @@ async def set_current_semester(
     s = await get_semester_by_id_or_404(db, sid)
     if s.is_archived:
         raise HTTPException(400, "보관된 학기는 현재 학기로 지정할 수 없습니다. 먼저 보관 해제하세요.")
+    # 이전 현재 학기 — 전환 후 자동 폴더 아카이브 대상
+    prev = (await db.execute(
+        select(Semester).where(Semester.is_current == True)  # noqa: E712
+    )).scalars().first()
     await db.execute(sql_update(Semester).values(is_current=False))
     s.is_current = True
     await db.flush()
     await log_action(db, user, "semester.set_current", f"semester:{sid}", request=request)
     # 새 학기 기준 전체 드라이브 폴더 자동 생성 (백그라운드 — 응답 막지 않음)
-    from app.services.folder_seed import sync_all_users_background
+    from app.services.folder_seed import (
+        archive_prev_semester_background, sync_all_users_background,
+    )
+    # 이전 학기 자동 폴더 → "{n}. {year}-{term}학기" 보관 폴더로 이동 (멱등)
+    if prev and prev.id != sid:
+        background.add_task(archive_prev_semester_background, prev.id, sid)
     background.add_task(sync_all_users_background, sid)
     return _semester_to_dict(s)
 
