@@ -54,7 +54,7 @@ export function ShareFromDrive({
       setError("설문은 빌더 안에서 공유하세요.");
       return;
     }
-    if (target.type === "word_decks" || target.type === "boards") {
+    if (target.type === "word_decks" || target.type === "boards" || target.type === "whiteboards") {
       setError("에듀테크 도구는 도구 페이지의 '공유' 버튼으로 동료 교사와 공유하세요.");
       return;
     }

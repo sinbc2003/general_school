@@ -72,6 +72,8 @@ class BoardUpdate(BaseModel):
     hide_authors: bool | None = None               # 작성자 익명 표시 (moderator 외)
     new_card_position: str | None = Field(default=None, pattern="^(top|bottom)$")
     default_sort: str | None = Field(default=None, pattern="^(manual|newest|likes)$")
+    # 레이아웃 — shelf(섹션 컬럼) | canvas(자유배치 x/y 드래그)
+    layout: str | None = Field(default=None, pattern="^(shelf|canvas)$")
 
 
 class ShareAdd(BaseModel):
@@ -99,6 +101,7 @@ def _to_dict(b: ToolBoard, *, owner_name: str | None = None) -> dict:
         "hide_authors": bool((b.settings or {}).get("hide_authors")),
         "new_card_position": (b.settings or {}).get("new_card_position") or "top",
         "default_sort": (b.settings or {}).get("default_sort") or "newest",
+        "layout": (b.settings or {}).get("layout") or "shelf",
         "is_archived": b.is_archived,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         "updated_at": b.updated_at.isoformat() if b.updated_at else None,
@@ -269,7 +272,7 @@ async def update_board(
     if background is not None:
         b.settings = {**(b.settings or {}), "background": background.strip()[:30]}
     # Padlet 동급 설정 — settings JSON에 머지
-    for sk in ("requires_approval", "hide_authors", "new_card_position", "default_sort"):
+    for sk in ("requires_approval", "hide_authors", "new_card_position", "default_sort", "layout"):
         if sk in patch:
             b.settings = {**(b.settings or {}), sk: patch.pop(sk)}
     if "course_id" in patch and patch["course_id"] is not None:
@@ -401,6 +404,39 @@ async def duplicate_board(
     await db.flush()
     await log_action(db, user, "tools.board.duplicate", target=f"board:{bid} -> {copy.id}", request=request)
     return _to_dict(copy, owner_name=user.name)
+
+
+# ── 카드 댓글 알림 (best-effort — 댓글 자체는 Yjs, 알림만 backend) ──
+
+class CommentNotify(BaseModel):
+    recipient_id: int
+    excerpt: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/{bid}/notify-comment")
+async def notify_card_comment(
+    bid: int, body: CommentNotify,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """카드 작성자에게 댓글 알림 — 보드 can_write 멤버만 호출 가능."""
+    from app.services.notification import notify_users
+
+    b = await _get_board_or_404(db, bid)
+    perm = await _resolve_permission(db, user, b)
+    if not perm["can_write"]:
+        raise HTTPException(403)
+    recipient = await db.get(User, body.recipient_id)
+    if not recipient:
+        return {"ok": True, "notified": 0}
+    link = f"/s/board/{bid}" if recipient.role == "student" else f"/tools/board/{bid}"
+    n = await notify_users(
+        db, user_ids=[recipient.id], type="board_comment",
+        title=f"보드 '{b.title}' — 내 카드에 댓글",
+        body=f"{user.name}: {body.excerpt}",
+        link_url=link, source_user_id=user.id,
+    )
+    return {"ok": True, "notified": n}
 
 
 # ── 카드 이미지 업로드 (can_write — 카드 작성자가 직접 올림) ──

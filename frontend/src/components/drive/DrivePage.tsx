@@ -446,6 +446,11 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           body: { title: "제목 없는 보드" },
           redirect: (id) => `/tools/board/${id}`,
         },
+        whiteboards: {
+          url: "/api/classroom/whiteboards",
+          body: { title: "제목 없는 화이트보드" },
+          redirect: (id) => `/tools/whiteboard/${id}`,
+        },
       };
       const cfg = endpoints[type]!;
       const r = await api.post<{ id: number }>(cfg.url, cfg.body);
@@ -611,7 +616,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             currentFolderId={currentFolderId}
             fetchAll={fetchAll}
             createNew={createNew}
-            excludeTypes={mode === "student" ? ["word_decks", "boards"] : []}
+            excludeTypes={mode === "student" ? ["word_decks", "boards", "whiteboards"] : []}
           />
           <button
             type="button"
@@ -787,7 +792,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           trashTab={trashMode}
           newMenu={((mode === "student"
             ? ["docs", "sheets", "decks", "surveys", "hwps"]
-            : ["docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards"]) as ItemType[]).map((t) => ({
+            : ["docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards", "whiteboards"]) as ItemType[]).map((t) => ({
             type: t,
             meta: { label: TYPE_META[t].label, icon: TYPE_META[t].icon, color: TYPE_META[t].color },
           }))}
@@ -800,6 +805,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             }
             if (it.type === "boards") {
               window.open(`/tools/board/${it.id}`, "_blank");
+              return;
+            }
+            if (it.type === "whiteboards") {
+              window.open(`/tools/whiteboard/${it.id}`, "_blank");
               return;
             }
             const seg =

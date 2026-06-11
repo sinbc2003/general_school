@@ -7,13 +7,13 @@
 
 import {
   FileText, FileSpreadsheet, Presentation, ClipboardList, FileType2,
-  BookA, StickyNote,
+  BookA, StickyNote, PenTool,
   type LucideIcon,
 } from "lucide-react";
 
 export type ItemType =
   | "docs" | "sheets" | "decks" | "surveys" | "hwps"
-  | "word_decks" | "boards";
+  | "word_decks" | "boards" | "whiteboards";
 export type SortKey = "name" | "owner" | "updated" | "size";
 export type SortDir = "asc" | "desc";
 
@@ -74,10 +74,14 @@ export const TYPE_META: Record<
     label: "보드", icon: StickyNote, color: "#b45309",
     bg: "linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)",
   },
+  whiteboards: {
+    label: "화이트보드", icon: PenTool, color: "#6d28d9",
+    bg: "linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)",
+  },
 };
 
 export const ITEM_TYPES: ItemType[] = [
-  "docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards",
+  "docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards", "whiteboards",
 ];
 
 export function formatMB(bytes: number): string {
@@ -111,6 +115,9 @@ export function hrefForItem(
   if (it.type === "boards") {
     return mode === "admin" ? `/tools/board/${it.id}` : `/s/board/${it.id}`;
   }
+  if (it.type === "whiteboards") {
+    return mode === "admin" ? `/tools/whiteboard/${it.id}` : `/s/whiteboard/${it.id}`;
+  }
   const segMap: Record<ItemType, string> = {
     docs: "docs",
     decks: "decks",
@@ -119,6 +126,7 @@ export function hrefForItem(
     hwps: "hwps",
     word_decks: "word_decks",
     boards: "boards",
+    whiteboards: "whiteboards",
   };
   if (it.course_id) return `${baseClassroom}/${it.course_id}/${segMap[it.type]}/${it.id}`;
   if (it.type === "docs") return `${baseDocs}/${it.id}`;

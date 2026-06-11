@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 보드 — 교사용 상세 (BoardView + 소유자 설정/공유, 공유받은 교사는 사본 생성).
+ * 화이트보드 — 교사용 상세 (캔버스 + 소유자 설정/공유, 공유받은 교사는 사본).
  * 도구 집중 모드: 진입 시 사이드바 자동 접힘.
  */
 
@@ -13,45 +13,40 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToolFocusMode } from "@/lib/use-tool-focus";
-import { BoardView, BOARD_BACKGROUNDS } from "@/components/board/BoardView";
+import { WhiteboardCanvas, WB_BACKGROUNDS } from "@/components/whiteboard/WhiteboardCanvas";
 import { ToolShareModal } from "@/components/tools/ToolShareModal";
 
-interface BoardMeta {
+interface WbMeta {
   id: number;
   title: string;
   description?: string | null;
   access_mode: string;
-  columns: string[];
   background?: string;
-  requires_approval?: boolean;
-  hide_authors?: boolean;
-  new_card_position?: string;
-  default_sort?: string;
-  layout?: string;
+  is_archived: boolean;
   permission: { role: string | null };
 }
 
-export default function BoardDetailPage() {
-  const params = useParams<{ bid: string }>();
+export default function WhiteboardDetailPage() {
+  const params = useParams<{ wid: string }>();
   const router = useRouter();
-  const bid = Number(params.bid);
+  const wid = Number(params.wid);
   useToolFocusMode();
 
-  const [meta, setMeta] = useState<BoardMeta | null>(null);
+  const [meta, setMeta] = useState<WbMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
-  const [viewKey, setViewKey] = useState(0); // 설정 변경 후 BoardView 재마운트
+  const [viewKey, setViewKey] = useState(0);
 
   const load = useCallback(async () => {
     try {
-      const res = await api.get<BoardMeta>(`/api/classroom/boards/${bid}`);
+      const res = await api.get<WbMeta>(`/api/classroom/whiteboards/${wid}`);
       setMeta(res);
     } catch (e: any) {
-      setError(e?.detail || "보드를 불러올 수 없습니다");
+      setError(e?.detail || "화이트보드를 불러올 수 없습니다");
     }
-  }, [bid]);
+  }, [wid]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -59,8 +54,8 @@ export default function BoardDetailPage() {
     if (duplicating) return;
     setDuplicating(true);
     try {
-      const res = await api.post<{ id: number }>(`/api/classroom/boards/${bid}/duplicate`);
-      router.push(`/tools/board/${res.id}`);
+      const res = await api.post<{ id: number }>(`/api/classroom/whiteboards/${wid}/duplicate`);
+      router.push(`/tools/whiteboard/${res.id}`);
     } catch (e: any) {
       alert(e?.detail || "사본 생성 실패");
       setDuplicating(false);
@@ -71,7 +66,7 @@ export default function BoardDetailPage() {
     return (
       <div className="p-10 text-center">
         <div className="text-body text-status-error mb-3">{error}</div>
-        <Link href="/tools/board" className="text-caption underline">목록으로</Link>
+        <Link href="/tools/whiteboard" className="text-caption underline">목록으로</Link>
       </div>
     );
   }
@@ -85,28 +80,27 @@ export default function BoardDetailPage() {
 
   const isOwner = meta.permission.role === "owner" || meta.permission.role === "admin";
   const isSharedViewer = meta.permission.role === "viewer";
-
   const actionBtn =
-    "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/70 hover:bg-white text-gray-800 shadow-sm transition";
+    "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-bg-secondary hover:bg-border-default text-text-primary transition";
 
   return (
     <div className="p-4 sm:p-6 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-3">
         <Link
-          href="/tools/board"
+          href="/tools/whiteboard"
           className="inline-flex items-center gap-1 text-caption text-text-tertiary hover:text-text-primary"
         >
-          <ChevronLeft size={14} /> 보드 목록
+          <ChevronLeft size={14} /> 화이트보드 목록
         </Link>
       </div>
 
-      <BoardView
+      <WhiteboardCanvas
         key={viewKey}
-        boardId={bid}
+        whiteboardId={wid}
         headerActions={
           <>
             <button
-              onClick={() => window.open(`/tools/board/${bid}`, "_blank", "noopener")}
+              onClick={() => window.open(`/tools/whiteboard/${wid}`, "_blank", "noopener")}
               className={actionBtn}
               title="새 창에서 열기 (프로젝터·듀얼 모니터)"
             >
@@ -115,7 +109,7 @@ export default function BoardDetailPage() {
             {isSharedViewer && (
               <button onClick={duplicate} disabled={duplicating} className={actionBtn}>
                 {duplicating ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
-                내 보드로 복사
+                내 것으로 복사
               </button>
             )}
             {isOwner && (
@@ -135,13 +129,13 @@ export default function BoardDetailPage() {
       {showShare && (
         <ToolShareModal
           title={meta.title}
-          basePath={`/api/classroom/boards/${bid}`}
+          basePath={`/api/classroom/whiteboards/${wid}`}
           onClose={() => setShowShare(false)}
         />
       )}
 
       {showSettings && (
-        <BoardSettingsModal
+        <WbSettingsModal
           meta={meta}
           onClose={() => setShowSettings(false)}
           onSaved={async () => {
@@ -149,46 +143,38 @@ export default function BoardDetailPage() {
             await load();
             setViewKey((k) => k + 1);
           }}
-          onDeleted={() => router.push("/tools/board")}
+          onDeleted={() => router.push("/tools/whiteboard")}
         />
       )}
     </div>
   );
 }
 
-function BoardSettingsModal({
+function WbSettingsModal({
   meta, onClose, onSaved, onDeleted,
 }: {
-  meta: BoardMeta;
+  meta: WbMeta;
   onClose: () => void;
   onSaved: () => void;
   onDeleted: () => void;
 }) {
   const [title, setTitle] = useState(meta.title);
   const [description, setDescription] = useState(meta.description || "");
+  const [background, setBackground] = useState(meta.background || "white");
   const [accessMode, setAccessMode] = useState(meta.access_mode);
-  const [background, setBackground] = useState(meta.background || "cream");
-  const [requiresApproval, setRequiresApproval] = useState(!!meta.requires_approval);
-  const [hideAuthors, setHideAuthors] = useState(!!meta.hide_authors);
-  const [newCardPos, setNewCardPos] = useState(meta.new_card_position || "top");
-  const [defaultSort, setDefaultSort] = useState(meta.default_sort || "newest");
-  const [layout, setLayout] = useState(meta.layout || "shelf");
+  const [archived, setArchived] = useState(meta.is_archived);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     if (!title.trim() || saving) return;
     setSaving(true);
     try {
-      await api.put(`/api/classroom/boards/${meta.id}`, {
+      await api.put(`/api/classroom/whiteboards/${meta.id}`, {
         title: title.trim(),
         description: description.trim() || null,
-        access_mode: accessMode,
         background,
-        requires_approval: requiresApproval,
-        hide_authors: hideAuthors,
-        new_card_position: newCardPos,
-        default_sort: defaultSort,
-        layout,
+        access_mode: accessMode,
+        is_archived: archived,
       });
       onSaved();
     } catch (e: any) {
@@ -198,9 +184,9 @@ function BoardSettingsModal({
   };
 
   const remove = async () => {
-    if (!confirm("보드를 휴지통으로 이동할까요?\n내 드라이브 휴지통에서 30일 내 복구할 수 있습니다.")) return;
+    if (!confirm("화이트보드를 휴지통으로 이동할까요?\n내 드라이브 휴지통에서 30일 내 복구할 수 있습니다.")) return;
     try {
-      await api.delete(`/api/classroom/boards/${meta.id}`);
+      await api.delete(`/api/classroom/whiteboards/${meta.id}`);
       onDeleted();
     } catch (e: any) {
       alert(e?.detail || "삭제 실패");
@@ -209,40 +195,41 @@ function BoardSettingsModal({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-md">
+      <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-sm">
         <header className="flex items-center justify-between px-5 py-3 border-b border-border-default">
-          <h2 className="text-body font-medium">보드 설정</h2>
+          <h2 className="text-body font-medium">화이트보드 설정</h2>
           <button onClick={onClose} className="p-1 hover:bg-bg-secondary rounded">
             <X size={16} />
           </button>
         </header>
-        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="p-5 space-y-4">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-amber-500"
+            className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-violet-500"
           />
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="설명 (보드 제목 아래 표시)"
-            className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-amber-500"
+            placeholder="설명 (선택)"
+            className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-violet-500"
           />
-
-          {/* 배경 테마 */}
           <div>
             <div className="text-caption text-text-tertiary mb-1.5">배경</div>
-            <div className="grid grid-cols-4 gap-2">
-              {BOARD_BACKGROUNDS.map((b) => (
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(WB_BACKGROUNDS).map(([key, b]) => (
                 <button
-                  key={b.key}
+                  key={key}
                   type="button"
-                  onClick={() => setBackground(b.key)}
-                  className={`h-12 rounded-lg border-2 transition relative overflow-hidden ${
-                    background === b.key ? "border-rose-500 ring-2 ring-rose-200" : "border-border-default"
+                  onClick={() => setBackground(key)}
+                  className={`h-12 rounded-lg border-2 relative overflow-hidden ${
+                    background === key ? "border-violet-500 ring-2 ring-violet-200" : "border-border-default"
                   }`}
-                  style={{ background: b.css }}
-                  title={b.label}
+                  style={{
+                    background: b.grid
+                      ? "repeating-linear-gradient(0deg,#fff,#fff 7px,#e2e8f0 8px),repeating-linear-gradient(90deg,#fff,#fff 7px,#e2e8f0 8px)"
+                      : b.fill,
+                  }}
                 >
                   <span className={`absolute bottom-0.5 left-1.5 text-[9px] font-semibold ${b.dark ? "text-white/90" : "text-gray-700"}`}>
                     {b.label}
@@ -250,21 +237,6 @@ function BoardSettingsModal({
                 </button>
               ))}
             </div>
-          </div>
-
-          <div>
-            <div className="text-caption text-text-tertiary mb-1">레이아웃</div>
-            <select
-              value={layout}
-              onChange={(e) => setLayout(e.target.value)}
-              className="w-full px-3 py-2 border border-border-default rounded text-body bg-bg-primary"
-            >
-              <option value="shelf">섹션 컬럼 — 주제별로 정리 (기본)</option>
-              <option value="canvas">자유배치 — 카드를 원하는 위치로 드래그</option>
-            </select>
-          </div>
-          <div className="text-[11px] text-text-tertiary -mt-2">
-            섹션(컬럼)은 보드 화면에서 직접 추가·이름 수정·삭제할 수 있습니다.
           </div>
           <select
             value={accessMode}
@@ -274,47 +246,22 @@ function BoardSettingsModal({
             <option value="members">멤버만 — 강좌 글에 첨부한 수강생</option>
             <option value="public">전체 공개 — 인증 사용자 누구나 참여</option>
           </select>
-
-          {/* Padlet 동급 설정 */}
-          <div className="space-y-2 border-t border-border-default pt-3">
-            <label className="flex items-center gap-2 text-body cursor-pointer">
-              <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} />
-              승인 후 게시 — 학생 카드는 교사 승인 후 모두에게 표시
-            </label>
-            <label className="flex items-center gap-2 text-body cursor-pointer">
-              <input type="checkbox" checked={hideAuthors} onChange={(e) => setHideAuthors(e.target.checked)} />
-              작성자 익명 표시 — 교사 외에는 이름 대신 "익명"
-            </label>
-            <div className="flex items-center gap-3">
-              <label className="text-caption text-text-secondary flex items-center gap-1.5">
-                새 카드 위치
-                <select value={newCardPos} onChange={(e) => setNewCardPos(e.target.value)} className="px-2 py-1 border border-border-default rounded text-caption bg-bg-primary">
-                  <option value="top">맨 위</option>
-                  <option value="bottom">맨 아래</option>
-                </select>
-              </label>
-              <label className="text-caption text-text-secondary flex items-center gap-1.5">
-                기본 정렬
-                <select value={defaultSort} onChange={(e) => setDefaultSort(e.target.value)} className="px-2 py-1 border border-border-default rounded text-caption bg-bg-primary">
-                  <option value="newest">최신순</option>
-                  <option value="likes">좋아요순</option>
-                  <option value="manual">수동 (드래그)</option>
-                </select>
-              </label>
-            </div>
-          </div>
+          <label className="flex items-center gap-2 text-body cursor-pointer">
+            <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+            보관 (읽기 전용 — 더 이상 그릴 수 없음)
+          </label>
         </div>
         <footer className="px-5 py-3 border-t border-border-default flex items-center justify-between">
           <button
             onClick={remove}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-caption text-red-600 hover:bg-red-50 rounded"
           >
-            <Trash2 size={13} /> 보드 삭제
+            <Trash2 size={13} /> 삭제
           </button>
           <button
             onClick={save}
             disabled={!title.trim() || saving}
-            className="px-4 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-40 text-white rounded-lg text-body font-medium"
+            className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-lg text-body font-medium"
           >
             {saving ? "저장 중..." : "저장"}
           </button>

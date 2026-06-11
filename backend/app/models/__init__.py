@@ -155,6 +155,9 @@ from app.models.tool_wordbook import WordDeck, WordCard, WordStudyState
 # ── Tool: Board (Padlet형 보드 — 업무 및 수업 도구, 카드는 Yjs) ──
 from app.models.tool_board import ToolBoard
 
+# ── Tool: Whiteboard (공유 화이트보드 — 실시간 드로잉, 스트로크는 Yjs) ──
+from app.models.tool_whiteboard import ToolWhiteboard
+
 # ── Tool: 교사 간 도구 공유 (보드·단어장 공통) ──
 from app.models.tool_share import EduToolShare
 
@@ -248,6 +251,8 @@ __all__ = [
     "WordDeck", "WordCard", "WordStudyState",
     # Tool: Board
     "ToolBoard",
+    # Tool: Whiteboard
+    "ToolWhiteboard",
     # Tool: Share
     "EduToolShare",
 ]

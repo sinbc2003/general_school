@@ -32,6 +32,7 @@ from app.models import (
     ClassroomSheet,
     Survey,
     ToolBoard,
+    ToolWhiteboard,
     User,
     WordDeck,
 )
@@ -50,10 +51,37 @@ ITEM_TYPES: dict[str, tuple[Any, str, str]] = {
     # 에듀테크 도구 — 원본은 교사 자산이라 드라이브에서 학기 폴더로 정리·보관
     "word_decks": (WordDeck, "owner_id", "단어장"),
     "boards": (ToolBoard, "owner_id", "보드"),
+    "whiteboards": (ToolWhiteboard, "owner_id", "화이트보드"),
 }
 
 # 휴지통 보관 기간
 TRASH_RETENTION_DAYS = 30
+
+
+async def _cleanup_board_files(obj: Any) -> None:
+    """보드 영구삭제 시 카드 이미지 디렉토리(storage/boards/{id}/) 정리."""
+    import asyncio
+    import shutil
+
+    from app.core.files import DEFAULT_STORAGE_ROOT
+    d = DEFAULT_STORAGE_ROOT / "boards" / str(obj.id)
+    await asyncio.to_thread(shutil.rmtree, d, True)  # ignore_errors=True
+
+
+# 타입별 영구삭제 후처리 (best-effort — 실패해도 삭제는 진행)
+CLEANUP_HOOKS: dict[str, Any] = {
+    "boards": _cleanup_board_files,
+}
+
+
+async def _run_cleanup(type_str: str, obj: Any) -> None:
+    hook = CLEANUP_HOOKS.get(type_str)
+    if not hook:
+        return
+    try:
+        await hook(obj)
+    except Exception:
+        pass
 
 
 def _resolve_type(type_str: str) -> tuple[Any, str, str]:
@@ -269,6 +297,7 @@ async def permanent_delete_item(
     bytes_to_free = obj.storage_bytes or 0
     owner_id = getattr(obj, owner_field)
     title = obj.title
+    await _run_cleanup(type, obj)
     await db.delete(obj)
     await db.flush()
 
@@ -306,6 +335,7 @@ async def empty_my_trash(
         rows = (await db.execute(q)).scalars().all()
         for obj in rows:
             freed_total += obj.storage_bytes or 0
+            await _run_cleanup(t, obj)
             await db.delete(obj)
             deleted += 1
     await db.flush()
@@ -347,6 +377,7 @@ async def purge_expired_trash(db: AsyncSession) -> dict[str, int]:
             if owner_id and bytes_freed > 0:
                 freed_by_owner[owner_id] = freed_by_owner.get(owner_id, 0) + bytes_freed
             total_freed += bytes_freed
+            await _run_cleanup(t, obj)
             await db.delete(obj)
             total_deleted += 1
     await db.flush()

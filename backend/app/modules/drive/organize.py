@@ -153,6 +153,20 @@ async def copy_drive_item(
             storage_bytes=bytes_needed,
             folder_id=target_folder_id,
         )
+    elif type == "whiteboards":
+        from app.models import ToolWhiteboard
+        assert Model is ToolWhiteboard
+        new_obj = ToolWhiteboard(
+            owner_id=user.id,
+            title=new_title,
+            description=src.description,
+            course_id=None,
+            access_mode="members",
+            settings=dict(src.settings or {}),
+            yjs_state=src.yjs_state,   # 그림 전체 복제
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+        )
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 

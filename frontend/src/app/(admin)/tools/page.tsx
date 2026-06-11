@@ -8,7 +8,7 @@
  */
 
 import Link from "next/link";
-import { Gamepad2, BookA, StickyNote, Dices, ExternalLink, type LucideIcon } from "lucide-react";
+import { Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool, type LucideIcon } from "lucide-react";
 
 interface ToolDef {
   key: string;
@@ -47,6 +47,15 @@ const TOOLS: ToolDef[] = [
     href: "/tools/board",
     ready: true,
     accent: "from-amber-500 to-orange-500",
+  },
+  {
+    key: "whiteboard",
+    name: "화이트보드",
+    description: "펜·도형·텍스트로 실시간 공동 드로잉 — 판서·브레인스토밍·문제 풀이",
+    icon: PenTool,
+    href: "/tools/whiteboard",
+    ready: true,
+    accent: "from-violet-500 to-purple-500",
   },
   {
     key: "minitools",

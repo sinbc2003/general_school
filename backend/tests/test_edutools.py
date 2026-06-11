@@ -752,6 +752,110 @@ async def test_board_padlet_settings(app_client, auth_headers, teacher_user, see
     assert got["new_card_position"] == "bottom" and got["default_sort"] == "likes"
 
 
+async def test_whiteboard_full_matrix(
+    app_client, auth_headers, teacher_user, teacher2, student_user, course, db_session, monkeypatch,
+):
+    """화이트보드: 접근 매트릭스 + 공유/사본 + 첨부=참여권 + snapshot 토큰 + 드라이브 휴지통."""
+    import base64
+
+    from app.core.config import settings as _settings
+    from app.models import CoursePost
+
+    t = auth_headers(teacher_user)
+    t2 = auth_headers(teacher2)
+    s = auth_headers(student_user)
+
+    # 생성 (학생은 manage 권한 없음)
+    assert (await app_client.post(
+        "/api/classroom/whiteboards", json={"title": "x"}, headers=s,
+    )).status_code == 403
+    wb = (await app_client.post(
+        "/api/classroom/whiteboards", json={"title": "수학 판서", "background": "grid"}, headers=t,
+    )).json()
+    wid = wb["id"]
+    assert wb["background"] == "grid"
+
+    # members + 첨부 없음 → 학생/타교사 403
+    assert (await app_client.get(f"/api/classroom/whiteboards/{wid}", headers=s)).status_code == 403
+    assert (await app_client.get(f"/api/classroom/whiteboards/{wid}", headers=t2)).status_code == 403
+
+    # 강좌 글 첨부 → 수강생 읽기+쓰기
+    db_session.add(CoursePost(
+        course_id=course.id, author_id=teacher_user.id,
+        post_type="material", title="판서", content="x",
+        attachments=[{"type": "whiteboard", "whiteboard_id": wid, "title": "수학 판서"}],
+    ))
+    await db_session.commit()
+    perm = (await app_client.get(f"/api/classroom/whiteboards/{wid}/permission", headers=s)).json()
+    assert perm["can_read"] is True and perm["can_write"] is True
+
+    # 공유 → 타교사 열람 전용 + 사본 생성 가능
+    await app_client.post(f"/api/classroom/whiteboards/{wid}/shares",
+                          json={"user_id": teacher2.id}, headers=t)
+    perm2 = (await app_client.get(f"/api/classroom/whiteboards/{wid}/permission", headers=t2)).json()
+    assert perm2["can_read"] is True and perm2["can_write"] is False and perm2["role"] == "viewer"
+    shared = (await app_client.get("/api/classroom/whiteboards/shared-with-me", headers=t2)).json()["items"]
+    assert any(w["id"] == wid for w in shared)
+    copy = (await app_client.post(f"/api/classroom/whiteboards/{wid}/duplicate", headers=t2)).json()
+    assert copy["owner_id"] == teacher2.id and "(사본)" in copy["title"]
+
+    # yjs-snapshot 내부 토큰 roundtrip
+    monkeypatch.setattr(_settings, "HOCUSPOCUS_INTERNAL_TOKEN", "tok", raising=False)
+    payload = {"state_base64": base64.b64encode(b"wb-state").decode()}
+    assert (await app_client.post(
+        f"/api/classroom/whiteboards/{wid}/yjs-snapshot", json=payload,
+        headers={"X-Internal-Token": "tok"},
+    )).status_code == 200
+    got = (await app_client.get(
+        f"/api/classroom/whiteboards/{wid}/yjs-snapshot", headers={"X-Internal-Token": "tok"},
+    )).json()
+    assert got["state_base64"] == payload["state_base64"]
+
+    # 드라이브: 목록 노출 + 휴지통 roundtrip
+    items = (await app_client.get("/api/drive/items?type=whiteboards", headers=t)).json()["items"]
+    assert any(i["id"] == wid for i in items)
+    assert (await app_client.delete(f"/api/classroom/whiteboards/{wid}", headers=t)).json()["trashed"] is True
+    assert (await app_client.get(f"/api/classroom/whiteboards/{wid}", headers=t)).status_code == 404
+    assert (await app_client.post(f"/api/drive/items/whiteboards/{wid}/restore", headers=t)).status_code == 200
+    assert (await app_client.get(f"/api/classroom/whiteboards/{wid}", headers=t)).status_code == 200
+
+
+async def test_board_layout_and_comment_notify(
+    app_client, auth_headers, teacher_user, student_user, course, db_session, seed_perms,
+):
+    """보드 v2: layout 설정 저장 + 댓글 알림 (첨부 수강생 → 카드 작성자)."""
+    from app.models import CoursePost, Notification
+    from sqlalchemy import select as _select
+
+    t = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+    board = await _create_board(app_client, t)
+    bid = board["id"]
+
+    # layout 저장
+    await app_client.put(f"/api/classroom/boards/{bid}", json={"layout": "canvas"}, headers=t)
+    got = (await app_client.get(f"/api/classroom/boards/{bid}", headers=t)).json()
+    assert got["layout"] == "canvas"
+
+    # 첨부 후 학생이 교사 카드에 댓글 알림
+    db_session.add(CoursePost(
+        course_id=course.id, author_id=teacher_user.id,
+        post_type="material", title="보드", content="x",
+        attachments=[{"type": "board", "board_id": bid, "title": "b"}],
+    ))
+    await db_session.commit()
+    res = await app_client.post(
+        f"/api/classroom/boards/{bid}/notify-comment",
+        json={"recipient_id": teacher_user.id, "excerpt": "좋은 의견이에요"}, headers=s,
+    )
+    assert res.status_code == 200 and res.json()["notified"] == 1
+    n = (await db_session.execute(_select(Notification).where(
+        Notification.user_id == teacher_user.id,
+        Notification.type == "board_comment",
+    ))).scalars().first()
+    assert n is not None and "좋은 의견이에요" in (n.body or "")
+
+
 async def test_board_yjs_snapshot_internal_token(
     app_client, auth_headers, teacher_user, monkeypatch,
 ):

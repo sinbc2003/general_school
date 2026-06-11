@@ -64,6 +64,7 @@ interface BoardMeta {
   hide_authors?: boolean;
   new_card_position?: "top" | "bottom";
   default_sort?: "manual" | "newest" | "likes";
+  layout?: "shelf" | "canvas";
   permission: { can_read: boolean; can_write: boolean; role: string | null };
 }
 
@@ -83,6 +84,8 @@ export interface BoardCard {
   image_url?: string;    // /storage/boards/{bid}/...
   link_url?: string;
   approved?: boolean;    // undefined = 승인됨 (레거시)
+  cx?: number;           // 자유배치(canvas) 좌표 px
+  cy?: number;
 }
 
 interface BoardComment {
@@ -149,6 +152,67 @@ function AuthedImg({ url, className, onClick }: { url: string; className?: strin
   if (!src) return <div className={`${className} bg-black/5 animate-pulse rounded-lg min-h-[80px]`} />;
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" className={className} onClick={onClick} />;
+}
+
+// ── OG 링크 미리보기 (embeds/og-preview 재사용 — SSRF 방어는 backend) ──
+interface OgData { title?: string; description?: string; image?: string }
+const ogCache = new Map<string, OgData | null>();
+
+function LinkPreview({ url }: { url: string }) {
+  const [og, setOg] = useState<OgData | null | undefined>(
+    ogCache.has(url) ? ogCache.get(url) : undefined,
+  );
+  useEffect(() => {
+    if (ogCache.has(url)) { setOg(ogCache.get(url)); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<OgData>(`/api/embeds/og-preview?url=${encodeURIComponent(url)}`);
+        const data = res && (res.title || res.image || res.description) ? res : null;
+        ogCache.set(url, data);
+        if (!cancelled) setOg(data);
+      } catch {
+        ogCache.set(url, null);
+        if (!cancelled) setOg(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  const host = url.replace(/^https?:\/\//, "").split("/")[0];
+
+  if (og) {
+    return (
+      <a
+        href={url} target="_blank" rel="noopener noreferrer"
+        className="block mt-1.5 rounded-lg overflow-hidden border border-black/10 bg-white/80 hover:bg-white transition"
+      >
+        {og.image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={og.image} alt="" className="w-full max-h-28 object-cover" />
+        )}
+        <div className="px-2 py-1.5">
+          <div className="text-[11.5px] font-semibold text-gray-800 line-clamp-1">
+            {og.title || host}
+          </div>
+          {og.description && (
+            <div className="text-[10.5px] text-gray-500 line-clamp-2">{og.description}</div>
+          )}
+          <div className="text-[10px] text-sky-600 truncate">{host}</div>
+        </div>
+      </a>
+    );
+  }
+  // 미리보기 실패/로딩 — 기존 칩
+  return (
+    <a
+      href={url} target="_blank" rel="noopener noreferrer"
+      className="flex items-center gap-1 mt-1.5 text-[11.5px] text-sky-700 bg-sky-50/80 rounded-lg px-2 py-1 hover:bg-sky-100 truncate"
+    >
+      <ExtIcon size={11} className="flex-shrink-0" />
+      <span className="truncate">{url.replace(/^https?:\/\//, "")}</span>
+    </a>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +385,14 @@ export function BoardView({
     [likes, user],
   );
 
+  // 승인 필터 적용된 평탄 목록 (canvas 레이아웃용)
+  const visibleCards = useMemo(
+    () => cards.filter(
+      (c) => !(c.approved === false && !isModerator && c.author_id !== user?.id),
+    ),
+    [cards, isModerator, user?.id],
+  );
+
   const cardsBySection = useMemo(() => {
     const out = new Map<string, BoardCard[]>();
     sections.forEach((s) => out.set(s.id, []));
@@ -345,6 +417,7 @@ export function BoardView({
   // ── 카드 조작 ─────────────────────────────────────────────────────────
   const addCard = useCallback((sectionId: string, payload: {
     title?: string; text: string; color: string; image_url?: string; link_url?: string;
+    cx?: number; cy?: number;
   }) => {
     const yCards = yCardsRef.current;
     if (!yCards || !user || (!payload.text.trim() && !payload.image_url)) return;
@@ -367,6 +440,8 @@ export function BoardView({
       image_url: payload.image_url,
       link_url: payload.link_url,
       approved: requiresApproval && !isModerator ? false : true,
+      cx: payload.cx,
+      cy: payload.cy,
     };
     yCards.set(id, card);
   }, [user, cards, sectionIdOf, meta?.new_card_position, requiresApproval, isModerator]);
@@ -408,7 +483,14 @@ export function BoardView({
       id, card_id: card.id, text: text.trim().slice(0, 500),
       author_id: user.id, author_name: user.name || `#${user.id}`, created: Date.now(),
     });
-  }, [user]);
+    // 카드 작성자에게 알림 (best-effort — 본인 카드면 backend가 자동 skip)
+    if (card.author_id !== user.id) {
+      api.post(`/api/classroom/boards/${boardId}/notify-comment`, {
+        recipient_id: card.author_id,
+        excerpt: text.trim().slice(0, 100),
+      }).catch(() => undefined);
+    }
+  }, [user, boardId]);
 
   const deleteComment = useCallback((c: BoardComment) => {
     yCommentsRef.current?.delete(c.id);
@@ -571,7 +653,28 @@ export function BoardView({
         </div>
       </div>
 
-      {/* 섹션 행 (Padlet shelf — 가로 스크롤) */}
+      {/* 레이아웃: canvas(자유배치) 또는 shelf(섹션 컬럼) */}
+      {meta.layout === "canvas" ? (
+        <CanvasArea
+          dark={!!bg.dark}
+          cards={visibleCards}
+          firstSectionId={sections[0]?.id ?? "col-0"}
+          canWrite={canWrite}
+          isModerator={isModerator}
+          hideAuthors={hideAuthors}
+          myUserId={user?.id}
+          boardId={boardId}
+          likeCount={likeCount}
+          iLiked={iLiked}
+          comments={comments}
+          onAdd={addCard}
+          onUpdate={updateCard}
+          onDelete={deleteCard}
+          onToggleLike={toggleLike}
+          onAddComment={addComment}
+          onDeleteComment={deleteComment}
+        />
+      ) : (
       <div className="flex-1 flex gap-3 sm:gap-4 items-start px-4 sm:px-6 pb-6 overflow-x-auto">
         {sections.map((s, si) => (
           <BoardColumn
@@ -619,6 +722,169 @@ export function BoardView({
           </button>
         )}
       </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 자유배치 캔버스 (Padlet canvas — 카드 드래그로 x/y 이동)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CANVAS_W = 1600;
+const CANVAS_H = 1100;
+const CANVAS_CARD_W = 250;
+
+function CanvasArea(props: {
+  dark: boolean;
+  cards: BoardCard[];
+  firstSectionId: string;
+  canWrite: boolean;
+  isModerator: boolean;
+  hideAuthors: boolean;
+  myUserId?: number;
+  boardId: number;
+  likeCount: (cardId: string) => number;
+  iLiked: (cardId: string) => boolean;
+  comments: Map<string, BoardComment[]>;
+  onAdd: (sectionId: string, p: {
+    title?: string; text: string; color: string; image_url?: string; link_url?: string;
+    cx?: number; cy?: number;
+  }) => void;
+  onUpdate: (card: BoardCard, patch: Partial<BoardCard>) => void;
+  onDelete: (card: BoardCard) => void;
+  onToggleLike: (card: BoardCard) => void;
+  onAddComment: (card: BoardCard, text: string) => void;
+  onDeleteComment: (c: BoardComment) => void;
+}) {
+  const { cards, canWrite, onUpdate } = props;
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [composing, setComposing] = useState(false);
+  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
+  const [livePos, setLivePos] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  // cx/cy 없는 카드는 index 기반 자동 배치
+  const posOfCard = (c: BoardCard, i: number) => ({
+    x: typeof c.cx === "number" ? c.cx : 30 + (i % 5) * (CANVAS_CARD_W + 20),
+    y: typeof c.cy === "number" ? c.cy : 30 + Math.floor(i / 5) * 200,
+  });
+
+  const areaPoint = (e: { clientX: number; clientY: number }) => {
+    const el = areaRef.current!;
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left + el.scrollLeft, y: e.clientY - r.top + el.scrollTop };
+  };
+
+  const startDrag = (c: BoardCard, i: number) => (e: React.PointerEvent) => {
+    if (!canWrite) return;
+    const t = e.target as HTMLElement;
+    // 버튼·입력·링크 위에서는 드래그 시작 안 함 (카드 상호작용 보존)
+    if (t.closest("button,textarea,input,a")) return;
+    const editable = c.author_id === props.myUserId || props.isModerator;
+    if (!editable) return;
+    const p = areaPoint(e);
+    const cur = posOfCard(c, i);
+    setDrag({ id: c.id, dx: p.x - cur.x, dy: p.y - cur.y });
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const onMove = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const p = areaPoint(e);
+    setLivePos({
+      id: drag.id,
+      x: Math.max(0, Math.min(CANVAS_W - CANVAS_CARD_W, p.x - drag.dx)),
+      y: Math.max(0, Math.min(CANVAS_H - 60, p.y - drag.dy)),
+    });
+  };
+
+  const endDrag = () => {
+    if (drag && livePos && livePos.id === drag.id) {
+      const card = cards.find((c) => c.id === drag.id);
+      if (card) onUpdate(card, { cx: livePos.x, cy: livePos.y });
+    }
+    setDrag(null);
+    setLivePos(null);
+  };
+
+  return (
+    <div className="flex-1 px-4 sm:px-6 pb-6 relative">
+      <div
+        ref={areaRef}
+        className={`relative rounded-2xl overflow-auto ${props.dark ? "bg-white/5" : "bg-white/30"}`}
+        style={{ height: "70vh" }}
+        onPointerMove={onMove}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
+      >
+        <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H }}>
+          {cards.map((c, i) => {
+            const base = posOfCard(c, i);
+            const pos = livePos && livePos.id === c.id ? livePos : base;
+            return (
+              <div
+                key={c.id}
+                className="absolute"
+                style={{
+                  left: pos.x, top: pos.y, width: CANVAS_CARD_W,
+                  zIndex: drag?.id === c.id ? 30 : 1,
+                  cursor: canWrite && (c.author_id === props.myUserId || props.isModerator) ? "grab" : "default",
+                }}
+                onPointerDown={startDrag(c, i)}
+              >
+                <CardItem
+                  card={c}
+                  canEdit={canWrite && (c.author_id === props.myUserId || props.isModerator)}
+                  canLike={canWrite}
+                  isModerator={props.isModerator}
+                  hideAuthors={props.hideAuthors}
+                  myUserId={props.myUserId}
+                  likeCount={props.likeCount(c.id)}
+                  liked={props.iLiked(c.id)}
+                  comments={props.comments.get(c.id) || []}
+                  draggable={false}
+                  onDragStart={() => undefined}
+                  onDragEnd={() => undefined}
+                  onDropBefore={() => undefined}
+                  dragActive={false}
+                  onUpdate={props.onUpdate}
+                  onDelete={props.onDelete}
+                  onToggleLike={() => props.onToggleLike(c)}
+                  onAddComment={(t) => props.onAddComment(c, t)}
+                  onDeleteComment={props.onDeleteComment}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 카드 추가 — 우하단 플로팅 */}
+      {canWrite && !composing && (
+        <button
+          onClick={() => setComposing(true)}
+          className="absolute bottom-10 right-10 w-12 h-12 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-xl transition z-20"
+          title="카드 추가"
+        >
+          <Plus size={22} />
+        </button>
+      )}
+      {composing && (
+        <div className="absolute bottom-10 right-10 w-[280px] z-30">
+          <Composer
+            boardId={props.boardId}
+            onSubmit={(p) => {
+              props.onAdd(props.firstSectionId, {
+                ...p,
+                cx: 40 + (cards.length % 6) * 60,
+                cy: 40 + (cards.length % 5) * 60,
+              });
+              setComposing(false);
+            }}
+            onCancel={() => setComposing(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1073,17 +1339,7 @@ function CardItem({
             {card.text && (
               <div className="text-body whitespace-pre-wrap break-words leading-relaxed">{card.text}</div>
             )}
-            {card.link_url && (
-              <a
-                href={card.link_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 mt-1.5 text-[11.5px] text-sky-700 bg-sky-50/80 rounded-lg px-2 py-1 hover:bg-sky-100 truncate"
-              >
-                <ExtIcon size={11} className="flex-shrink-0" />
-                <span className="truncate">{card.link_url.replace(/^https?:\/\//, "")}</span>
-              </a>
-            )}
+            {card.link_url && <LinkPreview url={card.link_url} />}
 
             {/* 푸터: 작성자 | 좋아요 · 댓글 · 수정/삭제 */}
             <div className="flex items-center justify-between mt-2.5 gap-1">

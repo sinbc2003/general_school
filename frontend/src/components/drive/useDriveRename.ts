@@ -27,6 +27,7 @@ const RENAME_PATH: Partial<Record<ItemType, string>> = {
   hwps: "/api/classroom/hwps",
   word_decks: "/api/tools/wordbook/decks",
   boards: "/api/classroom/boards",
+  whiteboards: "/api/classroom/whiteboards",
 };
 
 interface Params {
