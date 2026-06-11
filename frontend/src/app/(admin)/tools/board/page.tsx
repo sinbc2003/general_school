@@ -153,10 +153,49 @@ export default function BoardHomePage() {
   );
 }
 
+// Padlet '형식' 선택 카드 — 미니 프리뷰 (담벼락/컬럼/자유배치)
+const FORMAT_DEFS: { key: string; label: string; desc: string; preview: React.ReactNode }[] = [
+  {
+    key: "wall", label: "담벼락", desc: "카드가 벽돌처럼 채워짐",
+    preview: (
+      <div className="grid grid-cols-3 gap-1 p-2 h-full">
+        {[8, 12, 6, 10, 7, 11].map((h, i) => (
+          <div key={i} className="bg-white/80 rounded-sm" style={{ height: h * 3 }} />
+        ))}
+      </div>
+    ),
+  },
+  {
+    key: "shelf", label: "컬럼", desc: "주제별 세로 묶음",
+    preview: (
+      <div className="flex gap-1 p-2 h-full">
+        {[0, 1, 2].map((c) => (
+          <div key={c} className="flex-1 space-y-1">
+            <div className="bg-white/50 rounded-sm h-2" />
+            <div className="bg-white/80 rounded-sm h-5" />
+            <div className="bg-white/80 rounded-sm h-4" />
+          </div>
+        ))}
+      </div>
+    ),
+  },
+  {
+    key: "canvas", label: "자유배치", desc: "원하는 곳에 드래그",
+    preview: (
+      <div className="relative p-2 h-full">
+        <div className="absolute bg-white/80 rounded-sm w-7 h-5" style={{ left: 8, top: 8 }} />
+        <div className="absolute bg-white/80 rounded-sm w-7 h-5" style={{ left: 34, top: 22 }} />
+        <div className="absolute bg-white/80 rounded-sm w-7 h-5" style={{ left: 14, top: 38 }} />
+      </div>
+    ),
+  },
+];
+
 function CreateBoardModal({
   onClose, onCreated,
 }: { onClose: () => void; onCreated: (id: number) => void }) {
   const [title, setTitle] = useState("");
+  const [layout, setLayout] = useState("wall");
   const [columnsText, setColumnsText] = useState("아이디어, 질문, 기타");
   const [accessMode, setAccessMode] = useState("members");
   const [background, setBackground] = useState("sunset");
@@ -171,9 +210,9 @@ function CreateBoardModal({
         title: title.trim(),
         access_mode: accessMode,
         columns: cols.length > 0 ? cols : undefined,
+        layout,
+        background,
       });
-      // 배경은 생성 직후 설정 (생성 API는 최소 유지)
-      await api.put(`/api/classroom/boards/${res.id}`, { background }).catch(() => undefined);
       onCreated(res.id);
     } catch (e: any) {
       alert(e?.detail || "생성 실패");
@@ -183,7 +222,7 @@ function CreateBoardModal({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-md">
+      <div className="bg-bg-primary rounded-lg shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <header className="flex items-center justify-between px-5 py-3 border-b border-border-default">
           <h2 className="text-body font-medium">새 보드</h2>
           <button onClick={onClose} className="p-1 hover:bg-bg-secondary rounded">
@@ -199,6 +238,35 @@ function CreateBoardModal({
             onKeyDown={(e) => { if (e.key === "Enter") create(); }}
             className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-rose-400"
           />
+
+          {/* 형식 — Padlet 비주얼 카드 */}
+          <div>
+            <div className="text-caption text-text-tertiary mb-1.5">형식</div>
+            <div className="grid grid-cols-3 gap-2">
+              {FORMAT_DEFS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setLayout(f.key)}
+                  className={`rounded-xl border-2 overflow-hidden text-left transition ${
+                    layout === f.key ? "border-rose-500 ring-2 ring-rose-200" : "border-border-default hover:border-border-strong"
+                  }`}
+                >
+                  <div className="h-16 bg-gradient-to-br from-rose-400 to-amber-400">
+                    {f.preview}
+                  </div>
+                  <div className="px-2 py-1.5">
+                    <div className="text-[12px] font-semibold flex items-center gap-1">
+                      {f.label}
+                      {layout === f.key && <span className="text-rose-500">✓</span>}
+                    </div>
+                    <div className="text-[10px] text-text-tertiary leading-tight">{f.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <div className="text-caption text-text-tertiary mb-1.5">배경</div>
             <div className="grid grid-cols-4 gap-2">
@@ -216,14 +284,16 @@ function CreateBoardModal({
               ))}
             </div>
           </div>
-          <div>
-            <div className="text-caption text-text-tertiary mb-1">컬럼 (쉼표로 구분)</div>
-            <input
-              value={columnsText}
-              onChange={(e) => setColumnsText(e.target.value)}
-              className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-rose-400"
-            />
-          </div>
+          {layout === "shelf" && (
+            <div>
+              <div className="text-caption text-text-tertiary mb-1">컬럼 (쉼표로 구분 — 보드에서 자유롭게 추가·수정 가능)</div>
+              <input
+                value={columnsText}
+                onChange={(e) => setColumnsText(e.target.value)}
+                className="w-full px-3 py-2 border border-border-default rounded text-body outline-none focus:border-rose-400"
+              />
+            </div>
+          )}
           <select
             value={accessMode}
             onChange={(e) => setAccessMode(e.target.value)}

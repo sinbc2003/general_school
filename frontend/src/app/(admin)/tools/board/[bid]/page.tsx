@@ -259,7 +259,8 @@ function BoardSettingsModal({
               onChange={(e) => setLayout(e.target.value)}
               className="w-full px-3 py-2 border border-border-default rounded text-body bg-bg-primary"
             >
-              <option value="shelf">섹션 컬럼 — 주제별로 정리 (기본)</option>
+              <option value="wall">담벼락 — 카드가 벽돌처럼 채워짐 (Padlet 기본)</option>
+              <option value="shelf">컬럼 — 주제별 섹션으로 정리</option>
               <option value="canvas">자유배치 — 카드를 원하는 위치로 드래그</option>
             </select>
           </div>

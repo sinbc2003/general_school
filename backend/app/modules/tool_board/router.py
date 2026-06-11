@@ -56,6 +56,9 @@ class BoardCreate(BaseModel):
     course_id: int | None = None
     access_mode: str = Field(default="members", pattern="^(members|public)$")
     columns: list[str] | None = None  # 미지정 시 DEFAULT_COLUMNS
+    # 담벼락(wall=섹션 없는 masonry) | 컬럼(shelf) | 자유배치(canvas) — Padlet 형식
+    layout: str = Field(default="wall", pattern="^(wall|shelf|canvas)$")
+    background: str | None = Field(default=None, max_length=30)
 
 
 class BoardUpdate(BaseModel):
@@ -72,8 +75,8 @@ class BoardUpdate(BaseModel):
     hide_authors: bool | None = None               # 작성자 익명 표시 (moderator 외)
     new_card_position: str | None = Field(default=None, pattern="^(top|bottom)$")
     default_sort: str | None = Field(default=None, pattern="^(manual|newest|likes)$")
-    # 레이아웃 — shelf(섹션 컬럼) | canvas(자유배치 x/y 드래그)
-    layout: str | None = Field(default=None, pattern="^(shelf|canvas)$")
+    # 레이아웃 — wall(담벼락 masonry) | shelf(섹션 컬럼) | canvas(자유배치)
+    layout: str | None = Field(default=None, pattern="^(wall|shelf|canvas)$")
 
 
 class ShareAdd(BaseModel):
@@ -238,13 +241,16 @@ async def create_board(
         if not await is_course_editor_or_admin(db, course, user):
             raise HTTPException(403, "본인 강좌에만 연결 가능")
     cols = [c.strip()[:50] for c in (body.columns or DEFAULT_COLUMNS) if c.strip()][:10]
+    init_settings: dict = {"columns": cols or DEFAULT_COLUMNS, "layout": body.layout}
+    if body.background:
+        init_settings["background"] = body.background.strip()[:30]
     b = ToolBoard(
         owner_id=user.id,
         title=body.title,
         description=body.description,
         course_id=body.course_id,
         access_mode=body.access_mode,
-        settings={"columns": cols or DEFAULT_COLUMNS},
+        settings=init_settings,
     )
     db.add(b)
     await db.flush()

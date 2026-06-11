@@ -29,6 +29,7 @@ import {
   Loader2, Plus, Trash2, Pencil, Check, X, Wifi, WifiOff, Eye, Heart,
   MessageCircle, ImagePlus, Link as LinkIcon, ChevronLeft, ChevronRight,
   Download, ArrowDownWideNarrow, ShieldCheck, ExternalLink as ExtIcon,
+  Search, Play,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
@@ -64,7 +65,7 @@ interface BoardMeta {
   hide_authors?: boolean;
   new_card_position?: "top" | "bottom";
   default_sort?: "manual" | "newest" | "likes";
-  layout?: "shelf" | "canvas";
+  layout?: "shelf" | "canvas" | "wall";
   permission: { can_read: boolean; can_write: boolean; role: string | null };
 }
 
@@ -235,6 +236,10 @@ export function BoardView({
   const [activeCount, setActiveCount] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode | null>(null); // null → meta default
   const [dragCardId, setDragCardId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");                 // 검색 (Padlet 툴바)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [slideshow, setSlideshow] = useState(false);      // 슬라이드쇼
+  const [wallComposing, setWallComposing] = useState(false); // + 게시 (wall)
 
   const yCardsRef = useRef<Y.Map<any> | null>(null);
   const yBoardRef = useRef<Y.Map<any> | null>(null);
@@ -385,20 +390,24 @@ export function BoardView({
     [likes, user],
   );
 
-  // 승인 필터 적용된 평탄 목록 (canvas 레이아웃용)
-  const visibleCards = useMemo(
-    () => cards.filter(
-      (c) => !(c.approved === false && !isModerator && c.author_id !== user?.id),
-    ),
-    [cards, isModerator, user?.id],
-  );
+  // 승인 + 검색 필터 적용된 평탄 목록
+  const visibleCards = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return cards.filter((c) => {
+      if (c.approved === false && !isModerator && c.author_id !== user?.id) return false;
+      if (!q) return true;
+      return (
+        (c.text || "").toLowerCase().includes(q)
+        || (c.title || "").toLowerCase().includes(q)
+        || (c.author_name || "").toLowerCase().includes(q)
+      );
+    });
+  }, [cards, isModerator, user?.id, query]);
 
   const cardsBySection = useMemo(() => {
     const out = new Map<string, BoardCard[]>();
     sections.forEach((s) => out.set(s.id, []));
-    for (const c of cards) {
-      // 승인 모드: 미승인 카드는 작성자 본인 + moderator만
-      if (c.approved === false && !isModerator && c.author_id !== user?.id) continue;
+    for (const c of visibleCards) {  // 승인+검색 필터 적용분
       out.get(sectionIdOf(c))?.push(c);
     }
     const cmp = (a: BoardCard, b: BoardCard) => {
@@ -412,7 +421,21 @@ export function BoardView({
     };
     out.forEach((arr) => arr.sort(cmp));
     return out;
-  }, [cards, sections, sectionIdOf, effectiveSort, likeCount, isModerator, user?.id]);
+  }, [visibleCards, sections, sectionIdOf, effectiveSort, likeCount]);
+
+  // wall(담벼락) masonry용 — 전체 카드 정렬 1열
+  const sortedFlat = useMemo(() => {
+    const arr = [...visibleCards];
+    arr.sort((a, b) => {
+      if (effectiveSort === "likes") {
+        const d = likeCount(b.id) - likeCount(a.id);
+        if (d !== 0) return d;
+      }
+      if (effectiveSort === "manual") return posOf(a) - posOf(b);
+      return (b.created || 0) - (a.created || 0);
+    });
+    return arr;
+  }, [visibleCards, effectiveSort, likeCount]);
 
   // ── 카드 조작 ─────────────────────────────────────────────────────────
   const addCard = useCallback((sectionId: string, payload: {
@@ -599,29 +622,41 @@ export function BoardView({
 
   return (
     <div
-      className="rounded-2xl overflow-hidden shadow-lg min-h-[78vh] flex flex-col"
+      className="rounded-2xl overflow-hidden shadow-lg min-h-[78vh] flex flex-col relative"
       style={{ background: bg.css }}
     >
-      {/* 월 헤더 */}
-      <div className="px-5 sm:px-7 pt-5 pb-3 flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h2 className={`text-2xl font-extrabold tracking-tight ${tx} drop-shadow-sm`}>
-            {meta.title}
-          </h2>
-          <div className={`text-caption mt-0.5 ${sub}`}>
-            {meta.owner_name && <>{meta.owner_name} · </>}
-            {meta.description || "포스트잇을 붙여보세요"}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] ${chip}`}>
-            {connected
-              ? <Wifi size={11} className="text-emerald-500" />
-              : synced
-                ? <WifiOff size={11} className="text-red-400" />
-                : <Loader2 size={11} className="animate-spin" />}
-            {connected ? `${Math.max(activeCount, 1)}명` : synced ? "재연결 중" : "연결 중"}
-          </span>
+      {/* Padlet 식 상단 — 우측 툴바 행 + 좌측 작성자·제목 */}
+      <div className="px-5 sm:px-7 pt-4 pb-3">
+        <div className="flex items-center justify-end gap-1.5 flex-wrap mb-1">
+          {/* 검색 */}
+          {searchOpen ? (
+            <span className={`inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-full ${chip}`}>
+              <Search size={12} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearchOpen(false); } }}
+                autoFocus
+                placeholder="카드 검색"
+                className="bg-transparent outline-none text-[12px] w-28 placeholder:opacity-60"
+              />
+              <button onClick={() => { setQuery(""); setSearchOpen(false); }} className="p-0.5 opacity-60 hover:opacity-100">
+                <X size={11} />
+              </button>
+            </span>
+          ) : (
+            <button onClick={() => setSearchOpen(true)} className={`p-1.5 rounded-full ${chip} hover:opacity-80`} title="검색">
+              <Search size={13} />
+            </button>
+          )}
+          {/* 슬라이드쇼 */}
+          <button
+            onClick={() => sortedFlat.length > 0 && setSlideshow(true)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-medium ${chip} hover:opacity-80`}
+            title="슬라이드쇼 — 카드를 한 장씩 크게"
+          >
+            <Play size={11} /> 슬라이드쇼
+          </button>
           <button
             onClick={() => setSortMode(
               effectiveSort === "newest" ? "likes" : effectiveSort === "likes" ? "manual" : "newest",
@@ -637,10 +672,18 @@ export function BoardView({
             </span>
           )}
           {isModerator && (
-            <button onClick={exportCsv} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] ${chip} hover:opacity-80`} title="CSV 내보내기">
-              <Download size={11} /> CSV
+            <button onClick={exportCsv} className={`p-1.5 rounded-full ${chip} hover:opacity-80`} title="CSV 내보내기">
+              <Download size={13} />
             </button>
           )}
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] ${chip}`}>
+            {connected
+              ? <Wifi size={11} className="text-emerald-500" />
+              : synced
+                ? <WifiOff size={11} className="text-red-400" />
+                : <Loader2 size={11} className="animate-spin" />}
+            {connected ? `${Math.max(activeCount, 1)}명` : synced ? "재연결 중" : "연결 중"}
+          </span>
           {meta.is_archived && (
             <span className={`px-2 py-1 rounded-full text-[11px] ${chip}`}>보관됨 · 읽기 전용</span>
           )}
@@ -651,10 +694,51 @@ export function BoardView({
           )}
           {headerActions}
         </div>
+        <div className={`text-[11.5px] ${sub}`}>
+          {meta.owner_name || ""}{meta.description ? ` · ${meta.description}` : ""}
+        </div>
+        <h2 className={`text-3xl font-extrabold tracking-tight ${tx} drop-shadow-sm`}>
+          {meta.title}
+        </h2>
       </div>
 
-      {/* 레이아웃: canvas(자유배치) 또는 shelf(섹션 컬럼) */}
-      {meta.layout === "canvas" ? (
+      {/* 레이아웃: wall(담벼락 masonry) | canvas(자유배치) | shelf(섹션 컬럼) */}
+      {meta.layout === "wall" ? (
+        <div className="flex-1 px-4 sm:px-6 pb-24">
+          {sortedFlat.length === 0 && synced && (
+            <div className={`text-center py-20 text-body ${sub}`}>
+              {canWrite ? "오른쪽 아래 + 게시 버튼으로 첫 카드를 붙여보세요" : "아직 카드가 없습니다"}
+            </div>
+          )}
+          <div style={{ columnWidth: 270, columnGap: 14 }}>
+            {sortedFlat.map((c) => (
+              <div key={c.id} className="mb-3.5" style={{ breakInside: "avoid" }}>
+                <CardItem
+                  card={c}
+                  canEdit={canWrite && (c.author_id === user?.id || isModerator)}
+                  canLike={canWrite}
+                  isModerator={isModerator}
+                  hideAuthors={hideAuthors}
+                  myUserId={user?.id}
+                  likeCount={likeCount(c.id)}
+                  liked={iLiked(c.id)}
+                  comments={comments.get(c.id) || []}
+                  draggable={false}
+                  onDragStart={() => undefined}
+                  onDragEnd={() => undefined}
+                  onDropBefore={() => undefined}
+                  dragActive={false}
+                  onUpdate={updateCard}
+                  onDelete={deleteCard}
+                  onToggleLike={() => toggleLike(c)}
+                  onAddComment={(t) => addComment(c, t)}
+                  onDeleteComment={deleteComment}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : meta.layout === "canvas" ? (
         <CanvasArea
           dark={!!bg.dark}
           cards={visibleCards}
@@ -723,6 +807,132 @@ export function BoardView({
         )}
       </div>
       )}
+
+      {/* Padlet 식 우하단 "+ 게시" (wall·shelf — canvas는 자체 버튼) */}
+      {canWrite && meta.layout !== "canvas" && !wallComposing && (
+        <button
+          onClick={() => setWallComposing(true)}
+          className="absolute bottom-6 right-6 z-20 inline-flex items-center gap-1.5 px-5 py-3 rounded-full bg-teal-500 hover:bg-teal-600 text-white text-body font-semibold shadow-xl transition"
+          title="카드 게시"
+        >
+          <Plus size={18} /> 게시
+        </button>
+      )}
+      {wallComposing && (
+        <div className="absolute bottom-6 right-6 z-30 w-[320px] max-w-[calc(100%-3rem)]">
+          <Composer
+            boardId={boardId}
+            onSubmit={(p) => {
+              addCard(sections[0]?.id ?? "col-0", p);
+              setWallComposing(false);
+            }}
+            onCancel={() => setWallComposing(false)}
+          />
+        </div>
+      )}
+
+      {/* 슬라이드쇼 */}
+      {slideshow && sortedFlat.length > 0 && (
+        <Slideshow
+          cards={sortedFlat}
+          hideAuthors={hideAuthors}
+          isModerator={isModerator}
+          myUserId={user?.id}
+          likeCount={likeCount}
+          onClose={() => setSlideshow(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 슬라이드쇼 — 카드를 한 장씩 풀스크린 (Padlet 슬라이드쇼)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Slideshow({
+  cards, hideAuthors, isModerator, myUserId, likeCount, onClose,
+}: {
+  cards: BoardCard[];
+  hideAuthors: boolean;
+  isModerator: boolean;
+  myUserId?: number;
+  likeCount: (cardId: string) => number;
+  onClose: () => void;
+}) {
+  const [idx, setIdx] = useState(0);
+  const card = cards[Math.min(idx, cards.length - 1)];
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight" || e.key === " ") setIdx((i) => Math.min(i + 1, cards.length - 1));
+      if (e.key === "ArrowLeft") setIdx((i) => Math.max(i - 1, 0));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cards.length, onClose]);
+
+  if (!card) return null;
+  const authorLabel = hideAuthors && !isModerator && card.author_id !== myUserId
+    ? "익명" : card.author_name;
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/90 flex flex-col">
+      <div className="flex items-center justify-between px-5 py-3">
+        <span className="text-white/70 text-caption font-mono">
+          {idx + 1} / {cards.length}
+        </span>
+        <button onClick={onClose} className="p-2 text-white/70 hover:text-white rounded-full hover:bg-white/10">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="flex-1 flex items-center justify-center gap-3 px-4 pb-8 min-h-0">
+        <button
+          onClick={() => setIdx((i) => Math.max(i - 1, 0))}
+          disabled={idx === 0}
+          className="p-3 text-white/70 hover:text-white disabled:opacity-20 rounded-full hover:bg-white/10 flex-shrink-0"
+        >
+          <ChevronLeft size={28} />
+        </button>
+        <div
+          className="rounded-2xl shadow-2xl max-w-2xl w-full max-h-full overflow-y-auto p-7"
+          style={{ backgroundColor: card.color || "#ffffff" }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0"
+              style={{ backgroundColor: avatarColor(authorLabel || "") }}
+            >
+              {(authorLabel || "?").charAt(0)}
+            </span>
+            <div>
+              <div className="text-body font-semibold">{authorLabel}</div>
+              <div className="text-[11px] text-gray-500">{relTime(card.created)}</div>
+            </div>
+          </div>
+          {card.title && <div className="text-2xl font-extrabold mb-2 break-words">{card.title}</div>}
+          {card.image_url && (
+            <AuthedImg url={card.image_url} className="rounded-xl w-full max-h-[45vh] object-contain mb-3" />
+          )}
+          {card.text && (
+            <div className="text-lg whitespace-pre-wrap break-words leading-relaxed">{card.text}</div>
+          )}
+          {card.link_url && <LinkPreview url={card.link_url} />}
+          {likeCount(card.id) > 0 && (
+            <div className="flex items-center gap-1 mt-4 text-rose-500 text-body">
+              <Heart size={16} fill="currentColor" /> {likeCount(card.id)}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => setIdx((i) => Math.min(i + 1, cards.length - 1))}
+          disabled={idx >= cards.length - 1}
+          className="p-3 text-white/70 hover:text-white disabled:opacity-20 rounded-full hover:bg-white/10 flex-shrink-0"
+        >
+          <ChevronRight size={28} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -1265,9 +1475,6 @@ function CardItem({
       onDragOver={(e) => { if (dragActive) { e.preventDefault(); e.stopPropagation(); } }}
       onDrop={(e) => { if (dragActive) { e.preventDefault(); e.stopPropagation(); onDropBefore(); } }}
     >
-      {card.image_url && !editing && (
-        <AuthedImg url={card.image_url} className="rounded-t-xl w-full max-h-52 object-cover" />
-      )}
       <div className="p-3">
         {pending && (
           <div className="flex items-center justify-between mb-1.5">
@@ -1333,66 +1540,76 @@ function CardItem({
           </div>
         ) : (
           <>
+            {/* Padlet 카드: 상단 작성자 헤더 (아바타 + 이름 + 시간 | 수정·삭제) */}
+            <div className="flex items-center justify-between gap-1 mb-1.5">
+              <span className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold text-white flex-shrink-0"
+                  style={{ backgroundColor: avatarColor(authorLabel || "") }}
+                >
+                  {(authorLabel || "?").charAt(0)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[12px] font-semibold text-gray-800 truncate leading-tight">
+                    {authorLabel}
+                  </span>
+                  <span className="block text-[10.5px] text-gray-400 leading-tight">
+                    {relTime(card.created)}
+                  </span>
+                </span>
+              </span>
+              {canEdit && (
+                <span className="flex gap-0.5 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      setTitleDraft(card.title || ""); setDraft(card.text);
+                      setColor(card.color || CARD_COLORS[0]); setEditing(true);
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-700 rounded" title="수정"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button onClick={() => onDelete(card)} className="p-1 text-gray-400 hover:text-red-600 rounded" title="삭제">
+                    <Trash2 size={12} />
+                  </button>
+                </span>
+              )}
+            </div>
+
             {card.title && (
               <div className="text-body font-bold break-words mb-0.5">{card.title}</div>
+            )}
+            {card.image_url && (
+              <AuthedImg url={card.image_url} className="rounded-lg w-full max-h-56 object-cover my-1.5" />
             )}
             {card.text && (
               <div className="text-body whitespace-pre-wrap break-words leading-relaxed">{card.text}</div>
             )}
             {card.link_url && <LinkPreview url={card.link_url} />}
 
-            {/* 푸터: 작성자 | 좋아요 · 댓글 · 수정/삭제 */}
-            <div className="flex items-center justify-between mt-2.5 gap-1">
-              <span className="flex items-center gap-1.5 min-w-0">
-                <span
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-                  style={{ backgroundColor: avatarColor(authorLabel || "") }}
-                >
-                  {(authorLabel || "?").charAt(0)}
-                </span>
-                <span className="text-[11px] text-gray-500 truncate">
-                  {authorLabel} · {relTime(card.created)}
-                </span>
-              </span>
-              <span className="flex items-center gap-0.5 flex-shrink-0">
-                <button
-                  onClick={onToggleLike}
-                  disabled={!canLike}
-                  className={`flex items-center gap-0.5 px-1 py-0.5 rounded text-[11px] transition ${
-                    liked ? "text-rose-500" : "text-gray-400 hover:text-rose-400"
-                  } disabled:opacity-40`}
-                  title="좋아요"
-                >
-                  <Heart size={12} fill={liked ? "currentColor" : "none"} />
-                  {likeCount > 0 && <span className="font-semibold">{likeCount}</span>}
-                </button>
-                <button
-                  onClick={() => setShowComments((v) => !v)}
-                  className={`flex items-center gap-0.5 px-1 py-0.5 rounded text-[11px] ${
-                    comments.length > 0 ? "text-sky-600" : "text-gray-400 hover:text-sky-500"
-                  }`}
-                  title="댓글"
-                >
-                  <MessageCircle size={12} />
-                  {comments.length > 0 && <span className="font-semibold">{comments.length}</span>}
-                </button>
-                {canEdit && (
-                  <span className="flex gap-0.5 opacity-0 group-hover:opacity-100">
-                    <button
-                      onClick={() => {
-                        setTitleDraft(card.title || ""); setDraft(card.text);
-                        setColor(card.color || CARD_COLORS[0]); setEditing(true);
-                      }}
-                      className="p-1 text-gray-400 hover:text-gray-700 rounded" title="수정"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    <button onClick={() => onDelete(card)} className="p-1 text-gray-400 hover:text-red-600 rounded" title="삭제">
-                      <Trash2 size={12} />
-                    </button>
-                  </span>
-                )}
-              </span>
+            {/* 하단 반응 행 (Padlet: 하트 · 댓글 추가) */}
+            <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-black/10">
+              <button
+                onClick={onToggleLike}
+                disabled={!canLike}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11.5px] transition ${
+                  liked ? "text-rose-500 bg-rose-50" : "text-gray-400 hover:text-rose-400 hover:bg-rose-50/60"
+                } disabled:opacity-40`}
+                title="좋아요"
+              >
+                <Heart size={13} fill={liked ? "currentColor" : "none"} />
+                {likeCount > 0 && <span className="font-semibold">{likeCount}</span>}
+              </button>
+              <button
+                onClick={() => setShowComments((v) => !v)}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11.5px] transition ${
+                  comments.length > 0 ? "text-sky-600 bg-sky-50/70" : "text-gray-400 hover:text-sky-500 hover:bg-sky-50/60"
+                }`}
+                title="댓글"
+              >
+                <MessageCircle size={13} />
+                {comments.length > 0 ? <span className="font-semibold">{comments.length}</span> : "댓글 추가"}
+              </button>
             </div>
 
             {/* 댓글 스레드 */}
