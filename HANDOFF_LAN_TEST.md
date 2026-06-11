@@ -3,6 +3,26 @@
 > 2026-06-11 세션 인계. 사용자가 **"랜선 꽂음"**이라고 말하면 이 문서대로 즉시 실행.
 > 질문하지 말고 바로 Step 0부터 진행할 것.
 
+## ✅ 결과 (2026-06-11 학교 현장에서 실측 완료 — 아래 절차는 기록용)
+
+- **유선 outbound 전면 차단 확정**: ICMP 8.8.8.8 / TCP 443(1.1.1.1) / TCP 7844(Cloudflare edge ×2) 전부 타임아웃. 2026-05-28 기록이 맞았음. (UDP53은 스크립트 버그로 미측정 — 443·7844 차단이라 무의미)
+- **신규 발견 1**: 학교 와이파이 susung_5G와 유선이 **같은 서브넷** 192.168.0.0/24, 같은 게이트웨이 192.168.0.1. B는 유선 192.168.0.3 + 와이파이 두 IP를 같은 대역에 가짐.
+- **신규 발견 2**: SSID는 `susung_5G` (**대문자 G**). 소문자로 넣으면 영영 안 붙음 (이것 때문에 첫 도착 시 B가 오프라인 됐었음 — netplan 수정 완료).
+- **최종 netplan 구성** (`/etc/netplan/50-cloud-init.yaml`, 백업 `.bak-pre-susung`, `.bak-pre-lanroute`):
+  - wlo1(와이파이): susung_5G + 집 + 폰 핫스팟, metric 600 → **인터넷(터널·Tailscale) 전용**
+  - enp1s0(유선): `route-metric: 100` + `use-dns: false` + `use-routes: false` → **default route 없음**, 192.168.0.0/24 on-link만 metric 100 → **교내 LAN 전용** (같은 서브넷 이중 IP로 인한 응답 비대칭/client isolation 차단 문제 해결, B→A 백업 경로도 유선으로 고정)
+- 검증: cloudflared·gs-backend·nginx active, pubedu.com HTTP 200 (1.0s), outbound 와이파이 정상.
+- A(192.168.0.5)는 ping 무응답 — 당시 꺼져 있던 것으로 추정. 2차 백업(rsync) 연결은 추후.
+- **남은 일**: (1) 망 업체에 아래 요청문 전달 (허용되면 metric 정리로 유선 outbound 전환 — 1분 작업), (2) A 켜서 B→A 유선 SSH 확인.
+
+### 2026-06-11 오후 재검증 (현장 2차)
+
+- **유선 차단 재확인 (정밀)**: netplan이 유선 default route를 없앤 상태라 v2 테스트는 무효("Network is unreachable")였음 → **임시 default route 추가 버전(v3)으로 재실측**. 게이트웨이 192.168.0.1 ping 0.25ms OK, 그 너머 ICMP/443/7844/DNS 전부 차단. **차단 지점 = 게이트웨이 너머 (망 정책)**. 랜선 접촉 문제 아님 (1Gbps link detected).
+- **B 와이파이 핫스팟→susung_5G 전환 완료** (`wpa_cli select_network`, 192.168.0.17). 폰 핫스팟 의존 제거. 주의: 재부팅 시 모든 SSID 재활성화 — 핫스팟 켜져 있으면 다시 잡을 수 있음.
+- **susung_5G는 Tailscale을 막지 않음 (실증)**: B↔Mac1 직결 UDP(누적 6MB), 1200바이트 ping, SSH 풀 KEX 모두 통과. 노트북도 susung_5G에서 Tailscale 정상 (전환 후 ~10초 재접속, Mac1은 DERP(tok) 경유 121ms).
+- **"susung_5G에서 cmd센터 안 열림"의 진짜 원인 = Mac1 서버측**: `/api/status` 콜드캐시 첫 호출이 9~25초+ (꺼진 노드 A·D 헬스체크 블로킹). 재시도하면 200. 네트워크 무관 — 어디서든 콜드캐시면 동일. cmd센터 핸들러 비동기화 개선 후보.
+- 테스트 스크립트: B `/home/susung/gs-lan-test3.sh`(임시 라우트 버전), 노트북 `C:\Users\sinbc\gs-wifi-test.ps1`(susung_5G 전환·자동복귀).
+
 ## 배경 (이 세션에서 한 일)
 
 - B 서버(main-server, Ubuntu 24.04, `ssh susung@100.92.66.61` Tailscale, NOPASSWD sudo)를 수성고로 이동 중.
