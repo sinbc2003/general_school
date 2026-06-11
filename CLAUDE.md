@@ -2422,3 +2422,10 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - **잔여 수정**: 첨부 제목 enrichment에 도구 3종 추가(이름 변경 반영), 타이머 start 연타 방어, AudioContext 사용자 제스처 시점 생성(suspended 무음 방지), share_mode 미적용 도구 주석. 라우트 footgun: `/decks/{did}`보다 뒤에 등록한 `/decks/_x` literal은 먹힘 → 최상위 `/shared-with-me` 사용
 - **내 드라이브 통합**: 단어장·보드에 folder_id/deleted_at/deleted_by(+덱 storage_bytes) 추가 (`b4d6e8f0a2c4`) → drive ITEM_TYPES에 `word_decks`/`boards` 등록만으로 폴더 정리·휴지통 30일·복구·영구삭제·F2 이름변경·Ctrl+C 복사(카드/yjs 복제)·AI 정리 전부 작동 (드라이브가 ITEM_TYPES 제네릭). 도구의 "삭제" = 드라이브 휴지통 이동(공유 row는 복구 대비 유지). **학기 전환 시 드라이브의 학기 자동 폴더에 도구 원본 정리 가능** — 이게 원본=교사 자산 정책의 보관처. 드라이브 ZIP 백업 export는 기존 5타입만 (도구는 DB 백업으로 커버, v2 후보)
 - 테스트 19개 (드라이브 휴지통 roundtrip·복사 +2). routes 629 → 639
+
+### 3차 보강 — 보드 Padlet 동급 + 학기 전환 폴더 자동 보관 (2026-06-11 후반)
+- **섹션을 DB settings.columns → Yjs Y.Map("board").sections로 이전** (실시간 동기·동적 관리): 보드 위 "+ 섹션 추가"·이름 클릭 수정·삭제(카드는 첫 섹션으로)·좌우 이동. 레거시 카드 `column` index → `col-{i}` id 매핑, 쓰기 가능자가 onSynced 때 meta.columns로 1회 seed. 설정 모달의 컬럼 입력 제거
+- **카드**: 제목(선택)+본문, **이미지 업로드**(`POST /boards/{bid}/upload-image`, PIL 압축 1400px/q82, storage `boards/{bid}/`, files `_guard_boards`=보드 can_read — ⚠️ 가드의 path는 **섹션 포함 전체 경로**), 링크 첨부, **드래그&드롭** 섹션 간/내 이동(fractional pos, 드래그 시 정렬 자동 '수동' 전환)
+- **좋아요** Y.Map("likes") key `{cardId}:{userId}` 본인 키만 set/delete(충돌 0) / **카드 댓글** Y.Map("comments") 스레드 / 정렬 토글(최신·좋아요·수동) / **승인 후 게시**(requires_approval — 미승인 카드는 작성자+교사만 표시, 승인 버튼) / **작성자 익명 표시**(hide_authors) / 새 카드 위치(top/bottom)·기본 정렬 설정 / **CSV 내보내기**(교사) — 전부 BoardView.tsx 단일 파일
+- **학기 전환 드라이브 자동 보관**: set-current hook → `folder_seed.archive_semester_folders` (백그라운드) — 이전 학기 자동 폴더를 사용자별 최상위 **"1. 2026-1학기"** 보관 폴더(auto_kind=semester_archive)로 이동. 학기 단위 폴더는 항상, **학년 단위(담임/학급, semester_id=None — 이름 prefix "{year}학년도"로 식별)는 연도 바뀔 때만**. 멱등
+- 테스트 +4 (아카이브 시나리오·업로드 가드·설정). routes 639 → 640
