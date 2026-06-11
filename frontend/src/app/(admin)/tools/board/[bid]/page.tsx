@@ -184,7 +184,7 @@ function BoardSettingsModal({
   };
 
   const remove = async () => {
-    if (!confirm("보드를 삭제할까요? 모든 카드가 함께 삭제됩니다.")) return;
+    if (!confirm("보드를 휴지통으로 이동할까요?\n내 드라이브 휴지통에서 30일 내 복구할 수 있습니다.")) return;
     try {
       await api.delete(`/api/classroom/boards/${meta.id}`);
       onDeleted();

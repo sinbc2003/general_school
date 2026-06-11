@@ -25,6 +25,7 @@ prefix가 /api/classroom/boards 인 이유: Hocuspocus 사이드카가
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -190,7 +191,7 @@ async def _resolve_permission(db: AsyncSession, user: User, b: ToolBoard) -> dic
 
 async def _get_board_or_404(db: AsyncSession, bid: int) -> ToolBoard:
     b = await db.get(ToolBoard, bid)
-    if not b:
+    if not b or b.deleted_at is not None:  # 휴지통 자료는 드라이브에서만 (복구/영구삭제)
         raise HTTPException(404, "보드 없음")
     return b
 
@@ -203,7 +204,10 @@ async def my_boards(
     db: AsyncSession = Depends(get_db),
 ):
     rows = (await db.execute(
-        select(ToolBoard).where(ToolBoard.owner_id == user.id)
+        select(ToolBoard).where(
+            ToolBoard.owner_id == user.id,
+            ToolBoard.deleted_at.is_(None),
+        )
         .order_by(ToolBoard.updated_at.desc()).limit(100)
     )).scalars().all()
     return {"items": [_to_dict(b) for b in rows]}
@@ -276,12 +280,12 @@ async def delete_board(
     b = await _get_board_or_404(db, bid)
     if b.owner_id != user.id and not is_admin(user):
         raise HTTPException(403, "본인 보드만 삭제 가능")
-    from app.services.tool_share import cleanup_shares
-    await cleanup_shares(db, "board", bid)
-    await db.delete(b)
+    # 드라이브 휴지통으로 (30일 보관 후 cron이 hard delete — 공유는 복구 대비 유지)
+    b.deleted_at = datetime.now(timezone.utc)
+    b.deleted_by = user.id
     await db.flush()
     await log_action(db, user, "tools.board.delete", target=f"board:{bid}", request=request)
-    return {"ok": True}
+    return {"ok": True, "trashed": True}
 
 
 # ── 동료 교사 공유 + 사본 ──
@@ -300,7 +304,7 @@ async def shared_with_me(
     rows = (await db.execute(
         select(ToolBoard, User.name)
         .join(User, User.id == ToolBoard.owner_id)
-        .where(ToolBoard.id.in_(ids))
+        .where(ToolBoard.id.in_(ids), ToolBoard.deleted_at.is_(None))
         .order_by(ToolBoard.updated_at.desc())
     )).all()
     return {"items": [_to_dict(b, owner_name=name) for b, name in rows]}

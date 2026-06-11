@@ -436,6 +436,16 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           body: { title: "제목 없는 한컴 문서", course_id: null, access_mode: "specific_users" },
           redirect: (id) => (mode === "admin" ? `/hwps/${id}` : `/s/hwps/${id}`),
         },
+        word_decks: {
+          url: "/api/tools/wordbook/decks",
+          body: { title: "제목 없는 단어장" },
+          redirect: (id) => `/tools/wordbook/${id}`,
+        },
+        boards: {
+          url: "/api/classroom/boards",
+          body: { title: "제목 없는 보드" },
+          redirect: (id) => `/tools/board/${id}`,
+        },
       };
       const cfg = endpoints[type]!;
       const r = await api.post<{ id: number }>(cfg.url, cfg.body);
@@ -601,6 +611,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             currentFolderId={currentFolderId}
             fetchAll={fetchAll}
             createNew={createNew}
+            excludeTypes={mode === "student" ? ["word_decks", "boards"] : []}
           />
           <button
             type="button"
@@ -774,12 +785,23 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           target={ctx.target}
           selectedCount={selected.size}
           trashTab={trashMode}
-          newMenu={(["docs", "sheets", "decks", "surveys", "hwps"] as ItemType[]).map((t) => ({
+          newMenu={((mode === "student"
+            ? ["docs", "sheets", "decks", "surveys", "hwps"]
+            : ["docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards"]) as ItemType[]).map((t) => ({
             type: t,
             meta: { label: TYPE_META[t].label, icon: TYPE_META[t].icon, color: TYPE_META[t].color },
           }))}
           onOpen={(it) => router.push(hrefFor(it as DriveItem))}
           onOpenNewWindow={(it) => {
+            // 에듀테크 도구는 embed 뷰가 없음 — 도구 페이지를 새 창으로
+            if (it.type === "word_decks") {
+              window.open(`/tools/wordbook/${it.id}`, "_blank");
+              return;
+            }
+            if (it.type === "boards") {
+              window.open(`/tools/board/${it.id}`, "_blank");
+              return;
+            }
             const seg =
               it.type === "decks" ? "decks"
               : it.type === "sheets" ? "sheets"

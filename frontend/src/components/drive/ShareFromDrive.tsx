@@ -9,9 +9,10 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api/client";
 import { ShareDocModal } from "@/components/classroom/ShareDocModal";
+import type { ItemType } from "./_drive-shared";
 
 interface Target {
-  type: "docs" | "sheets" | "decks" | "surveys" | "hwps";
+  type: ItemType;
   id: number;
   title: string;
 }
@@ -51,6 +52,10 @@ export function ShareFromDrive({
   useEffect(() => {
     if (target.type === "surveys") {
       setError("설문은 빌더 안에서 공유하세요.");
+      return;
+    }
+    if (target.type === "word_decks" || target.type === "boards") {
+      setError("에듀테크 도구는 도구 페이지의 '공유' 버튼으로 동료 교사와 공유하세요.");
       return;
     }
     (async () => {

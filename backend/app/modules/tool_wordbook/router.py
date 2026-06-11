@@ -60,7 +60,7 @@ LEITNER_MAX_BOX = 5
 
 async def _get_deck_or_404(db: AsyncSession, did: int) -> WordDeck:
     d = await db.get(WordDeck, did)
-    if not d:
+    if not d or d.deleted_at is not None:  # 휴지통 자료는 드라이브에서만 (복구/영구삭제)
         raise HTTPException(404, "덱 없음")
     return d
 
@@ -181,7 +181,10 @@ async def my_decks(
     db: AsyncSession = Depends(get_db),
 ):
     rows = (await db.execute(
-        select(WordDeck).where(WordDeck.owner_id == user.id)
+        select(WordDeck).where(
+            WordDeck.owner_id == user.id,
+            WordDeck.deleted_at.is_(None),
+        )
         .order_by(WordDeck.updated_at.desc())
     )).scalars().all()
     counts = await _card_counts(db, [d.id for d in rows])
@@ -248,12 +251,12 @@ async def delete_deck(
 ):
     d = await _get_deck_or_404(db, did)
     _assert_owner(d, user)
-    from app.services.tool_share import cleanup_shares
-    await cleanup_shares(db, "word_deck", did)
-    await db.delete(d)  # cards/states CASCADE
+    # 드라이브 휴지통으로 (30일 보관 후 cron이 hard delete — 공유는 복구 대비 유지)
+    d.deleted_at = datetime.now(timezone.utc)
+    d.deleted_by = user.id
     await db.flush()
     await log_action(db, user, "tools.wordbook.deck_delete", target=f"deck:{did}", request=request)
-    return {"ok": True}
+    return {"ok": True, "trashed": True}
 
 
 # ── 동료 교사 공유 + 사본 ──
@@ -273,7 +276,7 @@ async def shared_with_me(
     rows = (await db.execute(
         select(WordDeck, User.name)
         .join(User, User.id == WordDeck.owner_id)
-        .where(WordDeck.id.in_(ids))
+        .where(WordDeck.id.in_(ids), WordDeck.deleted_at.is_(None))
         .order_by(WordDeck.updated_at.desc())
     )).all()
     counts = await _card_counts(db, [d.id for d, _ in rows])
@@ -558,13 +561,19 @@ async def study_home(
     recent_ids = [r[0] for r in recent_rows]
 
     public_rows = (await db.execute(
-        select(WordDeck).where(WordDeck.is_public == True)  # noqa: E712
+        select(WordDeck).where(
+            WordDeck.is_public == True,  # noqa: E712
+            WordDeck.deleted_at.is_(None),
+        )
         .order_by(WordDeck.updated_at.desc()).limit(50)
     )).scalars().all()
 
     all_ids = list({*recent_ids, *[d.id for d in public_rows]})
     decks = (await db.execute(
-        select(WordDeck).where(WordDeck.id.in_(all_ids))
+        select(WordDeck).where(
+            WordDeck.id.in_(all_ids),
+            WordDeck.deleted_at.is_(None),  # 휴지통 덱은 최근 학습에서 제외
+        )
     )).scalars().all() if all_ids else []
     deck_by_id = {d.id: d for d in decks}
     counts = await _card_counts(db, all_ids)

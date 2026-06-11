@@ -49,6 +49,18 @@ class WordDeck(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False,
     )
+    # ── 내 드라이브 통합 (폴더·휴지통 30일 — drive ITEM_TYPES 규약) ──
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    deleted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    # 카드 데이터는 DB row뿐이라 0 고정 — drive serialize 규약상 필요
+    storage_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (
         Index("ix_word_decks_owner", "owner_id"),

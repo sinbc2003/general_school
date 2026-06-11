@@ -61,6 +61,16 @@ class ToolBoard(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False,
     )
+    # ── 내 드라이브 통합 (폴더·휴지통 30일 — drive ITEM_TYPES 규약) ──
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("drive_folders.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    deleted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_tool_boards_owner", "owner_id"),

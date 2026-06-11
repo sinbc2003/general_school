@@ -18,11 +18,14 @@ interface Props {
   currentFolderId: number | null;
   fetchAll: () => Promise<void> | void;
   createNew: (type: ItemType) => Promise<void> | void;
+  /** 메뉴에서 제외할 타입 — 학생 모드에선 교사 전용 도구(단어장·보드) 숨김 */
+  excludeTypes?: ItemType[];
 }
 
 export function NewItemMenu({
-  show, setShow, creating, currentFolderId, fetchAll, createNew,
+  show, setShow, creating, currentFolderId, fetchAll, createNew, excludeTypes,
 }: Props) {
+  const visibleTypes = ITEM_TYPES.filter((t) => !(excludeTypes || []).includes(t));
   return (
     <div className="relative">
       <button
@@ -59,7 +62,7 @@ export function NewItemMenu({
             <FolderIcon size={14} className="text-amber-500" /> 새 폴더
           </button>
           <div className="my-1 border-t border-border-default/50" />
-          {ITEM_TYPES.map((t) => {
+          {visibleTypes.map((t) => {
             const m = TYPE_META[t];
             const Icon = m.icon;
             return (

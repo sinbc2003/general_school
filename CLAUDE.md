@@ -2420,4 +2420,5 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - **보드 생성 '한참 걸림' 진단**: B 백엔드 POST 실측 **3ms** — API 문제 아님. 원인 = 페이지 전환 시 라우트 청크 다운로드(Cloudflare 터널 경유 시 집 업로드 대역폭) + 구 BoardView가 Yjs sync까지 전체 블로킹. 후자는 즉시 렌더로 해결, 전자는 학교 LAN 직결이면 무관
 - **새창 + 집중모드**: 도구 실행 페이지(`quiz host`/`board/[bid]`/`wordbook/[did]`/`mini`) 진입 시 사이드바 자동 접힘(`useToolFocusMode` — localStorage 미저장 일시 접힘, 이탈 시 복원). 허브 카드·도구 헤더에 "새 창" 버튼
 - **잔여 수정**: 첨부 제목 enrichment에 도구 3종 추가(이름 변경 반영), 타이머 start 연타 방어, AudioContext 사용자 제스처 시점 생성(suspended 무음 방지), share_mode 미적용 도구 주석. 라우트 footgun: `/decks/{did}`보다 뒤에 등록한 `/decks/_x` literal은 먹힘 → 최상위 `/shared-with-me` 사용
-- 테스트 17개 (공유/사본/학기 게이트 +3종 포함). routes 629 → 639
+- **내 드라이브 통합**: 단어장·보드에 folder_id/deleted_at/deleted_by(+덱 storage_bytes) 추가 (`b4d6e8f0a2c4`) → drive ITEM_TYPES에 `word_decks`/`boards` 등록만으로 폴더 정리·휴지통 30일·복구·영구삭제·F2 이름변경·Ctrl+C 복사(카드/yjs 복제)·AI 정리 전부 작동 (드라이브가 ITEM_TYPES 제네릭). 도구의 "삭제" = 드라이브 휴지통 이동(공유 row는 복구 대비 유지). **학기 전환 시 드라이브의 학기 자동 폴더에 도구 원본 정리 가능** — 이게 원본=교사 자산 정책의 보관처. 드라이브 ZIP 백업 export는 기존 5타입만 (도구는 DB 백업으로 커버, v2 후보)
+- 테스트 19개 (드라이브 휴지통 roundtrip·복사 +2). routes 629 → 639

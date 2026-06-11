@@ -568,6 +568,66 @@ async def test_board_attachment_semester_gating(
     assert got["permission"]["can_write"] is True
 
 
+async def test_drive_integration_trash_restore(
+    app_client, auth_headers, teacher_user, seed_perms,
+):
+    """단어장·보드 드라이브 통합: 목록 노출 → 휴지통 → 도구에서 숨김 → 복구 → 영구삭제."""
+    t = auth_headers(teacher_user)
+    deck = await _create_deck(app_client, t)
+    board = await _create_board(app_client, t)
+    did, bid = deck["id"], board["id"]
+
+    # 드라이브 통합 목록에 두 타입 노출
+    items = (await app_client.get("/api/drive/items?type=all", headers=t)).json()["items"]
+    types = {(i["type"], i["id"]) for i in items}
+    assert ("word_decks", did) in types and ("boards", bid) in types
+
+    # 도구에서 삭제 → 휴지통 (soft delete)
+    assert (await app_client.delete(f"/api/tools/wordbook/decks/{did}", headers=t)).json()["trashed"] is True
+    assert (await app_client.delete(f"/api/classroom/boards/{bid}", headers=t)).json()["trashed"] is True
+
+    # 도구 목록·접근에서 숨김 (404)
+    mine = (await app_client.get("/api/tools/wordbook/decks", headers=t)).json()["items"]
+    assert all(d["id"] != did for d in mine)
+    assert (await app_client.get(f"/api/tools/wordbook/decks/{did}", headers=t)).status_code == 404
+    assert (await app_client.get(f"/api/classroom/boards/{bid}", headers=t)).status_code == 404
+
+    # 드라이브 휴지통에 보임
+    trash = (await app_client.get("/api/drive/items?trash=true", headers=t)).json()["items"]
+    ttypes = {(i["type"], i["id"]) for i in trash}
+    assert ("word_decks", did) in ttypes and ("boards", bid) in ttypes
+
+    # 복구 → 도구에서 다시 접근 가능
+    assert (await app_client.post(f"/api/drive/items/word_decks/{did}/restore", headers=t)).status_code == 200
+    assert (await app_client.post(f"/api/drive/items/boards/{bid}/restore", headers=t)).status_code == 200
+    assert (await app_client.get(f"/api/tools/wordbook/decks/{did}", headers=t)).status_code == 200
+    assert (await app_client.get(f"/api/classroom/boards/{bid}", headers=t)).status_code == 200
+
+    # 영구 삭제 → DB에서 제거
+    await app_client.delete(f"/api/tools/wordbook/decks/{did}", headers=t)
+    assert (await app_client.delete(f"/api/drive/items/word_decks/{did}/permanent", headers=t)).status_code == 200
+    trash2 = (await app_client.get("/api/drive/items?trash=true", headers=t)).json()["items"]
+    assert all(not (i["type"] == "word_decks" and i["id"] == did) for i in trash2)
+
+
+async def test_drive_copy_word_deck_clones_cards(
+    app_client, auth_headers, teacher_user, seed_perms,
+):
+    """드라이브 Ctrl+C 복사 — 단어장은 카드까지 복제."""
+    t = auth_headers(teacher_user)
+    deck = await _create_deck(app_client, t)
+    did = deck["id"]
+    await app_client.post(f"/api/tools/wordbook/decks/{did}/cards",
+                          json={"term": "run", "meaning": "달리다"}, headers=t)
+
+    res = await app_client.post(f"/api/drive/items/word_decks/{did}/copy", json={}, headers=t)
+    assert res.status_code == 200, res.text
+    copy = res.json()
+    assert "(복사본)" in copy["title"]
+    got = (await app_client.get(f"/api/tools/wordbook/decks/{copy['id']}", headers=t)).json()
+    assert len(got["cards"]) == 1 and got["cards"][0]["term"] == "run"
+
+
 async def test_board_yjs_snapshot_internal_token(
     app_client, auth_headers, teacher_user, monkeypatch,
 ):

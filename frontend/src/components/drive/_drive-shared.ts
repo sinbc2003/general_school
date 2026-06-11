@@ -7,10 +7,13 @@
 
 import {
   FileText, FileSpreadsheet, Presentation, ClipboardList, FileType2,
+  BookA, StickyNote,
   type LucideIcon,
 } from "lucide-react";
 
-export type ItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
+export type ItemType =
+  | "docs" | "sheets" | "decks" | "surveys" | "hwps"
+  | "word_decks" | "boards";
 export type SortKey = "name" | "owner" | "updated" | "size";
 export type SortDir = "asc" | "desc";
 
@@ -63,9 +66,19 @@ export const TYPE_META: Record<
     label: "한컴 문서", icon: FileType2, color: "#0891b2",
     bg: "linear-gradient(135deg, #cffafe 0%, #67e8f9 100%)",
   },
+  word_decks: {
+    label: "단어장", icon: BookA, color: "#0284c7",
+    bg: "linear-gradient(135deg, #e0f2fe 0%, #7dd3fc 100%)",
+  },
+  boards: {
+    label: "보드", icon: StickyNote, color: "#b45309",
+    bg: "linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)",
+  },
 };
 
-export const ITEM_TYPES: ItemType[] = ["docs", "sheets", "decks", "surveys", "hwps"];
+export const ITEM_TYPES: ItemType[] = [
+  "docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards",
+];
 
 export function formatMB(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -91,12 +104,21 @@ export function hrefForItem(
   if (it.type === "hwps") {
     return mode === "admin" ? `/hwps/${it.id}` : `/s/hwps/${it.id}`;
   }
+  // 에듀테크 도구 — course_id 무관, 도구 페이지로
+  if (it.type === "word_decks") {
+    return mode === "admin" ? `/tools/wordbook/${it.id}` : `/s/wordbook/${it.id}`;
+  }
+  if (it.type === "boards") {
+    return mode === "admin" ? `/tools/board/${it.id}` : `/s/board/${it.id}`;
+  }
   const segMap: Record<ItemType, string> = {
     docs: "docs",
     decks: "decks",
     surveys: "surveys",
     sheets: "sheets",
     hwps: "hwps",
+    word_decks: "word_decks",
+    boards: "boards",
   };
   if (it.course_id) return `${baseClassroom}/${it.course_id}/${segMap[it.type]}/${it.id}`;
   if (it.type === "docs") return `${baseDocs}/${it.id}`;

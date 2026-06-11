@@ -12,9 +12,10 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Folder as FolderIcon, FolderOpen, Lock, ChevronRight, Home } from "lucide-react";
 import { api } from "@/lib/api/client";
 import type { FolderNode } from "./FolderSidebar";
+import type { ItemType } from "./_drive-shared";
 
 interface TargetItem {
-  type: "docs" | "sheets" | "decks" | "surveys" | "hwps";
+  type: ItemType;
   id: number;
   title: string;
 }

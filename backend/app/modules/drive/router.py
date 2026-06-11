@@ -31,7 +31,9 @@ from app.models import (
     ClassroomPresentation,
     ClassroomSheet,
     Survey,
+    ToolBoard,
     User,
+    WordDeck,
 )
 
 
@@ -45,6 +47,9 @@ ITEM_TYPES: dict[str, tuple[Any, str, str]] = {
     "decks": (ClassroomPresentation, "owner_id", "프리젠테이션"),
     "surveys": (Survey, "author_id", "설문지"),
     "hwps": (ClassroomHwp, "owner_id", "HWP"),
+    # 에듀테크 도구 — 원본은 교사 자산이라 드라이브에서 학기 폴더로 정리·보관
+    "word_decks": (WordDeck, "owner_id", "단어장"),
+    "boards": (ToolBoard, "owner_id", "보드"),
 }
 
 # 휴지통 보관 기간

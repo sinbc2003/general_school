@@ -98,7 +98,7 @@ export default function WordbookEditPage() {
   };
 
   const deleteDeck = async () => {
-    if (!confirm("단어장을 삭제할까요? 학생 학습 기록도 함께 삭제됩니다.")) return;
+    if (!confirm("단어장을 휴지통으로 이동할까요?\n내 드라이브 휴지통에서 30일 내 복구할 수 있습니다.")) return;
     try {
       await api.delete(`/api/tools/wordbook/decks/${did}`);
       router.push("/tools/wordbook");

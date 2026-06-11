@@ -10,8 +10,9 @@
 
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import type { ItemType } from "./_drive-shared";
 
-export type DriveItemType = "docs" | "sheets" | "decks" | "surveys" | "hwps";
+export type DriveItemType = ItemType;
 
 interface CtxItem {
   type: DriveItemType;

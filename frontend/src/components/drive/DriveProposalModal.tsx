@@ -18,6 +18,7 @@
 import { useState } from "react";
 import { X, FolderPlus, Pencil, ArrowRight, AlertCircle, CheckCircle2, Undo2 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import type { ItemType } from "./_drive-shared";
 
 export interface ProposalAction {
   action: "create_folder" | "rename" | "move" | "rename_and_move";
@@ -27,7 +28,7 @@ export interface ProposalAction {
   parent_temp_id?: string;
   temp_id?: string;
   // rename / move
-  item_type?: "docs" | "sheets" | "decks" | "surveys" | "hwps";
+  item_type?: ItemType;
   item_id?: number;
   new_title?: string;
   target_folder_id?: number | null;

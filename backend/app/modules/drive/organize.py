@@ -128,6 +128,31 @@ async def copy_drive_item(
             folder_id=target_folder_id,
             # file_path는 db.flush 후 채움 (id 필요)
         )
+    elif type == "word_decks":
+        from app.models import WordDeck
+        assert Model is WordDeck
+        new_obj = WordDeck(
+            owner_id=user.id,
+            title=new_title,
+            description=src.description,
+            lang_pair=src.lang_pair,
+            is_public=False,
+            folder_id=target_folder_id,
+        )
+    elif type == "boards":
+        from app.models import ToolBoard
+        assert Model is ToolBoard
+        new_obj = ToolBoard(
+            owner_id=user.id,
+            title=new_title,
+            description=src.description,
+            course_id=None,
+            access_mode="members",
+            settings=dict(src.settings or {}),
+            yjs_state=src.yjs_state,   # 카드 전체 복제
+            storage_bytes=bytes_needed,
+            folder_id=target_folder_id,
+        )
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 
@@ -151,6 +176,23 @@ async def copy_drive_item(
                     title=s.title,
                     plain_text=s.plain_text,
                     settings=s.settings,
+                ))
+            await db.flush()
+
+        # word_decks는 WordCard row도 복제 (학습 진도는 제외)
+        if type == "word_decks":
+            from app.models import WordCard
+            src_cards = (await db.execute(
+                select(WordCard).where(WordCard.deck_id == item_id)
+                .order_by(WordCard.sort_order)
+            )).scalars().all()
+            for c in src_cards:
+                db.add(WordCard(
+                    deck_id=new_obj.id,
+                    term=c.term,
+                    meaning=c.meaning,
+                    example=c.example,
+                    sort_order=c.sort_order,
                 ))
             await db.flush()
 
