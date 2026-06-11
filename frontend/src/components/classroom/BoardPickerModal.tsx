@@ -18,6 +18,7 @@ interface BoardItem {
   description?: string | null;
   columns: string[];
   access_mode: string;
+  owner_name?: string | null;
 }
 
 interface Props {
@@ -27,20 +28,44 @@ interface Props {
 
 export function BoardPickerModal({ onClose, onSelect }: Props) {
   const [items, setItems] = useState<BoardItem[] | null>(null);
+  const [shared, setShared] = useState<BoardItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get<{ items: BoardItem[] }>("/api/classroom/boards");
-        if (!cancelled) setItems(res.items || []);
+        const [mine, sh] = await Promise.all([
+          api.get<{ items: BoardItem[] }>("/api/classroom/boards"),
+          api.get<{ items: BoardItem[] }>("/api/classroom/boards/shared-with-me").catch(() => ({ items: [] })),
+        ]);
+        if (!cancelled) {
+          setItems(mine.items || []);
+          setShared(sh.items || []);
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.detail || e?.message || "보드 목록을 불러올 수 없습니다");
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // 공유받은 보드 → 사본 생성 후 사본을 첨부 (원본 보존)
+  const pickShared = async (b: BoardItem) => {
+    if (duplicatingId) return;
+    setDuplicatingId(b.id);
+    try {
+      const copy = await api.post<{ id: number; title: string }>(
+        `/api/classroom/boards/${b.id}/duplicate`,
+      );
+      onSelect({ board_id: copy.id, title: copy.title });
+      onClose();
+    } catch (e: any) {
+      alert(e?.detail || "사본 생성 실패");
+      setDuplicatingId(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
@@ -61,7 +86,7 @@ export function BoardPickerModal({ onClose, onSelect }: Props) {
             </div>
           )}
           {error && <div className="text-caption text-status-error py-4">{error}</div>}
-          {items && items.length === 0 && (
+          {items && items.length === 0 && shared.length === 0 && (
             <div className="text-center py-8 text-text-tertiary">
               <StickyNote size={32} className="mx-auto mb-2 opacity-40" />
               <div className="text-caption">만든 보드가 없습니다.</div>
@@ -96,6 +121,35 @@ export function BoardPickerModal({ onClose, onSelect }: Props) {
                 </li>
               ))}
             </ul>
+          )}
+          {shared.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[11px] font-semibold text-violet-700 mb-1.5">
+                나에게 공유됨 — 선택하면 사본을 만들어 첨부 (원본 보존)
+              </div>
+              <ul className="space-y-2">
+                {shared.map((b) => (
+                  <li key={`s-${b.id}`}>
+                    <button
+                      type="button"
+                      disabled={duplicatingId !== null}
+                      onClick={() => pickShared(b)}
+                      className="w-full text-left px-3 py-2.5 border border-violet-200 bg-violet-50/40 rounded hover:bg-violet-50 hover:border-violet-300 transition flex items-start gap-3 disabled:opacity-50"
+                    >
+                      <span className="text-[20px] flex-shrink-0">🗒️</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-body font-medium truncate">
+                          {duplicatingId === b.id ? "사본 만드는 중..." : b.title}
+                        </div>
+                        <div className="text-[11px] text-text-tertiary truncate">
+                          {b.owner_name ? `${b.owner_name} 님 공유 · ` : ""}{b.columns.join(" · ")}
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
         <footer className="px-5 py-2.5 border-t border-border-default text-[11px] text-text-tertiary">

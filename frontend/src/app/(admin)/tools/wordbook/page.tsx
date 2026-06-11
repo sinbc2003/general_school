@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BookA, Plus, X, Loader2, ChevronLeft, Globe, Lock } from "lucide-react";
+import { BookA, Plus, X, Loader2, ChevronLeft, Globe, Lock, Share2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
 interface DeckItem {
@@ -17,18 +17,24 @@ interface DeckItem {
   lang_pair: string;
   is_public: boolean;
   card_count: number;
+  owner_name?: string | null;
   updated_at: string | null;
 }
 
 export default function WordbookHomePage() {
   const router = useRouter();
   const [decks, setDecks] = useState<DeckItem[] | null>(null);
+  const [shared, setShared] = useState<DeckItem[]>([]);
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const res = await api.get<{ items: DeckItem[] }>("/api/tools/wordbook/decks");
-      setDecks(res.items || []);
+      const [mine, sh] = await Promise.all([
+        api.get<{ items: DeckItem[] }>("/api/tools/wordbook/decks"),
+        api.get<{ items: DeckItem[] }>("/api/tools/wordbook/shared-with-me").catch(() => ({ items: [] })),
+      ]);
+      setDecks(mine.items || []);
+      setShared(sh.items || []);
     } catch {
       setDecks([]);
     }
@@ -67,7 +73,7 @@ export default function WordbookHomePage() {
         </div>
       )}
 
-      {decks && decks.length === 0 && (
+      {decks && decks.length === 0 && shared.length === 0 && (
         <div className="text-center py-16 border border-dashed border-border-default rounded-xl">
           <BookA size={40} className="mx-auto mb-3 text-text-tertiary opacity-40" />
           <div className="text-body text-text-secondary">아직 단어장이 없습니다.</div>
@@ -97,6 +103,34 @@ export default function WordbookHomePage() {
             </button>
           ))}
         </div>
+      )}
+
+      {shared.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-body font-semibold flex items-center gap-1.5 mb-3">
+            <Share2 size={15} className="text-violet-600" /> 나에게 공유됨
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {shared.map((d) => (
+              <button
+                key={`s-${d.id}`}
+                onClick={() => router.push(`/tools/wordbook/shared/${d.id}`)}
+                className="text-left border border-violet-200 rounded-xl p-4 bg-violet-50/40 hover:border-violet-300 hover:shadow-sm transition"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-body font-semibold truncate flex-1">{d.title}</span>
+                  <Share2 size={13} className="text-violet-600 flex-shrink-0" />
+                </div>
+                <div className="text-caption text-text-secondary">
+                  {d.owner_name ? `${d.owner_name} 님이 공유 · ` : ""}{d.card_count}개 단어
+                </div>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-text-tertiary mt-2">
+            공유받은 단어장은 열람·학습 미리보기 — "내 단어장으로 복사"하면 수업에 쓸 수 있습니다.
+          </p>
+        </section>
       )}
 
       {showCreate && (

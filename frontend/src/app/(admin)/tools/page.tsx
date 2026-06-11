@@ -8,7 +8,7 @@
  */
 
 import Link from "next/link";
-import { Gamepad2, BookA, StickyNote, Dices, type LucideIcon } from "lucide-react";
+import { Gamepad2, BookA, StickyNote, Dices, ExternalLink, type LucideIcon } from "lucide-react";
 
 interface ToolDef {
   key: string;
@@ -74,14 +74,27 @@ export default function ToolsHubPage() {
           const Icon = t.icon;
           const card = (
             <div
-              className={`relative h-full border border-border-default rounded-xl overflow-hidden bg-bg-primary transition ${
+              className={`group relative h-full border border-border-default rounded-xl overflow-hidden bg-bg-primary transition ${
                 t.ready
                   ? "hover:shadow-md hover:border-border-strong cursor-pointer"
                   : "opacity-60"
               }`}
             >
-              <div className={`h-20 bg-gradient-to-br ${t.accent} flex items-center px-5`}>
+              <div className={`h-20 bg-gradient-to-br ${t.accent} flex items-center px-5 relative`}>
                 <Icon size={32} className="text-white/95" />
+                {t.ready && (
+                  <span
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.open(t.href, "_blank", "noopener");
+                    }}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/25 hover:bg-white/45 text-white opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                    title="새 창에서 열기"
+                  >
+                    <ExternalLink size={13} />
+                  </span>
+                )}
               </div>
               <div className="p-4">
                 <div className="flex items-center gap-2">

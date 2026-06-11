@@ -14,9 +14,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Loader2, Users, Play, Eye, ArrowRight, Square, Trophy, Crown,
+  Loader2, Users, Play, Eye, ArrowRight, Square, Trophy, Crown, ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useToolFocusMode } from "@/lib/use-tool-focus";
 import { ProblemContent, InlineMathText } from "@/components/courseware/ProblemContent";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
@@ -58,6 +59,7 @@ export default function QuizHostPage() {
   const params = useParams<{ sid: string }>();
   const router = useRouter();
   const sid = Number(params.sid);
+  useToolFocusMode();
 
   const [st, setSt] = useState<HostState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,6 +192,13 @@ export default function QuizHostPage() {
               {st.pin}
             </span>
           )}
+          <button
+            onClick={() => window.open(`/tools/quiz/${sid}/host`, "_blank", "noopener")}
+            className="inline-flex items-center gap-1 px-3 py-1.5 border border-border-default rounded text-caption text-text-secondary hover:bg-bg-secondary"
+            title="새 창에서 열기 (프로젝터)"
+          >
+            <ExternalLink size={13} /> 새 창
+          </button>
           {st.status !== "ended" && (
             <button
               onClick={() => { if (confirm("퀴즈를 종료할까요?")) act("end"); }}

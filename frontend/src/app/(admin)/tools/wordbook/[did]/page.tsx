@@ -12,10 +12,12 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookA, ChevronLeft, Loader2, Plus, Trash2, Upload, Download,
-  Globe, Lock, GraduationCap, Pencil, Check, X,
+  Globe, Lock, GraduationCap, Pencil, Check, X, Share2, ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useToolFocusMode } from "@/lib/use-tool-focus";
 import { StudyView } from "@/components/wordbook/StudyView";
+import { ToolShareModal } from "@/components/tools/ToolShareModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
@@ -34,9 +36,11 @@ export default function WordbookEditPage() {
   const router = useRouter();
   const did = Number(params.did);
 
+  useToolFocusMode();
   const [deck, setDeck] = useState<DeckDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"edit" | "study">("edit");
+  const [showShare, setShowShare] = useState(false);
 
   // 새 카드 입력
   const [nTerm, setNTerm] = useState("");
@@ -172,6 +176,20 @@ export default function WordbookEditPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => window.open(`/tools/wordbook/${did}`, "_blank", "noopener")}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-default rounded-lg text-caption text-text-secondary hover:bg-bg-secondary"
+            title="새 창에서 열기"
+          >
+            <ExternalLink size={14} /> 새 창
+          </button>
+          <button
+            onClick={() => setShowShare(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-default rounded-lg text-caption text-text-secondary hover:bg-bg-secondary"
+            title="동료 교사와 공유"
+          >
+            <Share2 size={14} /> 공유
+          </button>
+          <button
             onClick={togglePublic}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-caption border transition ${
               deck.is_public
@@ -210,6 +228,14 @@ export default function WordbookEditPage() {
           ),
         )}
       </div>
+
+      {showShare && deck && (
+        <ToolShareModal
+          title={deck.title}
+          basePath={`/api/tools/wordbook/decks/${did}`}
+          onClose={() => setShowShare(false)}
+        />
+      )}
 
       {tab === "study" ? (
         <StudyView deckId={did} />

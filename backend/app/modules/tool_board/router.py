@@ -63,7 +63,13 @@ class BoardUpdate(BaseModel):
     course_id: int | None = None
     access_mode: str | None = Field(default=None, pattern="^(members|public)$")
     columns: list[str] | None = Field(default=None, max_length=10)
+    # 배경 테마 키 (frontend BOARD_BACKGROUNDS 프리셋) — settings.background에 저장
+    background: str | None = Field(default=None, max_length=30)
     is_archived: bool | None = None
+
+
+class ShareAdd(BaseModel):
+    user_id: int = Field(..., gt=0)
 
 
 class SnapshotIn(BaseModel):
@@ -82,6 +88,7 @@ def _to_dict(b: ToolBoard, *, owner_name: str | None = None) -> dict:
         "course_id": b.course_id,
         "access_mode": b.access_mode,
         "columns": (b.settings or {}).get("columns") or DEFAULT_COLUMNS,
+        "background": (b.settings or {}).get("background") or "cream",
         "is_archived": b.is_archived,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         "updated_at": b.updated_at.isoformat() if b.updated_at else None,
@@ -91,7 +98,13 @@ def _to_dict(b: ToolBoard, *, owner_name: str | None = None) -> dict:
 async def _has_classroom_attachment(
     db: AsyncSession, user: User, board_id: int,
 ) -> bool:
-    """본인 소속 강좌 글에 이 보드가 첨부됐는지 (LIKE prefilter + Python 매칭)."""
+    """본인 소속 강좌 글에 이 보드가 첨부됐는지 (LIKE prefilter + Python 매칭).
+
+    **활성 학기 강좌만** — 학기가 바뀌면 이전 학기 첨부로는 접근 불가.
+    (보드는 수업 중 라이브 활동 — 새 학기엔 교사가 새 강좌 글에 다시 첨부)
+    """
+    from app.core.semester import get_active_semester_id_or_404
+
     student_ids = (await db.execute(
         select(CourseStudent.course_id).where(
             CourseStudent.student_id == user.id,
@@ -100,9 +113,16 @@ async def _has_classroom_attachment(
     )).scalars().all()
     if not student_ids:
         return False
+    try:
+        active_sid = await get_active_semester_id_or_404(db)
+    except HTTPException:
+        return False
     rows = (await db.execute(
-        select(CoursePost.attachments).where(
+        select(CoursePost.attachments)
+        .join(Course, Course.id == CoursePost.course_id)
+        .where(
             CoursePost.course_id.in_(set(student_ids)),
+            Course.semester_id == active_sid,
             CoursePost.attachments.isnot(None),
             cast(CoursePost.attachments, SaText).like('%"board_id"%'),
         )
@@ -137,21 +157,33 @@ async def _resolve_permission(db: AsyncSession, user: User, b: ToolBoard) -> dic
         if course:
             if await is_course_editor_or_admin(db, course, user):
                 return perm(True, True, False, "editor")
-            cs = (await db.execute(
-                select(CourseStudent).where(
-                    CourseStudent.course_id == b.course_id,
-                    CourseStudent.student_id == user.id,
-                    CourseStudent.status == "active",
-                )
-            )).scalar_one_or_none()
-            if cs:
-                return perm(True, True, False, "editor")
+            # 학생은 **활성 학기** 강좌만 (보드는 라이브 수업 활동 — 학기 귀속)
+            from app.core.semester import get_active_semester_id_or_404
+            try:
+                active_sid = await get_active_semester_id_or_404(db)
+            except HTTPException:
+                active_sid = None
+            if active_sid is not None and course.semester_id == active_sid:
+                cs = (await db.execute(
+                    select(CourseStudent).where(
+                        CourseStudent.course_id == b.course_id,
+                        CourseStudent.student_id == user.id,
+                        CourseStudent.status == "active",
+                    )
+                )).scalar_one_or_none()
+                if cs:
+                    return perm(True, True, False, "editor")
 
     if await _has_classroom_attachment(db, user, b.id):
         return perm(True, True, False, "editor")
 
     if b.access_mode == "public":
         return perm(True, True, False, "editor")
+
+    # 동료 교사 공유 — 원본은 열람만 (수업에 쓰려면 사본 생성)
+    from app.services.tool_share import is_shared_to
+    if await is_shared_to(db, "board", b.id, user.id):
+        return perm(True, False, False, "viewer")
 
     return {"can_read": False, "can_write": False, "can_share": False, "role": None}
 
@@ -220,6 +252,9 @@ async def update_board(
         if not cleaned:
             raise HTTPException(400, "컬럼은 1개 이상 필요")
         b.settings = {**(b.settings or {}), "columns": cleaned}
+    background = patch.pop("background", None)
+    if background is not None:
+        b.settings = {**(b.settings or {}), "background": background.strip()[:30]}
     if "course_id" in patch and patch["course_id"] is not None:
         course = await db.get(Course, patch["course_id"])
         if not course:
@@ -241,10 +276,114 @@ async def delete_board(
     b = await _get_board_or_404(db, bid)
     if b.owner_id != user.id and not is_admin(user):
         raise HTTPException(403, "본인 보드만 삭제 가능")
+    from app.services.tool_share import cleanup_shares
+    await cleanup_shares(db, "board", bid)
     await db.delete(b)
     await db.flush()
     await log_action(db, user, "tools.board.delete", target=f"board:{bid}", request=request)
     return {"ok": True}
+
+
+# ── 동료 교사 공유 + 사본 ──
+
+# NOTE: 참여용 GET /{bid}보다 파일에서 먼저 등록돼야 함 (등록 순서 매칭).
+@router.get("/shared-with-me")
+async def shared_with_me(
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """나에게 공유된 보드 목록 (열람 + 사본 생성 가능)."""
+    from app.services.tool_share import shared_tool_ids
+    ids = await shared_tool_ids(db, "board", user.id)
+    if not ids:
+        return {"items": []}
+    rows = (await db.execute(
+        select(ToolBoard, User.name)
+        .join(User, User.id == ToolBoard.owner_id)
+        .where(ToolBoard.id.in_(ids))
+        .order_by(ToolBoard.updated_at.desc())
+    )).all()
+    return {"items": [_to_dict(b, owner_name=name) for b, name in rows]}
+
+
+@router.get("/{bid}/shares")
+async def list_board_shares(
+    bid: int,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import list_shares
+    b = await _get_board_or_404(db, bid)
+    if b.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403, "본인 보드만 공유 관리 가능")
+    return {"items": await list_shares(db, "board", bid)}
+
+
+@router.post("/{bid}/shares")
+async def add_board_share(
+    bid: int, body: ShareAdd, request: Request,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import add_share
+    b = await _get_board_or_404(db, bid)
+    if b.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403, "본인 보드만 공유 가능")
+    out = await add_share(
+        db, tool_type="board", tool_id=bid,
+        target_user_id=body.user_id, shared_by=user.id,
+    )
+    await log_action(db, user, "tools.board.share", target=f"board:{bid} to:{body.user_id}", request=request)
+    return out
+
+
+@router.delete("/{bid}/shares/{share_id}")
+async def remove_board_share(
+    bid: int, share_id: int,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import remove_share
+    b = await _get_board_or_404(db, bid)
+    if b.owner_id != user.id and not is_admin(user):
+        raise HTTPException(403)
+    await remove_share(db, tool_type="board", tool_id=bid, share_id=share_id)
+    return {"ok": True}
+
+
+@router.post("/{bid}/duplicate")
+async def duplicate_board(
+    bid: int, request: Request,
+    user: User = Depends(require_permission("tools.board.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """사본 생성 — 소유자/공유받은 교사/관리자. 카드(yjs_state)까지 복제, 원본 보존.
+
+    공유받은 교사가 본인 수업에 쓸 때의 흐름: 원본 열람 → 사본 → 본인 강좌에 첨부.
+    """
+    from app.services.tool_share import is_shared_to
+    src = await _get_board_or_404(db, bid)
+    if not (
+        src.owner_id == user.id
+        or is_admin(user)
+        or await is_shared_to(db, "board", bid, user.id)
+    ):
+        raise HTTPException(403, "공유받은 보드만 사본을 만들 수 있습니다")
+
+    copy = ToolBoard(
+        owner_id=user.id,
+        title=f"{src.title} (사본)"[:255],
+        description=src.description,
+        course_id=None,                # 강좌 연결은 사본 소유자가 직접
+        access_mode="members",
+        settings=dict(src.settings or {}),
+        yjs_state=src.yjs_state,       # 카드 전체 복제 (이후 서로 독립)
+        storage_bytes=src.storage_bytes or 0,
+    )
+    db.add(copy)
+    await db.flush()
+    await log_action(db, user, "tools.board.duplicate", target=f"board:{bid} -> {copy.id}", request=request)
+    return _to_dict(copy, owner_name=user.name)
 
 
 # ── 참여 (보드 화면 진입) ──

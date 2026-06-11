@@ -18,6 +18,7 @@ interface DeckItem {
   description?: string | null;
   card_count: number;
   is_public: boolean;
+  owner_name?: string | null;
 }
 
 interface Props {
@@ -27,20 +28,44 @@ interface Props {
 
 export function WordDeckPickerModal({ onClose, onSelect }: Props) {
   const [items, setItems] = useState<DeckItem[] | null>(null);
+  const [shared, setShared] = useState<DeckItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get<{ items: DeckItem[] }>("/api/tools/wordbook/decks");
-        if (!cancelled) setItems(res.items || []);
+        const [mine, sh] = await Promise.all([
+          api.get<{ items: DeckItem[] }>("/api/tools/wordbook/decks"),
+          api.get<{ items: DeckItem[] }>("/api/tools/wordbook/shared-with-me").catch(() => ({ items: [] })),
+        ]);
+        if (!cancelled) {
+          setItems(mine.items || []);
+          setShared(sh.items || []);
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.detail || e?.message || "단어장 목록을 불러올 수 없습니다");
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // 공유받은 덱 → 사본 생성 후 사본을 첨부 (원본 보존)
+  const pickShared = async (d: DeckItem) => {
+    if (duplicatingId) return;
+    setDuplicatingId(d.id);
+    try {
+      const copy = await api.post<{ id: number; title: string }>(
+        `/api/tools/wordbook/decks/${d.id}/duplicate`,
+      );
+      onSelect({ word_deck_id: copy.id, title: copy.title });
+      onClose();
+    } catch (e: any) {
+      alert(e?.detail || "사본 생성 실패");
+      setDuplicatingId(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
@@ -61,7 +86,7 @@ export function WordDeckPickerModal({ onClose, onSelect }: Props) {
             </div>
           )}
           {error && <div className="text-caption text-status-error py-4">{error}</div>}
-          {items && items.length === 0 && (
+          {items && items.length === 0 && shared.length === 0 && (
             <div className="text-center py-8 text-text-tertiary">
               <BookA size={32} className="mx-auto mb-2 opacity-40" />
               <div className="text-caption">만든 단어장이 없습니다.</div>
@@ -96,6 +121,35 @@ export function WordDeckPickerModal({ onClose, onSelect }: Props) {
                 </li>
               ))}
             </ul>
+          )}
+          {shared.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[11px] font-semibold text-violet-700 mb-1.5">
+                나에게 공유됨 — 선택하면 사본을 만들어 첨부 (원본 보존)
+              </div>
+              <ul className="space-y-2">
+                {shared.map((d) => (
+                  <li key={`s-${d.id}`}>
+                    <button
+                      type="button"
+                      disabled={duplicatingId !== null}
+                      onClick={() => pickShared(d)}
+                      className="w-full text-left px-3 py-2.5 border border-violet-200 bg-violet-50/40 rounded hover:bg-violet-50 hover:border-violet-300 transition flex items-start gap-3 disabled:opacity-50"
+                    >
+                      <span className="text-[20px] flex-shrink-0">📚</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-body font-medium truncate">
+                          {duplicatingId === d.id ? "사본 만드는 중..." : d.title}
+                        </div>
+                        <div className="text-[11px] text-text-tertiary">
+                          {d.owner_name ? `${d.owner_name} 님 공유 · ` : ""}{d.card_count}개 단어
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
         <footer className="px-5 py-2.5 border-t border-border-default text-[11px] text-text-tertiary">

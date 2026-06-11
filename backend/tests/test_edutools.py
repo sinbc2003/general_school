@@ -429,6 +429,145 @@ async def test_board_idor_and_student_cannot_manage(
     )).status_code == 403
 
 
+async def test_wordbook_share_and_duplicate(
+    app_client, auth_headers, teacher_user, teacher2, student_user, seed_perms,
+):
+    """공유: 동료 교사 열람 OK·편집 불가, 사본 생성 → 본인 소유, 해제 후 차단."""
+    t1 = auth_headers(teacher_user)
+    t2 = auth_headers(teacher2)
+    deck = await _create_deck(app_client, t1)
+    did = deck["id"]
+    await app_client.post(f"/api/tools/wordbook/decks/{did}/cards",
+                          json={"term": "apple", "meaning": "사과"}, headers=t1)
+
+    # 공유 전 — t2 열람/사본 모두 차단
+    assert (await app_client.get(f"/api/tools/wordbook/decks/{did}/study", headers=t2)).status_code == 403
+    assert (await app_client.post(f"/api/tools/wordbook/decks/{did}/duplicate", headers=t2)).status_code == 403
+
+    # 학생에게 공유 시도 → 400 (교직원만)
+    res = await app_client.post(f"/api/tools/wordbook/decks/{did}/shares",
+                                json={"user_id": student_user.id}, headers=t1)
+    assert res.status_code == 400
+
+    # t2에게 공유
+    res = await app_client.post(f"/api/tools/wordbook/decks/{did}/shares",
+                                json={"user_id": teacher2.id}, headers=t1)
+    assert res.status_code == 200
+    share_id = res.json()["id"]
+
+    # t2: shared-with-me 노출 + 열람 OK + 편집은 여전히 불가
+    sh = (await app_client.get("/api/tools/wordbook/shared-with-me", headers=t2)).json()
+    assert any(d["id"] == did for d in sh["items"])
+    assert (await app_client.get(f"/api/tools/wordbook/decks/{did}/study", headers=t2)).status_code == 200
+    assert (await app_client.put(f"/api/tools/wordbook/decks/{did}",
+                                 json={"title": "탈취"}, headers=t2)).status_code == 403
+
+    # t2 사본 생성 → 본인 소유 + 카드 복제 + 원본 보존
+    copy = (await app_client.post(f"/api/tools/wordbook/decks/{did}/duplicate", headers=t2)).json()
+    assert copy["owner_id"] == teacher2.id and copy["card_count"] == 1
+    assert "(사본)" in copy["title"]
+    my = (await app_client.get(f"/api/tools/wordbook/decks/{copy['id']}", headers=t2)).json()
+    assert my["cards"][0]["term"] == "apple"
+    orig = (await app_client.get(f"/api/tools/wordbook/decks/{did}", headers=t1)).json()
+    assert orig["title"] == deck["title"]  # 원본 그대로
+
+    # 공유 해제 → 열람 차단
+    assert (await app_client.delete(
+        f"/api/tools/wordbook/decks/{did}/shares/{share_id}", headers=t1,
+    )).status_code == 200
+    assert (await app_client.get(f"/api/tools/wordbook/decks/{did}/study", headers=t2)).status_code == 403
+
+
+async def test_board_share_and_duplicate(
+    app_client, auth_headers, teacher_user, teacher2, monkeypatch,
+):
+    """보드 공유: 열람 전용(viewer) + 사본은 yjs_state까지 복제."""
+    import base64
+    from app.core.config import settings
+
+    t1 = auth_headers(teacher_user)
+    t2 = auth_headers(teacher2)
+    board = await _create_board(app_client, t1)
+    bid = board["id"]
+
+    # 카드 데이터(yjs_state) 저장 — 내부 토큰 경유
+    monkeypatch.setattr(settings, "HOCUSPOCUS_INTERNAL_TOKEN", "tok", raising=False)
+    state = base64.b64encode(b"cards-state").decode()
+    await app_client.post(f"/api/classroom/boards/{bid}/yjs-snapshot",
+                          json={"state_base64": state}, headers={"X-Internal-Token": "tok"})
+
+    # 공유 전 t2 차단
+    assert (await app_client.get(f"/api/classroom/boards/{bid}", headers=t2)).status_code == 403
+
+    # 공유 → viewer (읽기만)
+    await app_client.post(f"/api/classroom/boards/{bid}/shares",
+                          json={"user_id": teacher2.id}, headers=t1)
+    got = (await app_client.get(f"/api/classroom/boards/{bid}", headers=t2)).json()
+    assert got["permission"]["can_read"] is True
+    assert got["permission"]["can_write"] is False
+    assert got["permission"]["role"] == "viewer"
+
+    # 사본 — yjs_state 복제 확인
+    copy = (await app_client.post(f"/api/classroom/boards/{bid}/duplicate", headers=t2)).json()
+    assert copy["owner_id"] == teacher2.id and "(사본)" in copy["title"]
+    snap = (await app_client.get(
+        f"/api/classroom/boards/{copy['id']}/yjs-snapshot",
+        headers={"X-Internal-Token": "tok"},
+    )).json()
+    assert snap["state_base64"] == state
+
+
+async def test_board_attachment_semester_gating(
+    app_client, auth_headers, teacher_user, student_user, db_session, seed_perms,
+):
+    """보드 첨부 접근은 **활성 학기** 강좌만 — 지난 학기 첨부는 무효."""
+    from app.models import Course, CoursePost, CourseStudent, Semester
+
+    t1 = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+    board = await _create_board(app_client, t1)  # members 모드
+    bid = board["id"]
+
+    # 지난 학기 + 강좌 + 수강 + 보드 첨부 글
+    past = Semester(year=2025, semester=2, name="2025-2학기",
+                    start_date=date(2025, 9, 1), end_date=date(2026, 2, 28),
+                    is_current=False)
+    cur = Semester(year=2026, semester=1, name="2026-1학기",
+                   start_date=date(2026, 3, 1), end_date=date(2026, 8, 31),
+                   is_current=True)
+    db_session.add_all([past, cur])
+    await db_session.flush()
+    old_course = Course(semester_id=past.id, teacher_id=teacher_user.id,
+                        subject="수학", name="작년 수학")
+    db_session.add(old_course)
+    await db_session.flush()
+    db_session.add(CourseStudent(course_id=old_course.id, student_id=student_user.id, status="active"))
+    db_session.add(CoursePost(
+        course_id=old_course.id, author_id=teacher_user.id,
+        post_type="material", title="작년 보드", content="x",
+        attachments=[{"type": "board", "board_id": bid, "title": board["title"]}],
+    ))
+    await db_session.commit()
+
+    # 지난 학기 첨부 → 접근 불가
+    assert (await app_client.get(f"/api/classroom/boards/{bid}", headers=s)).status_code == 403
+
+    # 같은 첨부가 **활성 학기** 강좌에 있으면 접근 OK
+    new_course = Course(semester_id=cur.id, teacher_id=teacher_user.id,
+                        subject="수학", name="올해 수학")
+    db_session.add(new_course)
+    await db_session.flush()
+    db_session.add(CourseStudent(course_id=new_course.id, student_id=student_user.id, status="active"))
+    db_session.add(CoursePost(
+        course_id=new_course.id, author_id=teacher_user.id,
+        post_type="material", title="올해 보드", content="x",
+        attachments=[{"type": "board", "board_id": bid, "title": board["title"]}],
+    ))
+    await db_session.commit()
+    got = (await app_client.get(f"/api/classroom/boards/{bid}", headers=s)).json()
+    assert got["permission"]["can_write"] is True
+
+
 async def test_board_yjs_snapshot_internal_token(
     app_client, auth_headers, teacher_user, monkeypatch,
 ):

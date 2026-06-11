@@ -2412,3 +2412,12 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - routes 595 → 629. 새 권한 3종(`tools.quiz.host`/`tools.wordbook.manage`/`tools.board.manage`) grant_default_roles 자동 부여
 - 메뉴 footgun: 학교가 /system/menu에서 카테고리를 저장한 적 있으면 DB 설정이 default 카테고리를 덮음 → 새 메뉴 안 보이면 메뉴 관리에서 재추가
 - 라이브 퀴즈 PIN은 진행 중 세션 간 유일 (ended는 보존). 익명 게스트는 v2 (nickname 컬럼 준비됨)
+
+### 2차 보강 (같은 세션 후반 — 사용자 피드백 반영)
+- **교사 간 공유 + 사본**: `EduToolShare(tool_type: board|word_deck, tool_id, user_id)` (`a2c4e6f8b1d3`) + `services/tool_share.py` 공통 로직. 공유받은 교사 = 원본 **열람만**(보드 viewer / 단어장 study) → `POST .../duplicate`로 사본(카드·yjs_state 복제) 만들어 본인 강좌 첨부. 공유 UI: `ToolShareModal`(UserPicker 교사탭 재사용) + 목록 "나에게 공유됨" 섹션 + **피커에서 공유 덱/보드 선택 시 자동 사본 생성 후 첨부**. share row 정리는 라우터 delete에서 cleanup_shares (다형 FK라 CASCADE 불가)
+- **학기 귀속 정책 (확정)**: 도구 원본(단어장·보드·퀴즈문제)은 **교사 개인 자산 — 학기 무관 재사용** (드라이브 자료와 동일). 수업 연결(강좌·첨부·퀴즈 세션·학생 접근)은 학기 귀속. **보드 = 활성 학기 첨부/강좌만 접근**(라이브 활동 — 학기 바뀌면 재첨부 필요), **단어장 = 지난 학기 첨부로도 계속 학습 가능**(어휘 복습 연속성, 의도된 비대칭)
+- **보드 Padlet 디자인**: 배경 테마 8종(`BOARD_BACKGROUNDS`, settings.background) + 반투명 컬럼 패널 + 카드 색 선택·작성자 아바타·상대시간 + 컬럼 헤더 ⊕ 컴포저(Ctrl+Enter) + 최신 카드 위로. **메타 로드 즉시 월 렌더** (Yjs 연결은 "연결 중" 칩으로 비차단)
+- **보드 생성 '한참 걸림' 진단**: B 백엔드 POST 실측 **3ms** — API 문제 아님. 원인 = 페이지 전환 시 라우트 청크 다운로드(Cloudflare 터널 경유 시 집 업로드 대역폭) + 구 BoardView가 Yjs sync까지 전체 블로킹. 후자는 즉시 렌더로 해결, 전자는 학교 LAN 직결이면 무관
+- **새창 + 집중모드**: 도구 실행 페이지(`quiz host`/`board/[bid]`/`wordbook/[did]`/`mini`) 진입 시 사이드바 자동 접힘(`useToolFocusMode` — localStorage 미저장 일시 접힘, 이탈 시 복원). 허브 카드·도구 헤더에 "새 창" 버튼
+- **잔여 수정**: 첨부 제목 enrichment에 도구 3종 추가(이름 변경 반영), 타이머 start 연타 방어, AudioContext 사용자 제스처 시점 생성(suspended 무음 방지), share_mode 미적용 도구 주석. 라우트 footgun: `/decks/{did}`보다 뒤에 등록한 `/decks/_x` literal은 먹힘 → 최상위 `/shared-with-me` 사용
+- 테스트 17개 (공유/사본/학기 게이트 +3종 포함). routes 629 → 639

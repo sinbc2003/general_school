@@ -38,3 +38,8 @@ class ProgressIn(BaseModel):
     """학습 결과 1건 — 라이트너 박스 갱신."""
     card_id: int = Field(..., gt=0)
     correct: bool
+
+
+class ShareAdd(BaseModel):
+    """동료 교사 공유 추가."""
+    user_id: int = Field(..., gt=0)

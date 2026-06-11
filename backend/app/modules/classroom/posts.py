@@ -53,12 +53,19 @@ def _att_title_sources():
     from app.models.classroom_sheets import ClassroomSheet
     from app.models.classroom_slides import ClassroomPresentation
     from app.models.classroom_surveys import Survey
+    from app.models.tool_board import ToolBoard
+    from app.models.tool_quiz import LiveQuizSession
+    from app.models.tool_wordbook import WordDeck
     return {
         "doc": (ClassroomDocument, "doc_id"),
         "sheet": (ClassroomSheet, "sheet_id"),
         "deck": (ClassroomPresentation, "deck_id"),
         "survey": (Survey, "survey_id"),
         "hwp": (ClassroomHwp, "hwp_id"),
+        # 에듀테크 도구 — 이름 바꾸면 첨부 행 제목도 현재값으로
+        "live_quiz": (LiveQuizSession, "live_quiz_id"),
+        "word_deck": (WordDeck, "word_deck_id"),
+        "board": (ToolBoard, "board_id"),
     }
 
 

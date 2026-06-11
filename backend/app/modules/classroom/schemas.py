@@ -17,6 +17,8 @@ AttachmentType = Literal[
 #   edit : 학생이 함께 편집 (협업). docs/sheets/decks/hwp 적용 가능.
 #   copy : 학생별 본인 사본 자동 생성 → 본인만 편집 → 교사가 모든 사본 채점.
 #          docs/sheets/decks/hwp 만 적용. link/file/survey/chatbot은 N/A → view 강제.
+#   ※ 에듀테크 도구(live_quiz/word_deck/board)는 share_mode 무시 — 접근 정책이
+#     도구별 가드(첨부=참여 권한)로 고정. UI에서도 드롭다운 미노출.
 ShareMode = Literal["view", "edit", "copy"]
 
 

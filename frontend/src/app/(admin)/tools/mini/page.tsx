@@ -18,6 +18,7 @@ import {
   Play, Pause, RotateCcw, Shuffle, Loader2, Maximize2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { useToolFocusMode } from "@/lib/use-tool-focus";
 
 type Tab = "roulette" | "groups" | "timer" | "light";
 
@@ -38,6 +39,7 @@ function shuffleArr<T>(arr: T[]): T[] {
 }
 
 export default function MiniToolsPage() {
+  useToolFocusMode();
   const [tab, setTab] = useState<Tab>("roulette");
   const [names, setNames] = useState<string[]>([]);
   const fullRef = useRef<HTMLDivElement>(null);
@@ -382,11 +384,26 @@ function GroupsTool({ names }: { names: string[] }) {
 
 const TIMER_PRESETS = [60, 180, 300, 600];
 
-function beep() {
+// AudioContext는 사용자 제스처(시작 버튼 클릭) 시점에 생성/resume해야
+// autoplay 정책에 안 걸림. 모듈 단위 1개 재사용.
+let _audioCtx: AudioContext | null = null;
+
+function ensureAudio() {
   try {
     const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) return;
-    const ctx = new Ctx();
+    if (!_audioCtx) _audioCtx = new Ctx();
+    if (_audioCtx && _audioCtx.state === "suspended") {
+      _audioCtx.resume().catch(() => undefined);
+    }
+  } catch { /* noop */ }
+}
+
+function beep() {
+  try {
+    ensureAudio();
+    const ctx = _audioCtx;
+    if (!ctx || ctx.state !== "running") return;
     [0, 0.35, 0.7].forEach((at) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -398,7 +415,6 @@ function beep() {
       osc.start(ctx.currentTime + at);
       osc.stop(ctx.currentTime + at + 0.32);
     });
-    setTimeout(() => { try { ctx.close(); } catch { /* noop */ } }, 1500);
   } catch { /* 사운드 실패는 무시 */ }
 }
 
@@ -418,6 +434,8 @@ function TimerTool() {
 
   const start = () => {
     if (running || remainMs <= 0) return;
+    stopInterval(); // pause→start 연타 시 interval 중복 방지 (방어적)
+    ensureAudio();  // 사용자 제스처 시점에 AudioContext 준비 (종료 비프용)
     setFinished(false);
     endAtRef.current = Date.now() + remainMs;
     setRunning(true);

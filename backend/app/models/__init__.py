@@ -155,6 +155,9 @@ from app.models.tool_wordbook import WordDeck, WordCard, WordStudyState
 # ── Tool: Board (Padlet형 보드 — 업무 및 수업 도구, 카드는 Yjs) ──
 from app.models.tool_board import ToolBoard
 
+# ── Tool: 교사 간 도구 공유 (보드·단어장 공통) ──
+from app.models.tool_share import EduToolShare
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -245,4 +248,6 @@ __all__ = [
     "WordDeck", "WordCard", "WordStudyState",
     # Tool: Board
     "ToolBoard",
+    # Tool: Share
+    "EduToolShare",
 ]

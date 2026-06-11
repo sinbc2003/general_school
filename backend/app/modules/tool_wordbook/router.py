@@ -45,7 +45,7 @@ from app.models import (
     WordCard, WordDeck, WordStudyState,
 )
 from app.modules.tool_wordbook.schemas import (
-    CardIn, CardUpdate, CardsBulkIn, DeckCreate, DeckUpdate, ProgressIn,
+    CardIn, CardUpdate, CardsBulkIn, DeckCreate, DeckUpdate, ProgressIn, ShareAdd,
 )
 
 router = APIRouter(prefix="/api/tools/wordbook", tags=["tool-wordbook"])
@@ -108,7 +108,13 @@ async def _assert_study_access(
 ) -> None:
     if d.owner_id == user.id or is_admin(user) or d.is_public:
         return
+    # 학기 무관 — 지난 학기 첨부로도 계속 복습 가능 (어휘 학습 연속성).
+    # 보드와 다른 정책: 보드는 라이브 활동이라 활성 학기 첨부만 허용.
     if await _has_classroom_attachment(db, user, d.id):
+        return
+    # 동료 교사 공유 — 원본 열람(학습 미리보기) 가능
+    from app.services.tool_share import is_shared_to
+    if await is_shared_to(db, "word_deck", d.id, user.id):
         return
     raise HTTPException(403, "이 단어장에 접근 권한이 없습니다")
 
@@ -242,10 +248,126 @@ async def delete_deck(
 ):
     d = await _get_deck_or_404(db, did)
     _assert_owner(d, user)
+    from app.services.tool_share import cleanup_shares
+    await cleanup_shares(db, "word_deck", did)
     await db.delete(d)  # cards/states CASCADE
     await db.flush()
     await log_action(db, user, "tools.wordbook.deck_delete", target=f"deck:{did}", request=request)
     return {"ok": True}
+
+
+# ── 동료 교사 공유 + 사본 ──
+
+# NOTE: /decks/{did}가 먼저 등록돼 있어 /decks/* 하위 literal 경로는 먹힌다
+# (FastAPI는 등록 순서 매칭 + path param은 [^/]+). 최상위 경로 사용.
+@router.get("/shared-with-me")
+async def shared_with_me(
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """나에게 공유된 단어장 목록 (열람·학습 미리보기 + 사본 생성 가능)."""
+    from app.services.tool_share import shared_tool_ids
+    ids = await shared_tool_ids(db, "word_deck", user.id)
+    if not ids:
+        return {"items": []}
+    rows = (await db.execute(
+        select(WordDeck, User.name)
+        .join(User, User.id == WordDeck.owner_id)
+        .where(WordDeck.id.in_(ids))
+        .order_by(WordDeck.updated_at.desc())
+    )).all()
+    counts = await _card_counts(db, [d.id for d, _ in rows])
+    return {
+        "items": [
+            {**_deck_to_dict(d, counts.get(d.id, 0)), "owner_name": name}
+            for d, name in rows
+        ]
+    }
+
+
+@router.get("/decks/{did}/shares")
+async def list_deck_shares(
+    did: int,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import list_shares
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    return {"items": await list_shares(db, "word_deck", did)}
+
+
+@router.post("/decks/{did}/shares")
+async def add_deck_share(
+    did: int, body: ShareAdd, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import add_share
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    out = await add_share(
+        db, tool_type="word_deck", tool_id=did,
+        target_user_id=body.user_id, shared_by=user.id,
+    )
+    await log_action(db, user, "tools.wordbook.share", target=f"deck:{did} to:{body.user_id}", request=request)
+    return out
+
+
+@router.delete("/decks/{did}/shares/{share_id}")
+async def remove_deck_share(
+    did: int, share_id: int,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.tool_share import remove_share
+    d = await _get_deck_or_404(db, did)
+    _assert_owner(d, user)
+    await remove_share(db, tool_type="word_deck", tool_id=did, share_id=share_id)
+    return {"ok": True}
+
+
+@router.post("/decks/{did}/duplicate")
+async def duplicate_deck(
+    did: int, request: Request,
+    user: User = Depends(require_permission("tools.wordbook.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """사본 생성 — 소유자/공유받은 교사/관리자. 카드까지 복제 (학습 진도는 제외).
+
+    공유받은 교사가 본인 수업에 쓸 때의 흐름: 원본 열람 → 사본 → 본인 강좌에 첨부.
+    """
+    from app.services.tool_share import is_shared_to
+    src = await _get_deck_or_404(db, did)
+    if not (
+        src.owner_id == user.id
+        or is_admin(user)
+        or await is_shared_to(db, "word_deck", did, user.id)
+    ):
+        raise HTTPException(403, "공유받은 단어장만 사본을 만들 수 있습니다")
+
+    copy = WordDeck(
+        owner_id=user.id,
+        title=f"{src.title} (사본)"[:255],
+        description=src.description,
+        lang_pair=src.lang_pair,
+        is_public=False,
+    )
+    db.add(copy)
+    await db.flush()
+
+    cards = (await db.execute(
+        select(WordCard).where(WordCard.deck_id == did)
+        .order_by(WordCard.sort_order.asc(), WordCard.id.asc())
+    )).scalars().all()
+    for c in cards:
+        db.add(WordCard(
+            deck_id=copy.id, term=c.term, meaning=c.meaning,
+            example=c.example, sort_order=c.sort_order,
+        ))
+    await db.flush()
+    await log_action(db, user, "tools.wordbook.duplicate", target=f"deck:{did} -> {copy.id}", request=request)
+    return _deck_to_dict(copy, len(cards))
 
 
 @router.post("/decks/{did}/cards")
