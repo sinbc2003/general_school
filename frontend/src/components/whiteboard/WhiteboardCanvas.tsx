@@ -24,7 +24,7 @@ import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
   Loader2, Wifi, WifiOff, Eye, Pen, Highlighter, Minus, Square, Circle,
-  Type, Eraser, Undo2, Trash2, Download,
+  Type, Eraser, Undo2, Trash2, Download, MousePointer2,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
@@ -70,6 +70,16 @@ interface WbMeta {
 function newId(userId?: number): string {
   return `o-${userId ?? 0}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 }
+
+// 원격 커서 색 — 이름 해시 (보드 아바타와 동일 팔레트)
+const CURSOR_COLORS = ["#f97316", "#0ea5e9", "#8b5cf6", "#10b981", "#ef4444", "#eab308", "#ec4899"];
+function cursorColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 9973;
+  return CURSOR_COLORS[h % CURSOR_COLORS.length];
+}
+
+interface RemoteCursor { id: number; name: string; x: number; y: number }
 
 /** 점-선분 거리 (지우개 hit test) */
 function distToSeg(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
@@ -163,6 +173,8 @@ export function WhiteboardCanvas({
   const [connected, setConnected] = useState(false);
   const [synced, setSynced] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
+  const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+  const [scale, setScale] = useState(1); // 커서 오버레이 좌표 환산용 (scaleRef와 동기)
 
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(COLORS[0]);
@@ -171,12 +183,14 @@ export function WhiteboardCanvas({
   const [textDraft, setTextDraft] = useState("");
 
   const yObjsRef = useRef<Y.Map<any> | null>(null);
+  const provRef = useRef<HocuspocusProvider | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<WbObj | null>(null);  // 그리는 중 객체 (로컬)
   const drawingRef = useRef(false);
   const myStackRef = useRef<string[]>([]);        // undo용 본인 객체 id
   const scaleRef = useRef(1);
+  const lastCursorSentRef = useRef(0);            // 커서 broadcast throttle
 
   // ── 메타 ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -220,15 +234,35 @@ export function WhiteboardCanvas({
       onAuthenticationFailed: ({ reason }) => setError(reason || "협업 서버 인증 실패"),
       onSynced: () => { read(); setSynced(true); },
     });
+    provRef.current = prov;
     try { prov.setAwarenessField("user", { name: user?.name || "익명" }); } catch { /* noop */ }
     const aw = (prov as any).awareness;
-    const onAw = () => { try { setActiveCount(aw?.getStates()?.size ?? 0); } catch { /* noop */ } };
+    const onAw = () => {
+      try {
+        const states = aw?.getStates?.();
+        setActiveCount(states?.size ?? 0);
+        // 원격 커서 수집 (본인 제외, cursor 필드 있는 참가자만)
+        if (states) {
+          const me = aw.clientID;
+          const out: RemoteCursor[] = [];
+          states.forEach((st: any, cid: number) => {
+            if (cid === me) return;
+            const cur = st?.cursor;
+            if (cur && typeof cur.x === "number" && typeof cur.y === "number") {
+              out.push({ id: cid, name: st?.user?.name || "익명", x: cur.x, y: cur.y });
+            }
+          });
+          setRemoteCursors(out);
+        }
+      } catch { /* noop */ }
+    };
     try { aw?.on("change", onAw); onAw(); } catch { /* noop */ }
     yObjs.observe(read);
 
     return () => {
       yObjs.unobserve(read);
       try { aw?.off("change", onAw); } catch { /* noop */ }
+      provRef.current = null;
       try { prov.destroy(); } catch { /* noop */ }
       try { yDoc.destroy(); } catch { /* noop */ }
     };
@@ -278,13 +312,14 @@ export function WhiteboardCanvas({
     if (!wrap || !canvas) return;
     const resize = () => {
       const cw = wrap.clientWidth;
-      const scale = cw / LOGICAL_W;
-      scaleRef.current = scale;
+      const s = cw / LOGICAL_W;
+      scaleRef.current = s;
+      setScale(s); // 커서 오버레이 좌표 환산 동기화
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(cw * dpr);
-      canvas.height = Math.round(LOGICAL_H * scale * dpr);
+      canvas.height = Math.round(LOGICAL_H * s * dpr);
       canvas.style.width = `${cw}px`;
-      canvas.style.height = `${LOGICAL_H * scale}px`;
+      canvas.style.height = `${LOGICAL_H * s}px`;
       redraw();
     };
     resize();
@@ -351,9 +386,18 @@ export function WhiteboardCanvas({
     redraw();
   };
 
+  // 본인 포인터 위치 broadcast (40ms throttle — awareness는 가벼움)
+  const sendCursor = (x: number, y: number) => {
+    const now = Date.now();
+    if (now - lastCursorSentRef.current < 40) return;
+    lastCursorSentRef.current = now;
+    try { provRef.current?.setAwarenessField("cursor", { x, y }); } catch { /* noop */ }
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!drawingRef.current) return;
     const { x, y } = toLogical(e);
+    if (synced) sendCursor(x, y);
+    if (!drawingRef.current) return;
     if (tool === "eraser") { eraseAt(x, y); return; }
     const cur = currentRef.current;
     if (!cur) return;
@@ -369,6 +413,11 @@ export function WhiteboardCanvas({
       cur.w = x - sx; cur.h = y - sy;
     }
     redraw();
+  };
+
+  // 캔버스 이탈 시 내 커서 숨김 (상대 화면에서 잔상 방지)
+  const clearCursor = () => {
+    try { provRef.current?.setAwarenessField("cursor", null); } catch { /* noop */ }
   };
 
   const commitCurrent = () => {
@@ -568,8 +617,27 @@ export function WhiteboardCanvas({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          onPointerLeave={() => { onPointerUp(); clearCursor(); }}
         />
+        {/* 원격 커서 — 동시 작업자 포인터 + 이름표 */}
+        {remoteCursors.map((c) => {
+          const col = cursorColor(c.name);
+          return (
+            <div
+              key={c.id}
+              className="absolute pointer-events-none z-10 transition-transform duration-100 ease-linear"
+              style={{ left: 0, top: 0, transform: `translate(${c.x * scale}px, ${c.y * scale}px)` }}
+            >
+              <MousePointer2 size={16} style={{ color: col }} fill={col} />
+              <span
+                className="block ml-3 -mt-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white whitespace-nowrap shadow-sm"
+                style={{ backgroundColor: col }}
+              >
+                {c.name}
+              </span>
+            </div>
+          );
+        })}
         {textInput && (
           <input
             value={textDraft}

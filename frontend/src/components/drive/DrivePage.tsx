@@ -28,6 +28,7 @@ import {
   Sparkles, Activity,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { openToolWindow } from "@/lib/open-tool-window";
 import { useToast } from "@/components/ui/Toast";
 import { useAIAssistant } from "@/lib/ai-assistant-context";
 import { AIAssistantPanel } from "@/components/tool-ai/AIAssistantPanel";
@@ -800,7 +801,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
           onOpenNewWindow={(it) => {
             // 에듀테크 도구는 embed 뷰가 없음 — 도구 페이지를 새 창으로
             if (it.type === "word_decks") {
-              window.open(`/tools/wordbook/${it.id}`, "_blank");
+              openToolWindow(`/tools/wordbook/${it.id}`);
               return;
             }
             if (it.type === "boards") {

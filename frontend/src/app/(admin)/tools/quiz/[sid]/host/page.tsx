@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToolFocusMode } from "@/lib/use-tool-focus";
+import { openToolWindow } from "@/lib/open-tool-window";
 import { ProblemContent, InlineMathText } from "@/components/courseware/ProblemContent";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
@@ -193,7 +194,7 @@ export default function QuizHostPage() {
             </span>
           )}
           <button
-            onClick={() => window.open(`/tools/quiz/${sid}/host`, "_blank", "noopener")}
+            onClick={() => openToolWindow(`/tools/quiz/${sid}/host`)}
             className="inline-flex items-center gap-1 px-3 py-1.5 border border-border-default rounded text-caption text-text-secondary hover:bg-bg-secondary"
             title="새 창에서 열기 (프로젝터)"
           >

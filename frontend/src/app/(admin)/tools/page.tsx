@@ -12,6 +12,7 @@ import {
   Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool,
   type LucideIcon,
 } from "lucide-react";
+import { openToolWindow } from "@/lib/open-tool-window";
 
 interface ToolDef {
   key: string;
@@ -227,7 +228,7 @@ export default function ToolsHubPage() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      window.open(t.href, "_blank", "noopener");
+                      openToolWindow(t.href);
                     }}
                     className="absolute top-2 right-2 p-1.5 rounded-full bg-white/80 hover:bg-white text-gray-700 shadow-sm opacity-0 group-hover:opacity-100 transition cursor-pointer"
                     title="새 창에서 열기"

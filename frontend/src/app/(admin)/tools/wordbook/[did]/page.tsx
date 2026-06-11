@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useToolFocusMode } from "@/lib/use-tool-focus";
+import { openToolWindow } from "@/lib/open-tool-window";
 import { StudyView } from "@/components/wordbook/StudyView";
 import { ToolShareModal } from "@/components/tools/ToolShareModal";
 
@@ -176,7 +177,7 @@ export default function WordbookEditPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => window.open(`/tools/wordbook/${did}`, "_blank", "noopener")}
+            onClick={() => openToolWindow(`/tools/wordbook/${did}`)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-default rounded-lg text-caption text-text-secondary hover:bg-bg-secondary"
             title="새 창에서 열기"
           >
