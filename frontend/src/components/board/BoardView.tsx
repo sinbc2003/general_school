@@ -270,10 +270,12 @@ function LinkPreview({ url }: { url: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function BoardView({
-  boardId, headerActions,
+  boardId, headerActions, fullscreen = false,
 }: {
   boardId: number;
   headerActions?: ReactNode;
+  /** 새 창(embed) — 라운드·그림자 없이 전체 화면, 플로팅 버튼은 viewport 고정 */
+  fullscreen?: boolean;
 }) {
   const { user } = useAuth();
   const [meta, setMeta] = useState<BoardMeta | null>(null);
@@ -673,7 +675,11 @@ export function BoardView({
 
   return (
     <div
-      className="rounded-2xl overflow-hidden shadow-lg min-h-[78vh] flex flex-col relative"
+      className={
+        fullscreen
+          ? "min-h-screen flex flex-col relative"
+          : "rounded-2xl overflow-hidden shadow-lg min-h-[78vh] flex flex-col relative"
+      }
       style={{ background: bg.css }}
     >
       {/* Padlet 식 상단 — 우측 툴바 행 + 좌측 작성자·제목 */}
@@ -863,14 +869,14 @@ export function BoardView({
       {canWrite && meta.layout !== "canvas" && !wallComposing && (
         <button
           onClick={() => setWallComposing(true)}
-          className="absolute bottom-6 right-6 z-20 inline-flex items-center gap-1.5 px-5 py-3 rounded-full bg-teal-500 hover:bg-teal-600 text-white text-body font-semibold shadow-xl transition"
+          className={`${fullscreen ? "fixed" : "absolute"} bottom-6 right-6 z-20 inline-flex items-center gap-1.5 px-5 py-3 rounded-full bg-teal-500 hover:bg-teal-600 text-white text-body font-semibold shadow-xl transition`}
           title="카드 게시"
         >
           <Plus size={18} /> 게시
         </button>
       )}
       {wallComposing && (
-        <div className="absolute bottom-6 right-6 z-30 w-[320px] max-w-[calc(100%-3rem)]">
+        <div className={`${fullscreen ? "fixed" : "absolute"} bottom-6 right-6 z-30 w-[320px] max-w-[calc(100%-3rem)]`}>
           <Composer
             boardId={boardId}
             onSubmit={(p) => {

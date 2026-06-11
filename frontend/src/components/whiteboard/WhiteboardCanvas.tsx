@@ -149,10 +149,12 @@ function drawObj(ctx: CanvasRenderingContext2D, o: WbObj) {
 }
 
 export function WhiteboardCanvas({
-  whiteboardId, headerActions,
+  whiteboardId, headerActions, fullscreen = false,
 }: {
   whiteboardId: number;
   headerActions?: ReactNode;
+  /** 새 창(embed) — 라운드·테두리 없이 전체 화면 */
+  fullscreen?: boolean;
 }) {
   const { user } = useAuth();
   const [meta, setMeta] = useState<WbMeta | null>(null);
@@ -463,7 +465,13 @@ export function WhiteboardCanvas({
   }
 
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg bg-bg-primary border border-border-default">
+    <div
+      className={
+        fullscreen
+          ? "min-h-screen bg-bg-primary"
+          : "rounded-2xl overflow-hidden shadow-lg bg-bg-primary border border-border-default"
+      }
+    >
       {/* 헤더 */}
       <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2 flex-wrap border-b border-border-default">
         <div className="min-w-0">

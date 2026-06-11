@@ -57,7 +57,7 @@ export default function BoardHomePage() {
           <span
             onClick={(e) => {
               e.stopPropagation();
-              window.open(`/tools/board/${b.id}`, "_blank", "noopener");
+              window.open(`/embed/board/${b.id}`, "_blank", "noopener");
             }}
             className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-white/70 hover:bg-white text-gray-700 opacity-0 group-hover:opacity-100 transition cursor-pointer"
             title="새 창에서 열기"

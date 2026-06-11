@@ -100,9 +100,9 @@ export default function WhiteboardDetailPage() {
         headerActions={
           <>
             <button
-              onClick={() => window.open(`/tools/whiteboard/${wid}`, "_blank", "noopener")}
+              onClick={() => window.open(`/embed/whiteboard/${wid}`, "_blank", "noopener")}
               className={actionBtn}
-              title="새 창에서 열기 (프로젝터·듀얼 모니터)"
+              title="새 창에서 열기 — 사이드바 없이 전체 화면 (프로젝터·전자칠판)"
             >
               <ExternalLink size={12} /> 새 창
             </button>

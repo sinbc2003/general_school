@@ -804,11 +804,11 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
               return;
             }
             if (it.type === "boards") {
-              window.open(`/tools/board/${it.id}`, "_blank");
+              window.open(`/embed/board/${it.id}`, "_blank");
               return;
             }
             if (it.type === "whiteboards") {
-              window.open(`/tools/whiteboard/${it.id}`, "_blank");
+              window.open(`/embed/whiteboard/${it.id}`, "_blank");
               return;
             }
             const seg =

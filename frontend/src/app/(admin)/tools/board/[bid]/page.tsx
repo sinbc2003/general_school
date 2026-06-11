@@ -106,9 +106,9 @@ export default function BoardDetailPage() {
         headerActions={
           <>
             <button
-              onClick={() => window.open(`/tools/board/${bid}`, "_blank", "noopener")}
+              onClick={() => window.open(`/embed/board/${bid}`, "_blank", "noopener")}
               className={actionBtn}
-              title="새 창에서 열기 (프로젝터·듀얼 모니터)"
+              title="새 창에서 열기 — 사이드바 없이 전체 화면 (프로젝터·듀얼 모니터)"
             >
               <ExternalLink size={12} /> 새 창
             </button>
