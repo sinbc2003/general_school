@@ -29,7 +29,7 @@ import {
   Loader2, Plus, Trash2, Pencil, Check, X, Wifi, WifiOff, Eye, Heart,
   MessageCircle, ImagePlus, Link as LinkIcon, ChevronLeft, ChevronRight,
   Download, ArrowDownWideNarrow, ShieldCheck, ExternalLink as ExtIcon,
-  Search, Play,
+  Search, Play, Youtube,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
@@ -153,6 +153,57 @@ function AuthedImg({ url, className, onClick }: { url: string; className?: strin
   if (!src) return <div className={`${className} bg-black/5 animate-pulse rounded-lg min-h-[80px]`} />;
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={src} alt="" className={className} onClick={onClick} />;
+}
+
+// ── 유튜브 임베드 (Padlet식 — 링크가 유튜브면 카드에서 바로 재생) ──
+export function youtubeIdOf(url?: string): string | null {
+  if (!url) return null;
+  const m = url.match(
+    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/,
+  );
+  return m ? m[1] : null;
+}
+
+function YouTubeEmbed({ url }: { url: string }) {
+  const id = youtubeIdOf(url);
+  const [playing, setPlaying] = useState(false);
+  if (!id) return <LinkPreview url={url} />;
+  return (
+    <div
+      className="mt-1.5 rounded-lg overflow-hidden relative bg-black"
+      style={{ aspectRatio: "16 / 9" }}
+    >
+      {playing ? (
+        <iframe
+          src={`https://www.youtube.com/embed/${id}?autoplay=1&rel=0`}
+          className="absolute inset-0 w-full h-full"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          title="YouTube 영상"
+        />
+      ) : (
+        // 성능: N개 카드에 iframe N개 대신 썸네일 → 클릭 시 로드 (lite embed)
+        <button
+          type="button"
+          onClick={() => setPlaying(true)}
+          className="absolute inset-0 w-full h-full group/yt"
+          title="재생"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`}
+            alt=""
+            className="w-full h-full object-cover opacity-90 group-hover/yt:opacity-100 transition"
+          />
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="w-12 h-9 rounded-xl bg-red-600 group-hover/yt:bg-red-700 group-hover/yt:scale-110 flex items-center justify-center shadow-lg transition">
+              <Play size={16} className="text-white" fill="white" />
+            </span>
+          </span>
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ── OG 링크 미리보기 (embeds/og-preview 재사용 — SSRF 방어는 backend) ──
@@ -918,7 +969,11 @@ function Slideshow({
           {card.text && (
             <div className="text-lg whitespace-pre-wrap break-words leading-relaxed">{card.text}</div>
           )}
-          {card.link_url && <LinkPreview url={card.link_url} />}
+          {card.link_url && (
+              youtubeIdOf(card.link_url)
+                ? <YouTubeEmbed url={card.link_url} />
+                : <LinkPreview url={card.link_url} />
+            )}
           {likeCount(card.id) > 0 && (
             <div className="flex items-center gap-1 mt-4 text-rose-500 text-body">
               <Heart size={16} fill="currentColor" /> {likeCount(card.id)}
@@ -1351,13 +1406,34 @@ function Composer({
         </div>
       )}
       {linkUrl && (
-        <div className="flex items-center gap-1 mt-1.5 text-[11px] text-sky-700 bg-sky-50 rounded-lg px-2 py-1">
-          <LinkIcon size={11} className="flex-shrink-0" />
-          <span className="truncate flex-1">{linkUrl}</span>
-          <button onClick={() => setLinkUrl(undefined)} className="text-gray-400 hover:text-gray-700">
-            <X size={11} />
-          </button>
-        </div>
+        youtubeIdOf(linkUrl) ? (
+          <div className="relative mt-1.5 rounded-lg overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://i.ytimg.com/vi/${youtubeIdOf(linkUrl)}/hqdefault.jpg`}
+              alt="" className="w-full h-full object-cover"
+            />
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="w-10 h-7 rounded-lg bg-red-600 flex items-center justify-center shadow">
+                <Play size={13} className="text-white" fill="white" />
+              </span>
+            </span>
+            <button
+              onClick={() => setLinkUrl(undefined)}
+              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 mt-1.5 text-[11px] text-sky-700 bg-sky-50 rounded-lg px-2 py-1">
+            <LinkIcon size={11} className="flex-shrink-0" />
+            <span className="truncate flex-1">{linkUrl}</span>
+            <button onClick={() => setLinkUrl(undefined)} className="text-gray-400 hover:text-gray-700">
+              <X size={11} />
+            </button>
+          </div>
+        )
       )}
       {linkInput && (
         <div className="flex items-center gap-1 mt-1.5">
@@ -1365,7 +1441,7 @@ function Composer({
             value={linkDraft}
             onChange={(e) => setLinkDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") confirmLink(); if (e.key === "Escape") setLinkInput(false); }}
-            placeholder="https://..."
+            placeholder="유튜브 또는 웹 링크 (https://...)"
             autoFocus
             className="flex-1 text-[12px] px-2 py-1 rounded-lg border border-black/10 outline-none bg-white/80"
           />
@@ -1389,6 +1465,13 @@ function Composer({
             title="링크 첨부"
           >
             <LinkIcon size={14} />
+          </button>
+          <button
+            onClick={() => setLinkInput((v) => !v)}
+            className="p-1 text-gray-500 hover:text-red-600 rounded"
+            title="유튜브 영상 첨부 — 링크를 붙여넣으면 카드에서 바로 재생"
+          >
+            <Youtube size={14} />
           </button>
           <input
             ref={fileRef} type="file" accept="image/*" className="hidden"
@@ -1585,7 +1668,11 @@ function CardItem({
             {card.text && (
               <div className="text-body whitespace-pre-wrap break-words leading-relaxed">{card.text}</div>
             )}
-            {card.link_url && <LinkPreview url={card.link_url} />}
+            {card.link_url && (
+              youtubeIdOf(card.link_url)
+                ? <YouTubeEmbed url={card.link_url} />
+                : <LinkPreview url={card.link_url} />
+            )}
 
             {/* 하단 반응 행 (Padlet: 하트 · 댓글 추가) */}
             <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-black/10">
