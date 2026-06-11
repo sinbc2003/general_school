@@ -1,7 +1,7 @@
 # 다음 세션 인계 — "업무 및 수업 도구" 후속
 
 > 사용자가 **"이어서"** 라고 하면 이 문서를 읽고 §3에서 작업을 고른다.
-> (갱신: 2026-06-11 — 도구 4종 Phase 0~4 전부 완료·배포됨)
+> (갱신: 2026-06-11 세션 종료 — 도구 4종 + 공유/사본 + 드라이브 통합까지 전부 완료·배포)
 
 ---
 
@@ -16,58 +16,63 @@
      `backend-hocuspocus && npm run build` → frontend 변경 시
      `npm run build` (백그라운드 nohup + /tmp/gs-build.done 폴링) →
      `sudo systemctl restart gs-backend gs-frontend [gs-hocuspocus]` → `/api/health` 200 확인
-  3. ⚠️ **PowerShell→wsl→ssh 따옴표 깨짐** → `/tmp/스크립트.sh` 작성 후
-     `wsl -d Ubuntu bash -lc 'ssh -o BatchMode=yes susung@100.92.66.61 bash -s < /tmp/스크립트.sh'`
-     (배포 스크립트 예시: WSL `/tmp/gs-deploy-{1..4}.sh` — 세션 휘발이므로 필요 시 재작성)
+  3. ⚠️ **PowerShell→wsl→ssh 따옴표 깨짐** → 스크립트 파일 경유:
+     `wsl -d Ubuntu bash -lc 'ssh -o BatchMode=yes susung@100.92.66.61 bash -s < /home/sinbc/gs-tmp/스크립트.sh'`
+     ⚠️ WSL `/tmp`는 재부팅 시 휘발 — 배포 스크립트는 **`/home/sinbc/gs-tmp/`**에
+     (gs-deploy-a.sh = pull+alembic+빌드시작, gs-deploy-b.sh = 빌드대기+재시작+스모크, 이미 있음)
 - **검증 루틴**: frontend `bash scripts/check_frontend.sh` (tsc) / backend
-  `bash scripts/check_{quiz,wordbook,board}_backend.sh` (alembic+boot+routes) +
+  `bash scripts/check_{quiz,wordbook,board,share}_backend.sh` (alembic+boot+routes) +
   `pytest tests/test_edutools.py tests/test_convention_invariants.py tests/test_storage_security.py`
 - **커밋 서명**: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 
 ---
 
-## 2. 완료된 것 (2026-06-10~11 세션, 전부 B 배포)
+## 2. 완료된 것 (2026-06-10~11, 전부 B 배포 — 상세는 CLAUDE.md 해당 세션 섹션)
 
 사이드바 '수업' 다음 **"업무 및 수업 도구"** 카테고리 + `/tools` 허브. 도구 4종:
 
 | 도구 | 경로 | 핵심 |
 |---|---|---|
-| 라이브 퀴즈 (Kahoot형) | 교사 `/tools/quiz`, 학생 `/s/quiz/[pin]` | 코스웨어 문제세트 → PIN/QR 입장 → 2초 폴링 상태머신(lobby→question→reveal→ended) → 속도 점수·리더보드·포디움 |
-| 단어장 (ClassCard형) | 교사 `/tools/wordbook`, 학생 `/s/wordbook` | 라이트너 box 1~5, 학습 3모드(플래시/4지선다/스펠), CSV import |
-| 보드 (Padlet형) | 교사 `/tools/board`, 학생 `/s/board/[bid]` | Yjs Y.Map("cards") 실시간, hocuspocus `board-{id}`, 컬럼 레이아웃 |
-| 수업 소도구 | `/tools/mini` | 이름 뽑기 룰렛·모둠 편성(강좌 명단 재사용)·타이머(WebAudio 비프)·신호등 — 클라이언트 only |
+| 라이브 퀴즈 (Kahoot형) | 교사 `/tools/quiz`, 학생 `/s/quiz/[pin]` | 코스웨어 문제세트 → PIN/QR → 2초 폴링 상태머신 → 속도점수·리더보드·포디움 |
+| 단어장 (ClassCard형) | 교사 `/tools/wordbook`, 학생 `/s/wordbook` | 라이트너 box 1~5, 3모드(플래시/4지선다/스펠), CSV import |
+| 보드 (Padlet형) | 교사 `/tools/board`, 학생 `/s/board/[bid]` | Yjs Y.Map 실시간, 배경 테마 8종, 카드 색·아바타·상대시간 |
+| 수업 소도구 | `/tools/mini` | 룰렛·모둠 편성·타이머(비프)·신호등, 백엔드 0 |
 
-- **클래스룸 첨부 통합**: Attachment type `live_quiz` / `word_deck` / `board` —
-  피커 3종 + PostDetailView 렌더러. **강좌 글 첨부 = 학생 접근 권한**
-  (단어장 학습 / 보드 카드 쓰기. LIKE prefilter + Python 매칭, attachment_share 패턴).
-- **권한**: `tools.quiz.host` / `tools.wordbook.manage` / `tools.board.manage`
-  (교사 자동 부여). 학생 참여는 인증 + 가드만.
-- **모델/마이그레이션**: tool_quiz(3테이블, `7c4d1e8f2a3b`) · tool_wordbook(3테이블,
-  `8e5f2a9b3c1d`) · tool_board(1테이블, `9f6a3b4c5d2e`) — 전부 멱등.
-- **테스트**: `tests/test_edutools.py` 13개 (퀴즈 풀플로우·IDOR / 라이트너·CSV·첨부가드 /
-  보드 권한 매트릭스·yjs-snapshot 토큰 roundtrip).
-- backend-hocuspocus `auth.ts`에 TargetKind `board` 추가 (resourcePath="boards" →
-  `/api/classroom/boards/...` — 보드 라우터 prefix가 classroom인 이유).
+핵심 체계 (이후 도구 추가 시 그대로 따를 것):
+- **클래스룸 첨부 = 학생 접근 권한**: Attachment type `live_quiz`/`word_deck`/`board` +
+  피커 + PostDetailView 렌더러. 도구별 `_has_classroom_attachment` (LIKE prefilter).
+- **교사 간 공유 + 사본**: `EduToolShare` + `services/tool_share.py`. 공유=원본 열람만,
+  수업 사용은 `POST .../duplicate` 사본. 피커의 "나에게 공유됨" 선택 = 자동 사본 첨부.
+- **학기 귀속 정책**: 원본=교사 자산(학기 무관) / 수업 연결=학기 귀속.
+  보드는 **활성 학기** 첨부·강좌만 접근(라이브 활동), 단어장은 학기 무관 학습(복습 연속성).
+- **내 드라이브 통합**: drive ITEM_TYPES에 `word_decks`/`boards` — 학기 폴더 보관·
+  휴지통 30일·F2 이름변경·Ctrl+C 복사·"+신규". 도구 "삭제"=휴지통 이동.
+- **도구 UX**: 실행 페이지 진입 시 사이드바 자동 접힘(`useToolFocusMode`), "새 창" 버튼.
+- 마이그레이션 체인: `7c4d1e8f2a3b`(quiz) → `8e5f2a9b3c1d`(wordbook) →
+  `9f6a3b4c5d2e`(board) → `a2c4e6f8b1d3`(shares) → `b4d6e8f0a2c4`(drive 통합). 전부 멱등.
+- 테스트: `tests/test_edutools.py` 19개. routes 639.
 
 ## 3. 다음 작업 후보 (사용자와 순서 확인)
 
-1. **실시간 투표·워드클라우드 (Mentimeter형)** — `/tools/mini`에 5번째 탭 또는 독립 도구.
-   surveys 재활용 또는 라이브 퀴즈 폴링 패턴 복사 (한 문항 즉석 투표 + 막대/워드클라우드).
-2. **라이브 퀴즈 v2** — WS 전환(폴링→hocuspocus 또는 자체 WS), 익명 게스트 입장
-   (LiveQuizPlayer.nickname 컬럼 이미 있음), 문제별 이미지, 팀전.
-3. **단어장 v2** — 드라이브 ITEM_TYPES 등록(휴지통·폴더), TTS 발음(Web Speech API),
+1. **실시간 투표·워드클라우드 (Mentimeter형)** — `/tools/mini` 5번째 탭 또는 독립 도구.
+   라이브 퀴즈 폴링 패턴 복사 (한 문항 즉석 투표 + 막대/워드클라우드).
+2. **라이브 퀴즈 v2** — 익명 게스트 입장(nickname 컬럼 준비됨), 문제 이미지, 팀전, WS 전환.
+3. **단어장 v2** — TTS 발음(Web Speech API), 드라이브 ZIP 백업 포맷(단어장→CSV),
    학생 자작 덱 허용 여부 결정.
-4. **보드 v2** — 자유배치(x/y 드래그), 이미지/링크 카드, 좋아요, 익명 모드.
-5. **생기부 수집 연동** — `record_writer/collect.py`에 도구 활동 소스 추가
+4. **보드 v2** — 자유배치(x/y 드래그), 이미지/링크 카드, 좋아요·댓글, 익명 모드.
+5. **생기부 수집 연동** — `record_writer/collect.py`에 도구 활동 소스
    (퀴즈 점수·단어장 진도를 교과세특 수집에).
 6. **AUDIT_PROGRESS.md 보류 2건** — course-member 헬퍼 통합, useFetchData 훅.
 
-## 4. 주의 (이번 세션에서 확인된 것)
+## 4. 주의 (이번 세션에서 확인된 함정)
 
-- 새 도구 모듈 컨벤션: `app/modules/tool_<name>/` + 모델 `app/models/tool_<name>.py`
-  + `models/__init__.py` 등록 + 수동 멱등 alembic. 단 **Yjs 쓰는 도구는 라우터 prefix를
-  `/api/classroom/<복수형>`으로** (hocuspocus resourcePath 규약).
-- 메뉴: 학교가 `/system/menu`에서 카테고리를 저장한 적 있으면 DB 설정이 default를
-  덮어 새 카테고리가 안 보일 수 있음 → 그 학교에서 메뉴 관리에서 재추가 안내.
-- PowerShell 인라인 따옴표 금지 — 스크립트 파일 경유 (위 §1).
-- B 프론트 빌드는 nohup + `/tmp/gs-build.done` 폴링 (SSH 세션 타임아웃 회피).
+- 새 도구 컨벤션: `app/modules/tool_<name>/` + 모델 + 멱등 alembic. **Yjs 도구는
+  라우터 prefix `/api/classroom/<복수형>`** (hocuspocus resourcePath 규약).
+- **FastAPI 라우트 충돌**: `/decks/{did}` 뒤에 등록한 `/decks/<literal>`은 먹힘
+  (path param regex가 [^/]+) → literal 경로는 먼저 등록하거나 최상위로.
+- 드라이브 통합 시: 모델에 folder_id/deleted_at/deleted_by/storage_bytes 4컬럼 +
+  ITEM_TYPES 등록 + 도구 목록·가드에 deleted 필터 + frontend `_drive-shared.ts` ItemType
+  유니온 (DriveContextMenu 등 4개 컴포넌트가 이 타입 공유 — 하드코딩 금지).
+- 메뉴: 학교가 /system/menu에서 카테고리 저장한 적 있으면 DB 설정이 default를 덮음
+  → 새 메뉴 안 보이면 메뉴 관리에서 재추가.
+- pubedu.com(터널) 경유 시 페이지 전환 느림은 집 업로드 대역폭 — 백엔드는 ms 단위.
