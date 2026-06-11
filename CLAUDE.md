@@ -2429,3 +2429,8 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - **좋아요** Y.Map("likes") key `{cardId}:{userId}` 본인 키만 set/delete(충돌 0) / **카드 댓글** Y.Map("comments") 스레드 / 정렬 토글(최신·좋아요·수동) / **승인 후 게시**(requires_approval — 미승인 카드는 작성자+교사만 표시, 승인 버튼) / **작성자 익명 표시**(hide_authors) / 새 카드 위치(top/bottom)·기본 정렬 설정 / **CSV 내보내기**(교사) — 전부 BoardView.tsx 단일 파일
 - **학기 전환 드라이브 자동 보관**: set-current hook → `folder_seed.archive_semester_folders` (백그라운드) — 이전 학기 자동 폴더를 사용자별 최상위 **"1. 2026-1학기"** 보관 폴더(auto_kind=semester_archive)로 이동. 학기 단위 폴더는 항상, **학년 단위(담임/학급, semester_id=None — 이름 prefix "{year}학년도"로 식별)는 연도 바뀔 때만**. 멱등
 - 테스트 +4 (아카이브 시나리오·업로드 가드·설정). routes 639 → 640
+
+### 4차 보강 — 보드 v2 + 공유 화이트보드 (2026-06-11 막바지)
+- **보드 v2**: ① 자유배치 캔버스 레이아웃 (settings.layout=canvas — 카드 cx/cy 포인터 드래그, 플로팅 + 컴포저, 설정에서 shelf/canvas 전환) ② 카드 링크 **OG 미리보기** (embeds/og-preview 재사용, 모듈 캐시, 실패 시 칩 fallback) ③ **댓글 알림** `POST /boards/{bid}/notify-comment` (can_write 가드 — 댓글 자체는 Yjs라 프론트가 best-effort 호출) ④ **orphan 정리**: drive `CLEANUP_HOOKS` (영구삭제·휴지통비우기·purge cron 3경로 공통) — boards는 storage/boards/{id}/ rmtree
+- **공유 화이트보드 (도구 #5)**: ToolWhiteboard (`c6e8f0a2b4d6`) + tool_whiteboard 모듈 — tool_board 골격 미러 (CRUD/공유·사본/permission/yjs-snapshot, prefix `/api/classroom/whiteboards`). hocuspocus TargetKind 'whiteboard'. **WhiteboardCanvas**: Y.Map("strokes") 객체 단위 LWW, **논리 1920×1080 고정 좌표**(전원 동일, 폭 스케일), 펜/형광펜/직선/사각형/원/텍스트/지우개(본인 것·교사 전부, hit-test), 색6·굵기3, undo(본인 스택), 전체지우기(교사), PNG 내보내기, 배경 white/grid/dark. 스트로크는 pointerup 시 broadcast. 첨부 type=whiteboard(활성 학기 한정), 드라이브 `whiteboards` 등록 (휴지통·복사·이름변경 자동)
+- 테스트 +2 (화이트보드 풀매트릭스 / 보드 layout·알림). routes 640 → 654
