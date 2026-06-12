@@ -1,29 +1,25 @@
 # 다음 세션 인계 — "업무 및 수업 도구" 후속
 
 > 사용자가 **"이어서"** 라고 하면 이 문서를 읽고 §3에서 작업을 고른다.
-> (갱신: 2026-06-12 — 라이브 퀴즈 Kahoot 패리티(직접 출제·이미지·인트로·스트릭) 커밋 d99b994 push 완료.
-> ⚠️ **B 서버 배포 미완** — 아래 §0 장애 메모 참조. B 깨어나면:
-> `gs-deploy-a.sh` → `gs-deploy-final.sh` (alembic d8f0a2c4e6b8 포함) 또는 /system/updates에서 적용.)
+> (갱신: 2026-06-12 — 라이브 퀴즈 Kahoot 패리티(직접 출제·이미지·인트로·스트릭)
+> 커밋 d99b994+f5a2cfe **B 배포까지 완료** (alembic d8f0a2c4e6b8 적용, health/pubedu 200).)
 
 ---
 
-## 0. ⚠️ B 서버 다운 (2026-06-11 23:30 KST ~) — 최우선 처리
+## 0. ✅ B 서버 다운 장애 (2026-06-11 23:30 ~ 06-12 11:41 KST) — 해결됨, 기록 보존
 
-- **마지막 생존**: 2026-06-11 (수) **23:30:36 KST** (Tailscale LastSeen). 이후 offline.
-- **범위**: 수성고 3대 전부 (B main-server·A·D jump) cmd센터에서 동시 offline →
-  개별 머신 문제가 아니라 **학교 네트워크/전원 단위 이벤트** 추정
-  (야간 전원 차단, 공유기/AP 리부트, susung_5G 끊김 등).
-- **영향**: pubedu.com **Cloudflare 530** (터널 다운) — 서비스 자체 중단 상태.
-- **사용자 상황**: 2026-06-12 오전 기준 집이라 즉시 대응 불가. 학교 가서 확인 예정.
-- **B 복귀 시 할 일** (순서):
-  1. 원인 판별: `last reboot` + `journalctl --since "2026-06-11 23:00" -p warning` +
-     `nmcli device` (와이파이 susung_5G 재연결 여부)
-  2. 서비스 확인: `systemctl status gs-backend gs-frontend gs-hocuspocus nginx cloudflared`
-     (전부 enable이라 부팅 시 자동 복구 — gs-autoip가 IP도 자동 갱신)
-  3. **배포**: `~/gs-tmp/gs-deploy-a.sh` → `gs-deploy-final.sh`
-     (커밋 d99b994+f5a2cfe, alembic `d8f0a2c4e6b8` 포함) — task #26
-  4. 스모크: `/api/health` 200 + 라이브 퀴즈 직접 출제 모달 확인
-- 참고: B 재부팅 후 와이파이를 못 잡으면 (핫스팟/AP 변경) 모니터 연결해서
+- **타임라인** (journalctl 이전 부팅 + Tailscale LastSeen + wtmp로 판별):
+  - 06-11 **23:30 KST**: 네트워크 소실 — `tailscaled Rebind; defIf="", ips=[]`
+    (인터페이스 IP 없음) + cloudflared "network is unreachable" 반복.
+    **와이파이(공유기/AP) 끊김**이 1차 원인. 머신은 계속 가동.
+  - 06-12 **02:07 KST**: 이전 부팅 journal이 여기서 뚝 끊김 + wtmp에 shutdown 기록
+    없음("still running") = **비정상 전원 차단** (정전 또는 강제 전원 off).
+  - 06-12 **11:41 KST**: 사용자가 전원 켬 → systemd 6서비스 전부 자동 복구
+    (gs-backend/frontend/hocuspocus/nginx/postgres/cloudflared 모두 active).
+- **함의**: 같은 시각 수성고 A·D도 동시 offline → 학교(또는 설치 장소)
+  **망/전원 단위 이벤트**. 재발 시 UPS 또는 BIOS "AC 복구 시 자동 부팅" 설정 검토.
+- 부팅 후 자동 복구는 완벽 작동 — 사람 개입 없이 전원만 들어오면 서비스 복귀 확인됨.
+- 참고: 와이파이 못 잡으면 모니터 연결해서
   `nmcli device wifi connect susung_5g password susung123`.
 
 ---
