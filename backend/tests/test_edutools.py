@@ -111,9 +111,11 @@ async def problem_set(db_session, course, teacher_user):
 # ─────────────────────────────────────────────────────────────
 
 async def _create_quiz(app_client, auth_headers, teacher_user, problem_set):
+    # intro_seconds=0 — 테스트는 즉시 제출 (운영 기본은 4초 인트로)
     res = await app_client.post(
         "/api/tools/quiz/sessions",
-        json={"problem_set_id": problem_set.id, "settings": {"time_per_question": 30}},
+        json={"problem_set_id": problem_set.id,
+              "settings": {"time_per_question": 30, "intro_seconds": 0}},
         headers=auth_headers(teacher_user),
     )
     assert res.status_code == 200, res.text
@@ -222,6 +224,105 @@ async def test_quiz_other_teacher_cannot_control(
         f"/api/tools/quiz/sessions/{quiz['id']}/start", headers=auth_headers(teacher2),
     )
     assert res.status_code == 403
+
+
+async def test_quiz_direct_create_intro_and_streak(
+    app_client, auth_headers, teacher_user, student_user, seed_perms, db_session,
+):
+    """직접 출제(코스웨어 없이) + 인트로 차단 + 연속 정답 스트릭 보너스."""
+    # 403 요청의 rollback이 미커밋 fixture를 지우지 않게 선커밋
+    await db_session.commit()
+    t = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+
+    # 학생은 직접 출제 불가
+    assert (await app_client.post("/api/tools/quiz/sessions/direct", json={
+        "title": "x", "questions": [{"content": "q", "choices": ["1", "2"], "correct": ["A"]}],
+    }, headers=s)).status_code == 403
+
+    # 인트로 동작: intro_seconds=5 → 시작 직후 제출은 409 (문제 공개 전)
+    intro_res = await app_client.post("/api/tools/quiz/sessions/direct", json={
+        "title": "인트로 테스트",
+        "questions": [{"content": "1+1=?", "choices": ["2", "3"], "correct": ["A"]}],
+        "settings": {"time_per_question": 30, "intro_seconds": 5},
+    }, headers=t)
+    assert intro_res.status_code == 200, intro_res.text
+    intro_quiz = intro_res.json()
+    await app_client.post("/api/tools/quiz/join", json={"pin": intro_quiz["pin"]}, headers=s)
+    await app_client.post(f"/api/tools/quiz/sessions/{intro_quiz['id']}/start", headers=t)
+    res = await app_client.post(
+        f"/api/tools/quiz/play/{intro_quiz['id']}/answer",
+        json={"answer": {"selected": ["A"]}}, headers=s,
+    )
+    assert res.status_code == 409 and "공개 전" in res.json()["detail"]
+
+    # 직접 출제 2문제 (intro 0) — 연속 정답 시 2번째에 스트릭 보너스 +100
+    quiz = (await app_client.post("/api/tools/quiz/sessions/direct", json={
+        "title": "스트릭 테스트",
+        "questions": [
+            {"content": "2+2=?", "choices": ["4", "5", "6"], "correct": ["A"]},
+            {"content": "3+3=?", "choices": ["5", "6"], "correct": ["B"]},
+        ],
+        "settings": {"time_per_question": 30, "intro_seconds": 0},
+    }, headers=t)).json()
+    assert quiz["problem_count"] == 2
+    sid = quiz["id"]
+    await app_client.post("/api/tools/quiz/join", json={"pin": quiz["pin"]}, headers=s)
+    await app_client.post(f"/api/tools/quiz/sessions/{sid}/start", headers=t)
+
+    # 단일 정답 마스킹 + multi 플래그
+    state = (await app_client.get(f"/api/tools/quiz/play/{sid}/state", headers=s)).json()
+    assert state["question"]["multi"] is False
+    assert "correct" not in state["question"]
+
+    r1 = (await app_client.post(
+        f"/api/tools/quiz/play/{sid}/answer", json={"answer": {"selected": ["A"]}}, headers=s,
+    )).json()
+    assert r1["is_correct"] is True and r1["streak"] == 1 and r1["streak_bonus"] == 0
+
+    await app_client.post(f"/api/tools/quiz/sessions/{sid}/reveal", headers=t)
+    await app_client.post(f"/api/tools/quiz/sessions/{sid}/next", headers=t)
+
+    r2 = (await app_client.post(
+        f"/api/tools/quiz/play/{sid}/answer", json={"answer": {"selected": ["B"]}}, headers=s,
+    )).json()
+    assert r2["is_correct"] is True and r2["streak"] == 2 and r2["streak_bonus"] == 100
+    assert r2["points"] > 1000  # 기본 점수 + 보너스
+
+
+async def test_quiz_image_upload_and_guard(
+    app_client, auth_headers, teacher_user, student_user, seed_perms, db_session,
+):
+    """문제 이미지 업로드(host만) + files 가드(인증 사용자 누구나 읽기)."""
+    import io as _io
+
+    from PIL import Image
+
+    # 403 요청의 rollback이 미커밋 fixture를 지우지 않게 선커밋
+    await db_session.commit()
+    t = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+    buf = _io.BytesIO()
+    Image.new("RGB", (30, 30), (10, 120, 220)).save(buf, format="PNG")
+    png = buf.getvalue()
+
+    # 학생 업로드 → 403 (tools.quiz.host 없음)
+    assert (await app_client.post(
+        "/api/tools/quiz/upload-image",
+        files={"file": ("q.png", png, "image/png")}, headers=s,
+    )).status_code == 403
+
+    res = await app_client.post(
+        "/api/tools/quiz/upload-image",
+        files={"file": ("q.png", png, "image/png")}, headers=t,
+    )
+    assert res.status_code == 200, res.text
+    url = res.json()["url"]
+    assert url.startswith("/storage/quiz/")
+    api_path = url.replace("/storage/", "/api/files/storage/")
+    # 인증 사용자(학생 포함) 읽기 OK, 미인증 401
+    assert (await app_client.get(api_path, headers=s)).status_code == 200
+    assert (await app_client.get(api_path)).status_code == 401
 
 
 async def test_quiz_info_pin_disclosure_scope(

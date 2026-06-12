@@ -38,7 +38,7 @@ interface PlayState {
   server_now: string;
   player_count: number;
   me: { player_id: number; nickname: string; score: number; rank: number | null };
-  question?: { id: number; type: string; content: string; choices?: string[] };
+  question?: { id: number; type: string; content: string; choices?: string[]; multi?: boolean };
   my_answered?: boolean;
   correct_display?: string | null;
   my_result?: { is_correct: boolean | null; points: number; answer: any } | null;
@@ -62,6 +62,7 @@ export default function QuizPlayPage() {
   const [numValue, setNumValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localSubmitted, setLocalSubmitted] = useState(false);
+  const [streakInfo, setStreakInfo] = useState<{ streak: number; bonus: number } | null>(null);
   const lastIndexRef = useRef(-1);
 
   // ── 입장 ──────────────────────────────────────────────────────────────
@@ -104,6 +105,7 @@ export default function QuizPlayPage() {
       setText("");
       setNumValue("");
       setLocalSubmitted(false);
+      setStreakInfo(null);
     }
   }, [st?.current_index, st]);
 
@@ -129,7 +131,11 @@ export default function QuizPlayPage() {
     if (!sid || submitting) return;
     setSubmitting(true);
     try {
-      await api.post(`/api/tools/quiz/play/${sid}/answer`, { answer });
+      const res = await api.post<{ streak: number; streak_bonus: number }>(
+        `/api/tools/quiz/play/${sid}/answer`, { answer },
+      );
+      // 스트릭은 reveal 화면에서 표시 (정답 여부는 공개 전까지 비밀)
+      setStreakInfo({ streak: res.streak || 0, bonus: res.streak_bonus || 0 });
       setLocalSubmitted(true);
     } catch (e: any) {
       if (e?.status === 409) setLocalSubmitted(true); // 이미 제출/시간초과 — reveal 대기
@@ -161,6 +167,9 @@ export default function QuizPlayPage() {
 
   const answered = localSubmitted || !!st.my_answered;
   const timeUp = remainingMs !== null && remainingMs <= 0;
+  // Kahoot식 인트로 — started_at이 미래면 remaining > limit
+  const limitMsAll = st.time_limit * 1000;
+  const introMs = remainingMs !== null ? remainingMs - limitMsAll : 0;
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
@@ -193,7 +202,19 @@ export default function QuizPlayPage() {
         </div>
       )}
 
-      {st.status === "question" && st.question && (
+      {st.status === "question" && st.question && introMs > 250 && (
+        <div className="text-center py-10">
+          <div className="border-2 border-border-default rounded-2xl p-6 bg-bg-primary mb-6">
+            <ProblemContent content={st.question.content} className="text-xl font-semibold whitespace-pre-wrap" />
+          </div>
+          <div className="text-6xl font-extrabold text-violet-600 animate-pulse">
+            {Math.ceil(introMs / 1000)}
+          </div>
+          <div className="text-body text-text-secondary mt-2">준비하세요!</div>
+        </div>
+      )}
+
+      {st.status === "question" && st.question && introMs <= 250 && (
         <div>
           {/* 타이머 */}
           {remainingMs !== null && (
@@ -231,45 +252,73 @@ export default function QuizPlayPage() {
               </div>
 
               {st.question.type === "multiple_choice" && st.question.choices && (
-                <div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-3">
+                st.question.multi ? (
+                  /* 복수 정답 — 토글 후 제출 */
+                  <div>
+                    <div className="text-[11px] text-text-tertiary text-center mb-2">
+                      정답이 2개 이상입니다 — 모두 고르고 제출하세요
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-3">
+                      {st.question.choices.map((c, i) => {
+                        const letter = String.fromCharCode(65 + i);
+                        const isSel = selected.includes(letter);
+                        return (
+                          <button
+                            key={i}
+                            onClick={() =>
+                              setSelected((cur) =>
+                                cur.includes(letter)
+                                  ? cur.filter((x) => x !== letter)
+                                  : [...cur, letter],
+                              )
+                            }
+                            className={`${CHOICE_COLORS[i % CHOICE_COLORS.length]} text-white rounded-xl px-4 py-4 flex items-center gap-3 text-left transition ${
+                              isSel ? "ring-4 ring-violet-300 scale-[0.98]" : "opacity-90"
+                            }`}
+                          >
+                            <span className="text-xl flex-shrink-0">
+                              {CHOICE_SHAPES[i % CHOICE_SHAPES.length]}
+                            </span>
+                            <span className="text-body font-medium">
+                              <InlineMathText text={c} />
+                            </span>
+                            {isSel && <CheckCircle2 size={18} className="ml-auto flex-shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => submit({ selected })}
+                      disabled={selected.length === 0 || submitting}
+                      className="w-full py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-body font-semibold inline-flex items-center justify-center gap-2"
+                    >
+                      {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      제출
+                    </button>
+                  </div>
+                ) : (
+                  /* 단일 정답 — Kahoot식 탭 즉시 제출 */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {st.question.choices.map((c, i) => {
                       const letter = String.fromCharCode(65 + i);
-                      const isSel = selected.includes(letter);
                       return (
                         <button
                           key={i}
-                          onClick={() =>
-                            setSelected((cur) =>
-                              cur.includes(letter)
-                                ? cur.filter((x) => x !== letter)
-                                : [...cur, letter],
-                            )
-                          }
-                          className={`${CHOICE_COLORS[i % CHOICE_COLORS.length]} text-white rounded-xl px-4 py-4 flex items-center gap-3 text-left transition ${
-                            isSel ? "ring-4 ring-violet-300 scale-[0.98]" : "opacity-90"
-                          }`}
+                          onClick={() => submit({ selected: [letter] })}
+                          disabled={submitting}
+                          className={`${CHOICE_COLORS[i % CHOICE_COLORS.length]} text-white rounded-2xl px-4 py-7 flex items-center gap-3 text-left transition active:scale-95 hover:brightness-110 disabled:opacity-60 shadow-md`}
                         >
-                          <span className="text-xl flex-shrink-0">
+                          <span className="text-2xl flex-shrink-0">
                             {CHOICE_SHAPES[i % CHOICE_SHAPES.length]}
                           </span>
-                          <span className="text-body font-medium">
+                          <span className="text-lg font-semibold">
                             <InlineMathText text={c} />
                           </span>
-                          {isSel && <CheckCircle2 size={18} className="ml-auto flex-shrink-0" />}
                         </button>
                       );
                     })}
                   </div>
-                  <button
-                    onClick={() => submit({ selected })}
-                    disabled={selected.length === 0 || submitting}
-                    className="w-full py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-body font-semibold inline-flex items-center justify-center gap-2"
-                  >
-                    {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    제출
-                  </button>
-                </div>
+                )
               )}
 
               {st.question.type === "short_answer" && (
@@ -327,7 +376,7 @@ export default function QuizPlayPage() {
       )}
 
       {st.status === "reveal" && (
-        <RevealResult st={st} />
+        <RevealResult st={st} streakInfo={streakInfo} />
       )}
 
       {st.status === "ended" && (
@@ -369,7 +418,9 @@ export default function QuizPlayPage() {
   );
 }
 
-function RevealResult({ st }: { st: PlayState }) {
+function RevealResult({
+  st, streakInfo,
+}: { st: PlayState; streakInfo: { streak: number; bonus: number } | null }) {
   const r = st.my_result;
   return (
     <div className="text-center py-8">
@@ -383,6 +434,11 @@ function RevealResult({ st }: { st: PlayState }) {
           <CheckCircle2 size={48} className="mx-auto text-emerald-500 mb-3" />
           <div className="text-title font-bold text-emerald-700 mb-1">정답!</div>
           <div className="text-body font-semibold text-emerald-600">+{r.points}점</div>
+          {streakInfo && streakInfo.streak >= 2 && (
+            <div className="inline-flex items-center gap-1 mt-2 px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-body font-bold">
+              🔥 {streakInfo.streak}연속 정답!{streakInfo.bonus > 0 && ` (보너스 +${streakInfo.bonus})`}
+            </div>
+          )}
         </>
       ) : (
         <>

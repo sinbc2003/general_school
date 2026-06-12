@@ -48,8 +48,9 @@ class LiveQuizSession(Base):
     __tablename__ = "live_quiz_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    problem_set_id: Mapped[int] = mapped_column(
-        ForeignKey("course_problem_sets.id", ondelete="CASCADE"), nullable=False,
+    # NULL = 도구에서 직접 출제한 퀴즈 (코스웨어 문제세트 없이 Problem rows만)
+    problem_set_id: Mapped[int | None] = mapped_column(
+        ForeignKey("course_problem_sets.id", ondelete="CASCADE"), nullable=True,
     )
     host_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False,

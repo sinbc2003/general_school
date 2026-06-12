@@ -291,8 +291,27 @@ function QuestionView({
 }: { st: HostState; remainingMs: number | null; onReveal: () => void }) {
   const p = st.current_problem;
   const limitMs = st.time_limit * 1000;
+  // Kahoot식 인트로 — started_at이 미래면 remaining > limit (3·2·1 카운트다운)
+  const introMs = remainingMs !== null ? remainingMs - limitMs : 0;
   const pct = remainingMs !== null ? Math.max(0, Math.min(100, (remainingMs / limitMs) * 100)) : 100;
-  const secs = remainingMs !== null ? Math.ceil(remainingMs / 1000) : st.time_limit;
+  const secs = remainingMs !== null ? Math.min(Math.ceil(remainingMs / 1000), st.time_limit) : st.time_limit;
+
+  if (introMs > 250) {
+    return (
+      <div className="text-center py-10">
+        <div className="text-caption text-text-tertiary mb-2">
+          문제 {st.current_index + 1} / {st.total}
+        </div>
+        <div className="border border-border-default rounded-2xl p-8 bg-bg-primary mb-6 max-w-3xl mx-auto">
+          {p && <ProblemContent content={p.content} className="text-2xl font-semibold whitespace-pre-wrap" />}
+        </div>
+        <div className="text-7xl font-extrabold text-violet-600 animate-pulse">
+          {Math.ceil(introMs / 1000)}
+        </div>
+        <div className="text-body text-text-secondary mt-2">준비하세요!</div>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -452,6 +452,11 @@ async def _guard_group_submission(db: AsyncSession, user: User, path: str) -> No
     raise HTTPException(403, "권한 없음")
 
 
+async def _guard_quiz(db: AsyncSession, user: User, path: str) -> None:
+    """storage/quiz/* — 라이브 퀴즈 문제 이미지. 수업 중 전체 화면 표시물 — 인증만 요구."""
+    return
+
+
 async def _guard_boards(db: AsyncSession, user: User, path: str) -> None:
     """storage/boards/{bid}/<file> — 보드(Padlet형) 카드 이미지. 보드 can_read로 보호.
 
@@ -486,6 +491,7 @@ _GUARDS = {
     "group_submissions": _guard_group_submission,
     "contests": _guard_contest,
     "boards": _guard_boards,
+    "quiz": _guard_quiz,
 }
 
 

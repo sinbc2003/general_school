@@ -8,7 +8,22 @@ from pydantic import BaseModel, Field
 class QuizSessionCreate(BaseModel):
     """POST /api/tools/quiz/sessions"""
     problem_set_id: int
-    settings: dict[str, Any] | None = None  # {time_per_question: 30, ...}
+    settings: dict[str, Any] | None = None  # {time_per_question: 30, intro_seconds: 4}
+
+
+class QuizQuestionIn(BaseModel):
+    """직접 출제 문제 1개 (Kahoot식 — 객관식만, 정답 복수 허용)."""
+    content: str = Field(..., min_length=1, max_length=2000)
+    choices: list[str] = Field(..., min_length=2, max_length=6)
+    correct: list[str] = Field(..., min_length=1)  # ["A", "C"] — 보기 letter
+    image_url: str | None = Field(default=None, max_length=500)  # /storage/quiz/...
+
+
+class QuizDirectCreate(BaseModel):
+    """POST /api/tools/quiz/sessions/direct — 도구에서 직접 출제."""
+    title: str = Field(..., min_length=1, max_length=255)
+    questions: list[QuizQuestionIn] = Field(..., min_length=1, max_length=100)
+    settings: dict[str, Any] | None = None
 
 
 class QuizJoinReq(BaseModel):

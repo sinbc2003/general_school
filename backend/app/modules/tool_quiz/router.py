@@ -26,9 +26,9 @@ from __future__ import annotations
 import asyncio
 import io
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import Text as SaText, cast, func as sa_func, select
 from sqlalchemy.exc import IntegrityError
@@ -45,15 +45,18 @@ from app.models import (
 )
 from app.modules.classroom.teachers import is_course_editor_or_admin
 from app.modules.tool_quiz.schemas import (
-    QuizAnswerReq, QuizJoinReq, QuizSessionCreate,
+    QuizAnswerReq, QuizDirectCreate, QuizJoinReq, QuizSessionCreate,
 )
 from app.services.courseware_grader import AUTO_GRADER_TYPES, grade_answer
 
 router = APIRouter(prefix="/api/tools/quiz", tags=["tool-quiz"])
 
 DEFAULT_TIME_PER_QUESTION = 30  # 초
+DEFAULT_INTRO_SECONDS = 4       # Kahoot식 문제 공개 전 카운트다운 (3·2·1)
 ANSWER_GRACE_MS = 2_000         # 네트워크 지연 보정
 MAX_PLAYERS = 300
+STREAK_BONUS_PER_LEVEL = 100    # 연속 정답 보너스 (2연속부터 +100, 최대 +500)
+STREAK_BONUS_CAP = 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -70,6 +73,17 @@ def _time_limit(s: LiveQuizSession) -> int:
     except (TypeError, ValueError):
         v = DEFAULT_TIME_PER_QUESTION
     return max(5, min(600, v))
+
+
+def _intro_seconds(s: LiveQuizSession) -> int:
+    """문제 공개 전 인트로(3·2·1) 길이 — settings.intro_seconds (0이면 즉시)."""
+    raw = (s.settings or {}).get("intro_seconds")
+    if raw is None:
+        return DEFAULT_INTRO_SECONDS
+    try:
+        return max(0, min(10, int(raw)))
+    except (TypeError, ValueError):
+        return DEFAULT_INTRO_SECONDS
 
 
 async def _get_session_or_404(db: AsyncSession, sid: int) -> LiveQuizSession:
@@ -115,7 +129,7 @@ async def _current_problem(db: AsyncSession, s: LiveQuizSession) -> Problem | No
 
 
 def _problem_public(p: Problem) -> dict:
-    """플레이어용 — 정답 마스킹, 보기만."""
+    """플레이어용 — 정답 마스킹, 보기만. multi=정답 2개 이상 (개수만 노출, 내용 X)."""
     out = {
         "id": p.id,
         "type": p.question_type,
@@ -125,6 +139,10 @@ def _problem_public(p: Problem) -> dict:
         choices = p.answer_data.get("choices")
         if choices:
             out["choices"] = choices
+        correct = p.answer_data.get("correct")
+        if isinstance(correct, list):
+            # Kahoot식 탭 즉시 제출 판단용 — 단일 정답이면 탭=제출
+            out["multi"] = len(correct) > 1
     return out
 
 
@@ -316,6 +334,114 @@ async def create_session(
     }
 
 
+@router.post("/sessions/direct")
+async def create_direct_session(
+    body: QuizDirectCreate, request: Request,
+    user: User = Depends(require_permission("tools.quiz.host")),
+    db: AsyncSession = Depends(get_db),
+):
+    """도구에서 직접 출제 — 코스웨어 문제세트 없이 문제를 즉석 작성 (Kahoot식).
+
+    Problem rows를 직접 생성 (is_visible=False — 문제 라이브러리 검색에 안 섞임).
+    이미지는 content에 마크다운으로 삽입 — ProblemContent가 인증 blob으로 렌더.
+    """
+    problem_ids: list[int] = []
+    for i, q in enumerate(body.questions):
+        choices = [c.strip()[:200] for c in q.choices if c.strip()]
+        if len(choices) < 2:
+            raise HTTPException(400, f"{i + 1}번 문제: 보기는 2개 이상 필요합니다")
+        valid_letters = {chr(65 + j) for j in range(len(choices))}
+        correct = [c for c in q.correct if c in valid_letters]
+        if not correct:
+            raise HTTPException(400, f"{i + 1}번 문제: 정답을 선택하세요")
+        content = q.content.strip()
+        if q.image_url and q.image_url.startswith("/storage/quiz/"):
+            content = f"{content}\n\n![문제 이미지]({q.image_url})"
+        p = Problem(
+            department="tool",
+            subject="라이브퀴즈",
+            difficulty="medium",
+            question_type="multiple_choice",
+            content=content,
+            answer=", ".join(correct),
+            answer_data={"grader_type": "choices", "correct": correct, "choices": choices},
+            is_visible=False,
+            review_status="pending",
+            created_by_id=user.id,
+        )
+        db.add(p)
+        await db.flush()
+        problem_ids.append(p.id)
+
+    merged_settings = {
+        "time_per_question": DEFAULT_TIME_PER_QUESTION,
+        "intro_seconds": DEFAULT_INTRO_SECONDS,
+    }
+    if body.settings and isinstance(body.settings, dict):
+        merged_settings.update(body.settings)
+
+    s = LiveQuizSession(
+        problem_set_id=None,
+        host_id=user.id,
+        title=body.title.strip(),
+        pin=await _gen_pin(db),
+        status="lobby",
+        current_index=0,
+        problem_ids=problem_ids,
+        settings=merged_settings,
+    )
+    db.add(s)
+    await db.flush()
+    await log_action(
+        db, user, "tools.quiz.session_create_direct",
+        target=f"quiz:{s.id} problems:{len(problem_ids)}", request=request,
+    )
+    return {
+        "id": s.id, "pin": s.pin, "title": s.title,
+        "problem_count": len(problem_ids), "join_url": _join_url(s.pin),
+        "skipped_problems": 0,
+    }
+
+
+@router.post("/upload-image")
+async def upload_question_image(
+    file: UploadFile,
+    user: User = Depends(require_permission("tools.quiz.host")),
+    db: AsyncSession = Depends(get_db),
+):
+    """문제 이미지 업로드 (직접 출제용) — PIL 압축 후 storage/quiz/ 저장.
+
+    수업 중 전체 화면 표시물이라 files 가드는 인증만 요구 (`_guard_quiz`).
+    """
+    from app.core.files import (
+        DEFAULT_STORAGE_ROOT, ensure_dir_async, write_bytes_async,
+    )
+    from app.core.upload import POLICY_IMAGE, validate_upload
+
+    data = await validate_upload(file, POLICY_IMAGE)
+
+    def _compress() -> bytes:
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        img = img.convert("RGB")
+        img.thumbnail((1400, 1400))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+        return buf.getvalue()
+
+    try:
+        out = await asyncio.to_thread(_compress)
+    except Exception:
+        raise HTTPException(400, "이미지를 처리할 수 없습니다")
+
+    fname = f"{secrets.token_urlsafe(10)}.jpg"
+    rel = f"quiz/{fname}"
+    full = DEFAULT_STORAGE_ROOT / rel
+    await ensure_dir_async(full.parent)
+    await write_bytes_async(full, out)
+    return {"url": f"/storage/{rel}", "byte_size": len(out)}
+
+
 @router.get("/sessions/{sid}")
 async def host_state(
     sid: int,
@@ -399,7 +525,8 @@ async def start_session(
         raise HTTPException(400, "출제할 문제가 없습니다")
     s.status = "question"
     s.current_index = 0
-    s.question_started_at = _now()
+    # 인트로(3·2·1) 후 공개 — started_at을 미래로 설정, 타이머·제출은 그때부터
+    s.question_started_at = _now() + timedelta(seconds=_intro_seconds(s))
     await db.flush()
     return {"ok": True, "status": s.status, "current_index": s.current_index}
 
@@ -430,7 +557,7 @@ async def next_question(
     else:
         s.current_index += 1
         s.status = "question"
-        s.question_started_at = _now()
+        s.question_started_at = _now() + timedelta(seconds=_intro_seconds(s))
     await db.flush()
     return {"ok": True, "status": s.status, "current_index": s.current_index}
 
@@ -646,6 +773,8 @@ async def submit_answer(
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     elapsed_ms = int((_now() - started).total_seconds() * 1000)
+    if elapsed_ms < 0:
+        raise HTTPException(409, "아직 문제 공개 전입니다")
     limit_ms = _time_limit(s) * 1000
     if elapsed_ms > limit_ms + ANSWER_GRACE_MS:
         raise HTTPException(409, "시간 초과")
@@ -663,11 +792,29 @@ async def submit_answer(
 
     is_correct, _score = grade_answer(p.answer_data, body.answer)
 
-    # Kahoot식 점수: 1000 × (1 - (t/limit)/2) — t는 limit 상한
+    # Kahoot식 점수: 1000 × (1 - (t/limit)/2) + 연속 정답 스트릭 보너스
     points = 0.0
+    streak = 0
+    bonus = 0
     if is_correct:
         t = min(elapsed_ms, limit_ms) / limit_ms  # 0.0 ~ 1.0
         points = 1000.0 * (1.0 - t / 2.0)
+        # 직전 답들 최신순 trailing correct 수 → 현재 정답 포함 스트릭
+        prev = (await db.execute(
+            select(LiveQuizAnswer.is_correct).where(
+                LiveQuizAnswer.session_id == sid,
+                LiveQuizAnswer.player_id == pl.id,
+            ).order_by(LiveQuizAnswer.created_at.desc())
+        )).scalars().all()
+        trailing = 0
+        for v in prev:
+            if v is True:
+                trailing += 1
+            else:
+                break
+        streak = trailing + 1
+        bonus = min(streak - 1, STREAK_BONUS_CAP) * STREAK_BONUS_PER_LEVEL
+        points += bonus
 
     ans = LiveQuizAnswer(
         session_id=sid,
@@ -691,5 +838,7 @@ async def submit_answer(
         "ok": True,
         "is_correct": is_correct,
         "points": round(points),
+        "streak": streak,
+        "streak_bonus": bonus,
         "total_score": round(pl.score),
     }
