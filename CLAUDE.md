@@ -2435,3 +2435,30 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - **공유 화이트보드 (도구 #5)**: ToolWhiteboard (`c6e8f0a2b4d6`) + tool_whiteboard 모듈 — tool_board 골격 미러 (CRUD/공유·사본/permission/yjs-snapshot, prefix `/api/classroom/whiteboards`). hocuspocus TargetKind 'whiteboard'. **WhiteboardCanvas**: Y.Map("strokes") 객체 단위 LWW, **논리 1920×1080 고정 좌표**(전원 동일, 폭 스케일), 펜/형광펜/직선/사각형/원/텍스트/지우개(본인 것·교사 전부, hit-test), 색6·굵기3, undo(본인 스택), 전체지우기(교사), PNG 내보내기, 배경 white/grid/dark. 스트로크는 pointerup 시 broadcast. 첨부 type=whiteboard(활성 학기 한정), 드라이브 `whiteboards` 등록 (휴지통·복사·이름변경 자동)
 - 테스트 +2 (화이트보드 풀매트릭스 / 보드 layout·알림). routes 640 → 654
 - **Padlet 클론 마감** (실물 스크린샷 기준): **담벼락(wall) masonry 레이아웃** (CSS columns, 섹션 패널 없음 — 신규 보드 기본, 레거시는 shelf 유지), 카드 구조 동일화(상단 작성자 헤더 → 제목/이미지/본문/링크 → 하단 하트·'댓글 추가' 행), 우상단 아이콘 툴바(검색 토글·**슬라이드쇼** 풀스크린 스테퍼·정렬·CSV), 우하단 teal '+ 게시' 플로팅 컴포저, 새 보드 모달 형식 비주얼 카드(담벼락/컬럼/자유배치 미니 프리뷰). 생성 API가 layout/background 직접 수용
+
+---
+
+## 2026-06-12 세션 — 라이브 퀴즈 Kahoot 패리티 (직접 출제·이미지·인트로·스트릭)
+
+> 커밋 d99b994 push 완료. **B 배포 미완** (Tailscale offline) — B 깨어나면 gs-deploy-a/final 또는 /system/updates 적용. alembic `d8f0a2c4e6b8` 포함.
+
+### 직접 출제 (코스웨어 없이 즉석 작성)
+- `LiveQuizSession.problem_set_id` nullable (alembic `d8f0a2c4e6b8`, 멱등)
+- `POST /api/classroom/live-quiz/sessions/direct` — 문제(1~100)·보기(2~6)·정답(복수 OK) 즉석 작성. **Problem rows 직접 생성** (`department="tool"`, `is_visible=False` — 문제 라이브러리 검색에 안 섞임), 세션 problem_set_id=None
+- 새 퀴즈 모달 탭형: **[직접 만들기(기본) | 코스웨어에서 가져오기]**. Kahoot식 4색·도형 보기 입력 + 정답 체크 + 문제 추가/삭제. 빈 보기 자동 제거 후 letter remap
+
+### 문제 이미지
+- `POST .../upload-image` (tools.quiz.host, POLICY_IMAGE, PIL 1400px/q82 압축) → `storage/quiz/`, files 가드 `_guard_quiz`(인증만). content에 마크다운 `![](url)` 삽입 → ProblemContent(AuthedImage)가 호스트·학생 화면 자동 렌더
+
+### Kahoot 게임감
+- **인트로 카운트다운**: start/next 시 `question_started_at = now + N초` (기본 4, `settings.intro_seconds` 0~10) — 문제만 먼저 크게, 3·2·1 후 보기 공개. **공개 전 제출은 서버 409** (elapsed_ms < 0)
+- **스트릭 보너스**: 연속 정답 2부터 +100/단계, 최대 +500 (`min(streak-1,5)*100`). 본인 답안 created_at desc trailing 정답 수로 계산. reveal에 🔥 N연속 배지
+- **탭 즉시 제출**: 단일 정답 객관식은 큰 4색 버튼 탭=제출 (Kahoot 동일). 복수 정답만 토글+제출 — masked 응답에 `multi` 플래그만 노출 (정답 내용 비노출)
+
+### 테스트 함정 (재발 주의)
+- **403 요청이 미커밋 fixture를 지움**: in-memory SQLite 공유 커넥션에서 fixture가 flush만 한 사용자를 만들고 첫 요청이 403이면 → override 세션 rollback이 그 커넥션 트랜잭션(=fixture 사용자)까지 날림 → 이후 "사용자를 찾을 수 없습니다" 401. **fixture 데이터 만들고 403-first 테스트면 `await db_session.commit()` 선행** (기존 테스트는 course/problem_set fixture가 커밋해서 우연히 안전했던 것)
+
+### 기타
+- `.gitignore` storage 개별 나열 → `backend/storage/*` 통째 차단 (+`!.gitkeep`). boards/quiz 등 새 섹션 누락으로 학생 파일 커밋될 뻔한 구멍 봉합
+- 이 노트북 WSL outbound 깨짐(github 22/443 모두 timeout, Windows는 정상) → **Windows git으로 UNC 경로 push** 우회. WSL 재시작(`wsl --shutdown`)으로 고치면 됨 (dev 서버 죽음 주의)
+- 테스트 +2 (직접출제·인트로409·스트릭 / 이미지 업로드·가드) = test_edutools 21개. routes 654 → 656

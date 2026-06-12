@@ -40,19 +40,10 @@ next-env.d.ts
 test_*.db
 
 # ─── 사용자 업로드 파일 ───
-# 학생 산출물·파비콘·연구 자료 등 운영 데이터
-backend/storage/artifacts/
-backend/storage/branding/
-backend/storage/documents/
-backend/storage/meetings/
-backend/storage/assignments/
-backend/storage/research/
-backend/storage/past_research/
-backend/storage/group_submissions/
-backend/storage/classroom/
-backend/storage/hwps/
-backend/storage/courseware/
-# 빈 storage 폴더는 .gitkeep으로 구조만 유지
+# 학생 산출물·파비콘·연구 자료 등 운영 데이터 — storage 전체 차단
+# (개별 나열은 새 섹션(boards/quiz 등) 추가 시 누락 → 학생 파일 커밋 위험)
+backend/storage/*
+!backend/storage/.gitkeep
 
 # ─── IDE / OS ───
 .vscode/
