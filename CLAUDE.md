@@ -2462,3 +2462,52 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - `.gitignore` storage 개별 나열 → `backend/storage/*` 통째 차단 (+`!.gitkeep`). boards/quiz 등 새 섹션 누락으로 학생 파일 커밋될 뻔한 구멍 봉합
 - 이 노트북 WSL outbound 깨짐(github 22/443 모두 timeout, Windows는 정상) → **Windows git으로 UNC 경로 push** 우회. WSL 재시작(`wsl --shutdown`)으로 고치면 됨 (dev 서버 죽음 주의)
 - 테스트 +2 (직접출제·인트로409·스트릭 / 이미지 업로드·가드) = test_edutools 21개. routes 654 → 656
+
+---
+
+## 2026-06-12 심야 세션 — 실시간 투표·워드클라우드 (Mentimeter형, 도구 #6)
+
+> 커밋 9b0aa3e push 완료. **B 배포 미완** — B가 06-12 13:30경 재다운 (24h 내 2번째,
+> 하드웨어 의심). B 복귀 시 gs-deploy-a/b로 배포 (alembic `e0b2d4f6a8c0` 포함),
+> 스모크: POST /api/tools/poll 미인증 403. 상세는 HANDOFF §0-2.
+
+### 구조 (tool_quiz 폴링 패턴 미러, Yjs 아님)
+- 모델 `tool_poll.py`: **Poll**(질문 JSON — 교사 자산, 드라이브 통합 4컬럼) /
+  **PollSession**(PIN 6자리 + 질문 snapshot + lobby→question→ended, poll_id **SET NULL** —
+  원본 영구삭제에도 세션 결과 보존) / **PollParticipant** / **PollResponse**
+  (1행=1응답, 워드클라우드는 단어당 1행 — `answer_no` 슬롯)
+- 질문 2종: `choice`(보기 2~10, multi 복수응답) / `wordcloud`(1인당 max_words 1~5).
+  질문 id는 stable 키 (`q{token}`) — 편집을 견디고 응답이 참조
+- 라우터 `/api/tools/poll` — 호스트(tools.poll.host, 교사 자동 부여): CRUD·세션·goto
+  (Mentimeter 슬라이드식 자유 이동)·end·qr.png / 참여자(인증만): join·state(2초 폴링)·respond
+- **중복 차단**: choice는 참여자당 질문당 1회, wordcloud는 슬롯 한도+동일단어 거부 —
+  pre-check + UNIQUE(session,participant,question,answer_no)로 race까지 (퀴즈 패턴)
+- **익명 집계만 노출**: counts(보기별)/words(빈도 top100, `_norm_word` 정규화 —
+  공백·구두점·ASCII소문자). `results_to_students` settings — 기본 false(발표 화면 전용),
+  true면 학생도 본인 응답 후 집계 표시
+- 드라이브: ITEM_TYPES `polls` + organize.py 복사 분기(questions **deepcopy**) +
+  rename 경로 + `?edit={id}` 자동 모달 (frontend hrefForItem)
+
+### 프론트
+- `/tools/poll` — 목록(진행 중 PIN 배지·이어가기)+빌더 모달(질문 타입 토글, 보기 편집,
+  복수응답 체크, 1인당 단어 수)+시작 모달(결과 공개 토글). **useSearchParams는 Suspense
+  경계 필수** (Next 빌드 에러 — page에서 쓸 때마다)
+- `/tools/poll/[sid]/host` — PIN+QR 로비(참여자 수만 — 익명), 질문 화면에 실시간 결과,
+  이전/다음/마치기, ended는 전체 질문 결과 스택. useToolFocusMode+새창
+- `/s/poll/[pin]` — 자동 입장, 단일선택 **탭 즉시 제출**/복수 토글+제출, 단어 입력
+  (남은 개수, 내 단어 칩), draft 리셋은 **질문 id 기준** (goto 자유 이동 안전)
+- `components/poll/PollResults.tsx` — ChoiceBars(세로 막대+%·부드러운 전환) +
+  WordCloudView(빈도 가중 폰트 14~56px, 단어 해시 기반 색·기울기 — 폴링마다 안 흔들림)
+- 허브 카드+미니 목업(막대+단어구름)
+
+### 검수 (4차원 멀티에이전트 + 반박 검증, 20 agents)
+- 16 findings → 확정 3 (전부 수정): ?edit= 재진입 차단 ref → lastHandledEditId
+  (닫으면 초기화), draft 리셋 index→질문 id 기준, _poll_dict refresh 요구 주석
+- 기각 13: choice race(UNIQUE가 atomic 처리), 모달 stale state(unmount 리마운트),
+  wordcloud XSS(React text node escape), key={i}(letter 기반이라 무관) 등
+- 미검증 5건(한도 소진)은 직접 판정 — organize deepcopy만 보강, 나머지 기각
+
+### 검증
+- pytest 54/54 (+2: poll 풀플로우 — choice 중복 409·단어 정규화 합산·한도, IDOR·
+  results_to_students·드라이브 trash/copy roundtrip), tsc 0, **671 routes** (656→671)
+- 마이그레이션 체인: d8f0a2c4e6b8 → `e0b2d4f6a8c0` (4테이블, 멱등). dev DB 적용 완료
