@@ -7,13 +7,13 @@
 
 import {
   FileText, FileSpreadsheet, Presentation, ClipboardList, FileType2,
-  BookA, StickyNote, PenTool,
+  BookA, StickyNote, PenTool, BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
 export type ItemType =
   | "docs" | "sheets" | "decks" | "surveys" | "hwps"
-  | "word_decks" | "boards" | "whiteboards";
+  | "word_decks" | "boards" | "whiteboards" | "polls";
 export type SortKey = "name" | "owner" | "updated" | "size";
 export type SortDir = "asc" | "desc";
 
@@ -78,10 +78,14 @@ export const TYPE_META: Record<
     label: "화이트보드", icon: PenTool, color: "#6d28d9",
     bg: "linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)",
   },
+  polls: {
+    label: "투표", icon: BarChart3, color: "#0f766e",
+    bg: "linear-gradient(135deg, #ccfbf1 0%, #5eead4 100%)",
+  },
 };
 
 export const ITEM_TYPES: ItemType[] = [
-  "docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards", "whiteboards",
+  "docs", "sheets", "decks", "surveys", "hwps", "word_decks", "boards", "whiteboards", "polls",
 ];
 
 export function formatMB(bytes: number): string {
@@ -118,6 +122,10 @@ export function hrefForItem(
   if (it.type === "whiteboards") {
     return mode === "admin" ? `/tools/whiteboard/${it.id}` : `/s/whiteboard/${it.id}`;
   }
+  if (it.type === "polls") {
+    // 투표 편집은 목록 페이지 모달 — ?edit= 으로 자동 오픈
+    return mode === "admin" ? `/tools/poll?edit=${it.id}` : "#";
+  }
   const segMap: Record<ItemType, string> = {
     docs: "docs",
     decks: "decks",
@@ -127,6 +135,7 @@ export function hrefForItem(
     word_decks: "word_decks",
     boards: "boards",
     whiteboards: "whiteboards",
+    polls: "polls",
   };
   if (it.course_id) return `${baseClassroom}/${it.course_id}/${segMap[it.type]}/${it.id}`;
   if (it.type === "docs") return `${baseDocs}/${it.id}`;

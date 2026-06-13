@@ -990,3 +990,222 @@ async def test_board_yjs_snapshot_internal_token(
         headers={"X-Internal-Token": "test-tok"},
     )).json()
     assert got["state_base64"] == payload["state_base64"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 실시간 투표·워드클라우드 (Mentimeter형)
+# ─────────────────────────────────────────────────────────────
+
+async def _create_poll(app_client, auth_headers, teacher_user, *, results_to_students=False):
+    """choice(단일) + wordcloud(2단어) 투표 생성 + 세션까지."""
+    res = await app_client.post(
+        "/api/tools/poll",
+        json={
+            "title": "수업 만족도",
+            "questions": [
+                {"type": "choice", "prompt": "오늘 수업 어땠나요?",
+                 "options": ["좋았다", "보통", "어려웠다"], "multi": False},
+                {"type": "wordcloud", "prompt": "떠오르는 단어는?", "max_words": 2},
+            ],
+        },
+        headers=auth_headers(teacher_user),
+    )
+    assert res.status_code == 200, res.text
+    poll = res.json()
+    res = await app_client.post(
+        f"/api/tools/poll/{poll['id']}/sessions",
+        json={"settings": {"results_to_students": results_to_students}},
+        headers=auth_headers(teacher_user),
+    )
+    assert res.status_code == 200, res.text
+    return poll, res.json()
+
+
+async def test_poll_full_flow(
+    app_client, auth_headers, teacher_user, student_user, student2, seed_perms, db_session,
+):
+    """생성 → 입장 → 시작 → choice 응답(중복 409) → goto → wordcloud(한도·중복) → 종료."""
+    await db_session.commit()
+    t = auth_headers(teacher_user)
+    s = auth_headers(student_user)
+    s2 = auth_headers(student2)
+
+    poll, sess = await _create_poll(app_client, auth_headers, teacher_user)
+    sid = sess["id"]
+    qids = [q["id"] for q in poll["questions"]]
+
+    # 학생 입장 (잘못된 PIN 404)
+    res = await app_client.post("/api/tools/poll/join", json={"pin": "000000"}, headers=s)
+    if sess["pin"] != "000000":
+        assert res.status_code == 404
+    for h in (s, s2):
+        res = await app_client.post("/api/tools/poll/join", json={"pin": sess["pin"]}, headers=h)
+        assert res.status_code == 200, res.text
+
+    # lobby 상태에서 응답 409
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["A"]}}, headers=s,
+    )
+    assert res.status_code == 409
+
+    # 시작 (학생은 403)
+    res = await app_client.post(f"/api/tools/poll/sessions/{sid}/start", headers=s)
+    assert res.status_code == 403
+    res = await app_client.post(f"/api/tools/poll/sessions/{sid}/start", headers=t)
+    assert res.status_code == 200
+
+    # 학생 state — 현재 질문 + 미응답
+    st = (await app_client.get(f"/api/tools/poll/play/{sid}/state", headers=s)).json()
+    assert st["status"] == "question"
+    assert st["question"]["id"] == qids[0]
+    assert st["my_responded"] is False
+    assert "results" not in st  # results_to_students=False
+
+    # choice 응답 — 잘못된 보기/빈 응답 400, 정상 200, 중복 409
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["Z"]}}, headers=s,
+    )
+    assert res.status_code == 400
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["A"]}}, headers=s,
+    )
+    assert res.status_code == 200, res.text
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["B"]}}, headers=s,
+    )
+    assert res.status_code == 409
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["B"]}}, headers=s2,
+    )
+    assert res.status_code == 200
+
+    # 호스트 집계 — A:1, B:1, respondents 2
+    hs = (await app_client.get(f"/api/tools/poll/sessions/{sid}", headers=t)).json()
+    assert hs["participant_count"] == 2
+    assert hs["results"]["counts"] == {"A": 1, "B": 1}
+    assert hs["results"]["respondents"] == 2
+
+    # 다음 질문(워드클라우드)으로 — 범위 밖 400
+    res = await app_client.post(
+        f"/api/tools/poll/sessions/{sid}/goto", json={"index": 9}, headers=t,
+    )
+    assert res.status_code == 400
+    res = await app_client.post(
+        f"/api/tools/poll/sessions/{sid}/goto", json={"index": 1}, headers=t,
+    )
+    assert res.status_code == 200
+
+    # 이전 질문 id로 응답하면 409 (질문 동기화)
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["A"]}}, headers=s2,
+    )
+    assert res.status_code == 409
+
+    # 워드클라우드 — 정규화(공백·대문자) 동일 단어 중복 409, max_words=2 한도
+    for word, code in [("  재밌다  ", 200), ("재밌다", 409), ("Fun", 200), ("어렵다", 409)]:
+        res = await app_client.post(
+            f"/api/tools/poll/play/{sid}/respond",
+            json={"question_id": qids[1], "answer": {"word": word}}, headers=s,
+        )
+        assert res.status_code == code, f"{word}: {res.text}"
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[1], "answer": {"word": "fun"}}, headers=s2,
+    )
+    assert res.status_code == 200
+
+    # 호스트 집계 — fun:2 (대소문자 정규화 합산), 재밌다:1
+    hs = (await app_client.get(f"/api/tools/poll/sessions/{sid}", headers=t)).json()
+    words = {w["text"]: w["count"] for w in hs["results"]["words"]}
+    assert words == {"fun": 2, "재밌다": 1}
+
+    # 종료 → all_results, 학생은 results_to_students=False라 미노출
+    res = await app_client.post(f"/api/tools/poll/sessions/{sid}/end", headers=t)
+    assert res.status_code == 200
+    hs = (await app_client.get(f"/api/tools/poll/sessions/{sid}", headers=t)).json()
+    assert len(hs["all_results"]) == 2
+    st = (await app_client.get(f"/api/tools/poll/play/{sid}/state", headers=s)).json()
+    assert st["status"] == "ended"
+    assert "all_results" not in st
+
+
+async def test_poll_results_to_students_and_idor(
+    app_client, auth_headers, teacher_user, teacher2, student_user, seed_perms, db_session,
+):
+    """results_to_students=True 노출 + 학생/타 교사 가드 + 휴지통·드라이브 통합."""
+    await db_session.commit()
+    t = auth_headers(teacher_user)
+    t2 = auth_headers(teacher2)
+    s = auth_headers(student_user)
+
+    # 학생은 투표 생성 403
+    res = await app_client.post(
+        "/api/tools/poll",
+        json={"title": "x", "questions": [
+            {"type": "wordcloud", "prompt": "?", "max_words": 1}]},
+        headers=s,
+    )
+    assert res.status_code == 403
+
+    poll, sess = await _create_poll(
+        app_client, auth_headers, teacher_user, results_to_students=True,
+    )
+    sid = sess["id"]
+    qids = [q["id"] for q in poll["questions"]]
+
+    # 타 교사 — 남의 투표/세션 접근 403
+    res = await app_client.get(f"/api/tools/poll/{poll['id']}", headers=t2)
+    assert res.status_code == 403
+    res = await app_client.get(f"/api/tools/poll/sessions/{sid}", headers=t2)
+    assert res.status_code == 403
+    res = await app_client.post(f"/api/tools/poll/sessions/{sid}/end", headers=t2)
+    assert res.status_code == 403
+
+    # 미입장 학생 state 403
+    res = await app_client.get(f"/api/tools/poll/play/{sid}/state", headers=s)
+    assert res.status_code == 403
+
+    await app_client.post("/api/tools/poll/join", json={"pin": sess["pin"]}, headers=s)
+    await app_client.post(f"/api/tools/poll/sessions/{sid}/start", headers=t)
+
+    # 응답 → results_to_students=True라 즉시 집계 반환 + state에도 노출
+    res = await app_client.post(
+        f"/api/tools/poll/play/{sid}/respond",
+        json={"question_id": qids[0], "answer": {"selected": ["C"]}}, headers=s,
+    )
+    assert res.status_code == 200
+    assert res.json()["results"]["counts"] == {"C": 1}
+    st = (await app_client.get(f"/api/tools/poll/play/{sid}/state", headers=s)).json()
+    assert st["results"]["counts"] == {"C": 1}
+
+    # 종료 후 학생도 all_results
+    await app_client.post(f"/api/tools/poll/sessions/{sid}/end", headers=t)
+    st = (await app_client.get(f"/api/tools/poll/play/{sid}/state", headers=s)).json()
+    assert len(st["all_results"]) == 2
+
+    # 삭제 = 드라이브 휴지통 (목록에서 빠지고 trash에 등장, 세션 결과는 보존)
+    res = await app_client.delete(f"/api/tools/poll/{poll['id']}", headers=t)
+    assert res.status_code == 200
+    items = (await app_client.get("/api/tools/poll", headers=t)).json()["items"]
+    assert all(p["id"] != poll["id"] for p in items)
+    trash = (await app_client.get(
+        "/api/drive/items?trash=true", headers=t,
+    )).json()
+    trash_items = trash["items"] if isinstance(trash, dict) else trash
+    assert any(
+        it["type"] == "polls" and it["id"] == poll["id"] for it in trash_items
+    )
+    hs = (await app_client.get(f"/api/tools/poll/sessions/{sid}", headers=t)).json()
+    assert len(hs["all_results"]) == 2  # 원본 휴지통 이동과 무관
+
+    # 드라이브 복사 (Ctrl+C) — 질문 구조 복제
+    res = await app_client.post(
+        f"/api/drive/items/polls/{poll['id']}/copy", headers=t,
+    )
+    assert res.status_code == 200, res.text

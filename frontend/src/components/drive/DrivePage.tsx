@@ -617,7 +617,7 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             currentFolderId={currentFolderId}
             fetchAll={fetchAll}
             createNew={createNew}
-            excludeTypes={mode === "student" ? ["word_decks", "boards", "whiteboards"] : []}
+            excludeTypes={mode === "student" ? ["word_decks", "boards", "whiteboards", "polls"] : []}
           />
           <button
             type="button"
@@ -810,6 +810,10 @@ export function DrivePage({ mode }: { mode: "admin" | "student" }) {
             }
             if (it.type === "whiteboards") {
               window.open(`/embed/whiteboard/${it.id}`, "_blank");
+              return;
+            }
+            if (it.type === "polls") {
+              openToolWindow(`/tools/poll?edit=${it.id}`);
               return;
             }
             const seg =

@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import {
-  Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool,
+  Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool, BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { openToolWindow } from "@/lib/open-tool-window";
@@ -120,6 +120,34 @@ function WhiteboardPreview() {
   );
 }
 
+function PollPreview() {
+  const bars = [
+    { h: 26, c: "#0d9488" }, { h: 44, c: "#6366f1" }, { h: 18, c: "#f59e0b" },
+  ];
+  const words = [
+    { t: "재밌다", s: 13, c: "#0f766e" }, { t: "수학", s: 9, c: "#4f46e5" },
+    { t: "어렵다", s: 8, c: "#be185d" }, { t: "함수", s: 10, c: "#b45309" },
+  ];
+  return (
+    <div className="h-full bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center gap-4 px-3">
+      {/* 막대그래프 */}
+      <div className="flex items-end gap-1.5 h-14">
+        {bars.map((b, i) => (
+          <div key={i} className="w-5 rounded-t" style={{ height: b.h * 1.2, backgroundColor: b.c }} />
+        ))}
+      </div>
+      {/* 워드클라우드 */}
+      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 w-24">
+        {words.map((w, i) => (
+          <span key={i} className="font-bold leading-none" style={{ fontSize: w.s, color: w.c }}>
+            {w.t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MiniToolsPreview() {
   return (
     <div className="h-full bg-gradient-to-br from-emerald-50 to-teal-100 flex items-center justify-center gap-3">
@@ -186,6 +214,16 @@ const TOOLS: ToolDef[] = [
     href: "/tools/whiteboard",
     ready: true,
     preview: <WhiteboardPreview />,
+  },
+  {
+    key: "poll",
+    name: "실시간 투표",
+    description: "투표·워드클라우드를 PIN으로 모으기 — 응답이 실시간 그래프·단어구름으로",
+    icon: BarChart3,
+    iconColor: "#0f766e",
+    href: "/tools/poll",
+    ready: true,
+    preview: <PollPreview />,
   },
   {
     key: "minitools",

@@ -167,6 +167,21 @@ async def copy_drive_item(
             storage_bytes=bytes_needed,
             folder_id=target_folder_id,
         )
+    elif type == "polls":
+        import copy as _copy
+
+        from app.models import Poll
+        assert Model is Poll
+        new_obj = Poll(
+            owner_id=user.id,
+            title=new_title,
+            description=src.description,
+            # deepcopy — 질문 dict 안의 options list까지 분리 (참조 공유 차단)
+            questions=[_copy.deepcopy(q) for q in (src.questions or []) if isinstance(q, dict)],
+            settings=dict(src.settings) if src.settings else None,
+            storage_bytes=0,
+            folder_id=target_folder_id,
+        )
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 

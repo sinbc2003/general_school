@@ -161,6 +161,9 @@ from app.models.tool_whiteboard import ToolWhiteboard
 # ── Tool: 교사 간 도구 공유 (보드·단어장 공통) ──
 from app.models.tool_share import EduToolShare
 
+# ── Tool: Poll (Mentimeter형 실시간 투표·워드클라우드 — 업무 및 수업 도구) ──
+from app.models.tool_poll import Poll, PollSession, PollParticipant, PollResponse
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -255,4 +258,6 @@ __all__ = [
     "ToolWhiteboard",
     # Tool: Share
     "EduToolShare",
+    # Tool: Poll
+    "Poll", "PollSession", "PollParticipant", "PollResponse",
 ]
