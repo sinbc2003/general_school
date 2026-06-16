@@ -29,6 +29,8 @@ export default function AdmissionsPage() {
     useState<AdmissionDetail | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
   const [myAnswer, setMyAnswer] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const pageSize = 10;
 
@@ -57,8 +59,35 @@ export default function AdmissionsPage() {
       setSelectedQuestion(data);
       setShowAnswer(false);
       setMyAnswer("");
+      setSavedAt(null);
+      // 이전에 저장한 연습 답안이 있으면 최신 것 로드
+      try {
+        const prior = await api.get(`/api/admissions/questions/${id}/responses`);
+        if (Array.isArray(prior) && prior.length > 0 && prior[0]?.response) {
+          setMyAnswer(prior[0].response);
+          setSavedAt(prior[0].created_at ? "저장됨" : null);
+        }
+      } catch {
+        /* 연습 답안 없음/권한 — 무시 */
+      }
     } catch {
       alert("질문을 불러올 수 없습니다.");
+    }
+  };
+
+  const saveMyAnswer = async () => {
+    if (!selectedQuestion || !myAnswer.trim()) return;
+    setSaving(true);
+    try {
+      await api.post(
+        `/api/admissions/questions/${selectedQuestion.id}/respond`,
+        { response: myAnswer }
+      );
+      setSavedAt(new Date().toLocaleTimeString());
+    } catch {
+      alert("저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -129,11 +158,25 @@ export default function AdmissionsPage() {
           </h3>
           <textarea
             value={myAnswer}
-            onChange={(e) => setMyAnswer(e.target.value)}
+            onChange={(e) => { setMyAnswer(e.target.value); setSavedAt(null); }}
             rows={8}
             className="w-full border border-border-default rounded-lg px-3 py-2 text-body bg-bg-secondary text-text-primary resize-none"
             placeholder="답변을 작성해보세요. 작성 후 모범 답안과 비교하세요."
           />
+          <div className="flex items-center justify-end gap-3 mt-2">
+            {savedAt && (
+              <span className="text-caption text-text-tertiary">
+                {savedAt === "저장됨" ? "저장된 답변 불러옴" : `저장됨 · ${savedAt}`}
+              </span>
+            )}
+            <button
+              onClick={saveMyAnswer}
+              disabled={saving || !myAnswer.trim()}
+              className="px-4 py-1.5 text-caption bg-accent text-white rounded hover:bg-accent-hover disabled:opacity-40"
+            >
+              {saving ? "저장 중..." : "저장"}
+            </button>
+          </div>
         </div>
 
         {/* Model Answer */}

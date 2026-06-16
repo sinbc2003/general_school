@@ -139,7 +139,7 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "class",
       name: "수업",
       icon: "BookOpen",
-      items: ["classroom", "courseware", "wrong-notes", "quiz-join", "wordbook", "enrollment-wizard", "my-docs"],
+      items: ["classroom", "courseware", "wrong-notes", "quiz-join", "poll-join", "wordbook", "enrollment-wizard", "my-docs"],
     },
     {
       id: "competition",

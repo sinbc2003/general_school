@@ -55,6 +55,7 @@ def _att_title_sources():
     from app.models.classroom_surveys import Survey
     from app.models.tool_board import ToolBoard
     from app.models.tool_quiz import LiveQuizSession
+    from app.models.tool_whiteboard import ToolWhiteboard
     from app.models.tool_wordbook import WordDeck
     return {
         "doc": (ClassroomDocument, "doc_id"),
@@ -66,6 +67,7 @@ def _att_title_sources():
         "live_quiz": (LiveQuizSession, "live_quiz_id"),
         "word_deck": (WordDeck, "word_deck_id"),
         "board": (ToolBoard, "board_id"),
+        "whiteboard": (ToolWhiteboard, "whiteboard_id"),
     }
 
 

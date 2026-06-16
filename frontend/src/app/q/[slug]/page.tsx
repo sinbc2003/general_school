@@ -83,8 +83,12 @@ export default function ShortLinkPage() {
             router.replace(path);
             return;
           }
-          // 단독 설문 (course_id 없음) — 현재 단독 페이지 미구현. 일단 admin path 시도.
-          router.replace(`/classroom/0/surveys/${target.target_id}`);
+          // 단독(강좌 무관) 설문은 응답 전용 페이지가 아직 없음 →
+          // 깨진 빌더(/classroom/0)로 보내지 않고 정직하게 안내.
+          setError(
+            "이 설문은 강좌에 연결되어 있지 않아 단축 링크로 응답할 수 없습니다. " +
+            "선생님께 강좌 안에서 공유해 달라고 요청하세요."
+          );
         } else if (target.target_type === "document") {
           const docApi = `${API_URL}/api/classroom/docs/${target.target_id}`;
           const token = localStorage.getItem("access_token");
@@ -104,7 +108,8 @@ export default function ShortLinkPage() {
             router.replace(path);
             return;
           }
-          setError("강좌 외 문서는 현재 단축 링크로 접근할 수 없습니다.");
+          // 단독(강좌 무관) 문서 — 전용 뷰어 라우트로 (admin/student 둘 다 존재)
+          router.replace(isStudent ? `/s/docs/${target.target_id}` : `/docs/${target.target_id}`);
         }
       } catch (e: any) {
         setError(`처리 중 오류: ${e?.message || e}`);
