@@ -67,6 +67,14 @@ class _MockHttpxClient:
     async def get(self, url, **kwargs):
         return _MockResponse(404, {})
 
+    async def request(self, method, url, **kwargs):
+        # _google_http는 client.request(method, url)로 호출 → method별로 .post/.get 위임.
+        if method.upper() == "POST":
+            return await self.post(url, **kwargs)
+        if method.upper() == "GET":
+            return await self.get(url, **kwargs)
+        return _MockResponse(404, {})
+
 
 @pytest.mark.asyncio
 async def test_export_doc_to_drive(

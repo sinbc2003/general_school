@@ -67,6 +67,15 @@ class _MockHttpxClient:
             return _MockResponse(200, {"email": "teacher@gmail.com", "name": "T"})
         return _MockResponse(404, {})
 
+    async def request(self, method, url, **kwargs):
+        # _google_http는 client.request(method, url)로 호출 → method별로 .post/.get에
+        # 위임해 서브클래스(_NoRefreshClient/_FailClient)의 .post 오버라이드를 살린다.
+        if method.upper() == "POST":
+            return await self.post(url, **kwargs)
+        if method.upper() == "GET":
+            return await self.get(url, **kwargs)
+        return _MockResponse(404, {})
+
 
 @pytest.mark.asyncio
 async def test_auth_url_generates_state_and_url(
