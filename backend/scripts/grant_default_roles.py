@@ -49,6 +49,7 @@ TEACHER_EXCLUDE_KEYS = {
     "storage.volume.manage",         # 스토리지 볼륨 관리는 admin 전용
     "storage.volume.view",
     "past_research.delete",          # 과거 연구 보고서 삭제는 admin 전용 (실수 방지)
+    "tools.office.configure",        # 업무 도구 Mathpix 키 설정은 admin 전용
 }
 
 # prefix로 제외됐지만 교사에게 명시적으로 부여할 권한 (예외 화이트리스트).
@@ -84,6 +85,8 @@ STAFF_KEYS = {
     "teacher_group.view",
     "teacher_group.assign_student",
     "teacher_group.review",
+    # 업무 도구 (PDF→HWPX 변환·PDF 번역) — 교사·직원만, 학생 제외
+    "tools.office.use",
 }
 
 STUDENT_KEYS = {

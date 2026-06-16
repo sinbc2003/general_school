@@ -477,6 +477,28 @@ async def _guard_boards(db: AsyncSession, user: User, path: str) -> None:
         raise HTTPException(403)
 
 
+async def _guard_tool_office(db: AsyncSession, user: User, path: str) -> None:
+    """storage/tool_office/{job_id}/<file> — 업무 도구(PDF→HWPX·번역) 입력·결과.
+
+    path는 section 포함 전체 경로 ("tool_office/{job_id}/{fname}").
+    작업 소유 교사 본인 OR admin만 접근. job row 없으면 404 (경로 추측 차단).
+    """
+    from app.models.tool_job import ToolJob
+
+    try:
+        job_id = int(path.split("/")[1])
+    except (ValueError, IndexError):
+        raise HTTPException(404)
+    job = await db.get(ToolJob, job_id)
+    if not job:
+        raise HTTPException(404)
+    if job.owner_id == user.id:
+        return
+    if user.role in ("super_admin", "designated_admin"):
+        return
+    raise HTTPException(403, "권한 없음")
+
+
 _GUARDS = {
     "artifacts": _guard_artifact,
     "assignments": _guard_assignment,
@@ -492,6 +514,7 @@ _GUARDS = {
     "contests": _guard_contest,
     "boards": _guard_boards,
     "quiz": _guard_quiz,
+    "tool_office": _guard_tool_office,
 }
 
 

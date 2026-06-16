@@ -30,6 +30,11 @@ google-genai>=1.0.0
 reportlab>=4.0.0
 pillow>=10.0.0
 
+# 업무 도구 — PDF→HWPX 변환(벤더 pdf2hwpx 엔진) + PDF 번역
+# PyMuPDF: PDF 텍스트/이미지 추출, Mathpix용 페이지 렌더 / requests: Mathpix API 클라이언트
+PyMuPDF>=1.24.0
+requests>=2.32.0
+
 # 테스트 (개발 의존성 — production은 설치 안 함)
 pytest>=8.0.0
 pytest-asyncio>=0.24.0

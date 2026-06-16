@@ -94,8 +94,8 @@ export const defaultCategories: MenuCategoriesConfig = {
       id: "edutools",
       name: "업무 및 수업 도구",
       icon: "Wrench",
-      // 에듀테크 자체 구현 — 라이브 퀴즈(Kahoot형) 등. 허브 /tools
-      items: ["edutools"],
+      // 수업 도구(에듀테크 자체 구현, /tools) + 업무 도구(PDF→HWPX·번역, /tools/work)
+      items: ["edutools-class", "edutools-work"],
     },
     {
       id: "students",

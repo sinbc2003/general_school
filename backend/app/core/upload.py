@@ -113,6 +113,16 @@ POLICY_HWP = FilePolicy(
 )
 
 
+# PDF — 업무 도구 입력 (PDF→HWPX 변환, PDF 번역)
+# allowed_mime_prefixes 생략 — 브라우저 PDF MIME 불안정(application/pdf·octet-stream 혼재),
+# 확장자 검증이 신뢰 가능한 게이트 (POLICY_DOCUMENT/POLICY_HWP와 동일 정책)
+POLICY_PDF = FilePolicy(
+    name="pdf",
+    max_size_bytes=50 * 1024 * 1024,  # 50MB
+    allowed_extensions=frozenset({".pdf"}),
+)
+
+
 # 문제은행 JSONL — 한 줄당 한 문제. 5MB ≈ 약 10,000문제 (행당 500B 기준)
 POLICY_PROBLEMS_JSONL = FilePolicy(
     name="problems_jsonl",

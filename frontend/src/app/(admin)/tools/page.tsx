@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { openToolWindow } from "@/lib/open-tool-window";
+import { ToolsNav } from "./_ToolsNav";
 
 interface ToolDef {
   key: string;
@@ -240,8 +241,9 @@ const TOOLS: ToolDef[] = [
 export default function ToolsHubPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      <ToolsNav active="class" />
       <header className="mb-6">
-        <h1 className="text-title font-semibold">업무 및 수업 도구</h1>
+        <h1 className="text-title font-semibold">수업 도구</h1>
         <p className="text-caption text-text-tertiary mt-1">
           수업에서 바로 쓰는 에듀테크 — 만든 것은 클래스룸 글 첨부로 가져올 수 있습니다.
         </p>

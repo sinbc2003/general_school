@@ -164,6 +164,9 @@ from app.models.tool_share import EduToolShare
 # ── Tool: Poll (Mentimeter형 실시간 투표·워드클라우드 — 업무 및 수업 도구) ──
 from app.models.tool_poll import Poll, PollSession, PollParticipant, PollResponse
 
+# ── Tool: 업무 도구 잡 (PDF→HWPX 변환 / PDF 번역 — 비동기 작업) ──
+from app.models.tool_job import ToolJob, ToolJobStatus
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -260,4 +263,6 @@ __all__ = [
     "EduToolShare",
     # Tool: Poll
     "Poll", "PollSession", "PollParticipant", "PollResponse",
+    # Tool: 업무 도구 잡
+    "ToolJob", "ToolJobStatus",
 ]
