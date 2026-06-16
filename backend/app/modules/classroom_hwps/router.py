@@ -39,6 +39,7 @@ MAX_FILE_BYTES = POLICY_HWP.max_size_bytes
 
 
 from app.core.permissions import is_admin as _is_admin  # SSOT
+from app.core.course_access import is_course_teacher  # owner+co_teacher (router-free SSOT)
 
 
 async def _resolve_permission(
@@ -75,7 +76,7 @@ async def _resolve_permission(
             )
         )).scalar_one_or_none()
         course = await db.get(Course, h.course_id)
-        is_teacher = course and course.teacher_id == user.id
+        is_teacher = course is not None and await is_course_teacher(db, course, user)
         if cs or is_teacher:
             return {
                 "can_read": True,

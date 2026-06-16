@@ -15,6 +15,7 @@ from app.models.user import User
 
 
 from app.core.permissions import is_admin  # SSOT (re-export)
+from app.core.course_access import is_course_teacher  # owner+co_teacher (router-free SSOT)
 
 
 def can_manage(user: User, survey: Survey) -> bool:
@@ -106,7 +107,7 @@ async def can_respond(db: AsyncSession, user: User, survey: Survey) -> bool:
     course = await db.get(Course, survey.course_id)
     if not course:
         return False
-    if course.teacher_id == user.id:
+    if await is_course_teacher(db, course, user):
         return True
     cs = (await db.execute(
         select(CourseStudent).where(

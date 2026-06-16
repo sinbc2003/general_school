@@ -8,6 +8,7 @@ from app.core.audit import log_action
 from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models.classroom import Course, CourseStudent
+from app.models.course_teacher import CourseTeacher
 from app.models.classroom_docs import ClassroomDocument, DocumentMember
 from app.models.user import User
 from app.modules.classroom_docs._helpers import (
@@ -40,7 +41,12 @@ async def list_docs(
         q = base
     else:
         teacher_course_ids = (await db.execute(
-            select(Course.id).where(Course.teacher_id == user.id)
+            select(Course.id).where(or_(
+                Course.teacher_id == user.id,
+                Course.id.in_(
+                    select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+                ),
+            ))
         )).scalars().all()
         student_course_ids = (await db.execute(
             select(CourseStudent.course_id).where(

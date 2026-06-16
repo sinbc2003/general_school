@@ -36,6 +36,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.quota import adjust_quota
 from app.models.classroom import Course, CourseStudent
+from app.models.course_teacher import CourseTeacher
 from app.models.classroom_sheets import ClassroomSheet, SheetMember
 from app.models.classroom_surveys import (
     Survey, SurveyAnswer, SurveyQuestion, SurveyResponse,
@@ -74,6 +75,7 @@ class SnapshotIn(BaseModel):
 # ── helpers ──
 
 from app.core.permissions import is_admin as _is_admin  # SSOT
+from app.core.course_access import is_course_teacher  # owner+co_teacher (router-free SSOT)
 
 
 def _to_dict(s: ClassroomSheet, *, owner_name: str | None = None) -> dict:
@@ -102,7 +104,7 @@ async def _resolve_permission(db: AsyncSession, user: User, sh: ClassroomSheet) 
     if sh.access_mode == "course_members" and sh.course_id is not None:
         course = await db.get(Course, sh.course_id)
         if course:
-            if course.teacher_id == user.id:
+            if await is_course_teacher(db, course, user):
                 return {"can_read": True, "can_write": True, "can_share": False, "role": "editor"}
             cs = (await db.execute(
                 select(CourseStudent).where(
@@ -163,7 +165,12 @@ async def list_sheets(
         q = base
     else:
         teacher_course_ids = (await db.execute(
-            select(Course.id).where(Course.teacher_id == user.id)
+            select(Course.id).where(or_(
+                Course.teacher_id == user.id,
+                Course.id.in_(
+                    select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+                ),
+            ))
         )).scalars().all()
         student_course_ids = (await db.execute(
             select(CourseStudent.course_id).where(

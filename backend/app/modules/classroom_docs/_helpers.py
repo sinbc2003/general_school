@@ -14,6 +14,7 @@ from app.services.attachment_share import attachment_share_access
 
 
 from app.core.permissions import is_admin  # SSOT (re-export)
+from app.core.course_access import is_course_teacher  # owner+co_teacher (router-free SSOT)
 
 
 def doc_to_dict(d: ClassroomDocument, *, owner_name: str | None = None) -> dict:
@@ -53,7 +54,7 @@ async def resolve_permission(
     if doc.access_mode == "course_members" and doc.course_id is not None:
         course = await db.get(Course, doc.course_id)
         if course:
-            if course.teacher_id == user.id:
+            if await is_course_teacher(db, course, user):
                 return {"can_read": True, "can_write": True, "can_share": False, "role": "editor"}
             cs = (await db.execute(
                 select(CourseStudent).where(

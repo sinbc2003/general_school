@@ -38,6 +38,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.core.semester import get_active_semester_id_or_404, resolve_semester_id
 from app.models.classroom import Course, CoursePost, CourseStudent
+from app.models.course_teacher import CourseTeacher
 from app.models.timetable import Semester, SemesterEnrollment
 from app.models.user import User
 from app.modules.classroom.schemas import (
@@ -171,7 +172,8 @@ async def list_my_courses(
             CourseStudent.status == "active",
         )
     elif user.role in ("teacher", "staff"):
-        q = q.where(Course.teacher_id == user.id)
+        co_ids = select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+        q = q.where(or_(Course.teacher_id == user.id, Course.id.in_(co_ids)))
     # admin은 전체
     rows = (await db.execute(q.order_by(Course.subject, Course.class_name))).scalars().all()
 
@@ -212,7 +214,8 @@ async def list_my_archived_courses(
             CourseStudent.student_id == user.id,
         )
     elif user.role in ("teacher", "staff"):
-        base = base.where(Course.teacher_id == user.id)
+        co_ids = select(CourseTeacher.course_id).where(CourseTeacher.user_id == user.id)
+        base = base.where(or_(Course.teacher_id == user.id, Course.id.in_(co_ids)))
     # admin은 전체 과거 학기
 
     rows = (await db.execute(
@@ -234,7 +237,7 @@ async def list_my_archived_courses(
     sems: dict[int, dict] = {}
     if sem_ids:
         srows = (await db.execute(select(Semester).where(Semester.id.in_(sem_ids)))).scalars().all()
-        sems = {s.id: {"name": s.name, "year": s.year, "term": s.term} for s in srows}
+        sems = {s.id: {"name": s.name, "year": s.year, "term": s.semester} for s in srows}
     teacher_ids = {c.teacher_id for c in rows}
     teachers: dict[int, str] = {}
     if teacher_ids:
