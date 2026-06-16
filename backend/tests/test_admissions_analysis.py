@@ -46,3 +46,26 @@ async def test_analysis_empty(app_client, auth_headers, teacher_user):
     d = r.json()
     assert d["record_count"] == 0
     assert d["total_applied"] == 0
+
+
+# ── AI 대학 추천 (LLM 경로는 모델 미설정으로 400까지만 검증) ──
+
+@pytest.mark.asyncio
+async def test_recommend_student_not_found(app_client, auth_headers, teacher_user):
+    r = await app_client.post(
+        "/api/admissions/recommend", json={"student_id": 999999},
+        headers=auth_headers(teacher_user),
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_recommend_requires_model(app_client, auth_headers, teacher_user, db_session):
+    s = await _create_user(db_session, email="rec_s@test.local", name="추천학생", role="student")
+    await db_session.commit()
+    r = await app_client.post(
+        "/api/admissions/recommend", json={"student_id": s.id},
+        headers=auth_headers(teacher_user),
+    )
+    # ChatbotConfig 기본 모델 미설정/API 키 미등록 → 400
+    assert r.status_code == 400

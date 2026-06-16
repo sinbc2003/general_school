@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api/client";
 import {
   Plus,
@@ -11,6 +12,8 @@ import {
   Search,
   Target,
   Sparkles,
+  Loader2,
+  X,
 } from "lucide-react";
 import { DataTable } from "@/components/ui/DataTable";
 
@@ -53,36 +56,143 @@ export default function AdmissionsPage() {
   );
 }
 
-// ── Plan Tab (진학설계) — 학생 데이터 기반 대학 추천 (placeholder, 추후 로직 추가) ──
+// ── Plan Tab (진학설계) — 학생 데이터 기반 AI 대학 추천 ──
+interface StudentRow {
+  id: number; name: string;
+  grade?: number | null; class_number?: number | null; student_number?: number | null;
+}
+interface RecommendResult { student_name: string; recommendation: string; cost_usd: number; has_profile: boolean }
+
 function PlanTab() {
+  const [search, setSearch] = useState("");
+  const [results, setResults] = useState<StudentRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<StudentRow | null>(null);
+  const [note, setNote] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<RecommendResult | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!search.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await api.get<{ items: StudentRow[] }>(
+          `/api/users/peers?role=student&per_page=20&search=${encodeURIComponent(search.trim())}`
+        );
+        setResults(r.items || []);
+      } catch { setResults([]); }
+      finally { setLoading(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const stuNo = (s: StudentRow) =>
+    s.grade && s.class_number && s.student_number
+      ? `${s.grade}${String(s.class_number).padStart(2, "0")}${String(s.student_number).padStart(2, "0")}`
+      : "";
+
+  const run = async () => {
+    if (!selected) return;
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const r = await api.post<RecommendResult>("/api/admissions/recommend", {
+        student_id: selected.id, note: note.trim() || null,
+      });
+      setResult(r);
+    } catch (e: any) {
+      setError(e?.detail || "추천 생성 실패 — /system/llm/config에서 AI 모델·API 키를 확인하세요.");
+    } finally { setRunning(false); }
+  };
+
   return (
     <div>
-      <div className="bg-bg-primary border border-border-default rounded-lg p-6 mb-4">
+      <div className="bg-bg-primary border border-border-default rounded-lg p-5 mb-4">
         <div className="flex items-start gap-3">
-          <Sparkles size={24} className="text-accent flex-shrink-0 mt-1" />
+          <Sparkles size={22} className="text-accent flex-shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-body font-semibold text-text-primary mb-2">진학설계 (AI 추천)</h2>
-            <p className="text-body text-text-secondary mb-3">
-              학생 현황(성적·수상·모의고사·동아리·논문·진로희망)을 기반으로
-              <b> 적합한 대학·학과·전형을 자동 추천</b>합니다.
+            <h2 className="text-body font-semibold text-text-primary mb-1">진학설계 (AI 추천)</h2>
+            <p className="text-caption text-text-secondary">
+              학생의 내신·모의고사·수상·진로희망을 분석해 <b>상향·적정·안정 대학</b>을 근거와 함께 추천합니다.
+              학교 챗봇에 설정된 AI 모델을 사용합니다.
             </p>
-            <ul className="text-caption text-text-tertiary space-y-1 list-disc list-inside">
-              <li>모의고사 등급·내신 기반 정시·수시 라인 추출</li>
-              <li>수상·논문·동아리 활동을 학과 인재상과 매칭</li>
-              <li>3개 단계 (상향·적정·안정) 별 5~10개 대학 추천</li>
-              <li>각 추천 카드에 "왜 추천했나" 근거 표시</li>
-            </ul>
           </div>
         </div>
       </div>
 
-      <div className="bg-bg-secondary border border-border-default rounded-lg p-6 text-center text-text-tertiary">
-        <Target size={32} className="mx-auto mb-2 opacity-50" />
-        <div className="text-body mb-1">아직 학생을 선택하지 않았습니다</div>
-        <div className="text-caption">
-          좌측 "학생지도 → 학생 현황"에서 학생을 선택한 후 "진학설계 시작" 버튼을 누르세요. (구현 예정)
+      {/* 학생 선택 */}
+      {!selected ? (
+        <div className="bg-bg-primary border border-border-default rounded-lg p-4">
+          <label className="text-caption text-text-secondary mb-1.5 block">학생 검색 (이름)</label>
+          <div className="relative mb-2">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
+            <input
+              value={search} onChange={(e) => setSearch(e.target.value)} autoFocus
+              placeholder="학생 이름을 입력하세요"
+              className="w-full pl-8 pr-3 py-2 text-body border border-border-default rounded bg-bg-primary outline-none focus:border-accent"
+            />
+          </div>
+          <div className="border border-border-default rounded max-h-72 overflow-y-auto">
+            {loading ? (
+              <div className="px-3 py-6 text-caption text-text-tertiary inline-flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> 검색 중...</div>
+            ) : !search.trim() ? (
+              <div className="px-3 py-6 text-caption text-text-tertiary text-center">이름을 입력해 학생을 검색하세요.</div>
+            ) : results.length === 0 ? (
+              <div className="px-3 py-6 text-caption text-text-tertiary text-center">검색 결과가 없습니다.</div>
+            ) : results.map((s) => (
+              <button key={s.id} onClick={() => { setSelected(s); setResult(null); setError(""); }}
+                className="w-full flex items-center justify-between px-3 py-2 hover:bg-bg-secondary text-left">
+                <span className="text-body text-text-primary">{s.name}
+                  {stuNo(s) && <span className="text-[11px] text-text-tertiary ml-2">{stuNo(s)}</span>}
+                </span>
+                <Target size={14} className="text-accent" />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-bg-primary border border-border-default rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-body text-text-primary font-medium">
+              {selected.name}
+              {stuNo(selected) && <span className="text-caption text-text-tertiary ml-2">{stuNo(selected)}</span>}
+            </div>
+            <button onClick={() => { setSelected(null); setResult(null); setError(""); setNote(""); }}
+              className="text-caption text-text-tertiary hover:text-accent inline-flex items-center gap-1">
+              <X size={13} /> 다른 학생
+            </button>
+          </div>
+          <textarea
+            value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+            placeholder="교사 메모(선택) — 예: 의대 희망, 정시 위주 등 추가 고려사항"
+            className="w-full border border-border-default rounded px-3 py-2 text-caption bg-bg-secondary text-text-primary resize-none mb-3"
+          />
+          <button onClick={run} disabled={running}
+            className="px-4 py-2 bg-accent text-white text-body rounded hover:bg-accent-hover disabled:opacity-50 inline-flex items-center gap-1.5">
+            {running ? <><Loader2 size={15} className="animate-spin" /> 분석 중...</> : <><Sparkles size={15} /> 진학설계 시작</>}
+          </button>
+
+          {error && <div className="mt-3 text-caption text-status-error bg-red-50 border border-red-100 rounded p-3">{error}</div>}
+
+          {result && (
+            <div className="mt-4">
+              {!result.has_profile && (
+                <div className="text-caption text-status-warning bg-yellow-50 border border-yellow-100 rounded p-2 mb-3">
+                  이 학생의 성적·모의고사 데이터가 부족해 일반적 가이드 위주입니다.
+                </div>
+              )}
+              <div className="prose prose-sm max-w-none border border-border-default rounded-lg p-4 bg-bg-secondary text-text-primary
+                prose-headings:text-text-primary prose-strong:text-text-primary prose-li:text-text-secondary prose-p:text-text-secondary">
+                <ReactMarkdown>{result.recommendation}</ReactMarkdown>
+              </div>
+              <div className="text-[11px] text-text-tertiary mt-1.5">
+                AI 추천 · 참고용이며 최종 판단은 교사·학생이 합니다 · 비용 ${result.cost_usd}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

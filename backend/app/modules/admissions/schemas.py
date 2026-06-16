@@ -40,3 +40,11 @@ class AdmissionsRecordCreate(BaseModel):
 class AdmissionsResponseSubmit(BaseModel):
     """POST /api/admissions/questions/{qid}/respond"""
     response: str = Field(..., min_length=1)
+
+
+class AdmissionsRecommendReq(BaseModel):
+    """POST /api/admissions/recommend — 학생 데이터 기반 AI 대학 추천."""
+    student_id: int
+    provider: str | None = None
+    model_id: str | None = None
+    note: str | None = Field(None, max_length=1000)  # 교사 추가 메모(선택)
