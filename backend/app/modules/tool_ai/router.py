@@ -131,6 +131,11 @@ async def update_tool_ai_config(
     return {"ok": True, "student_allowed": body.student_allowed}
 
 
+# tool_chat이 tool_use를 실제로 처리하는 provider. 그 외(google 등)는 501.
+# google는 공유 GoogleAdapter가 text-stream 전용이라 function-calling 경로가 별도 필요 (추후).
+TOOL_AI_SUPPORTED_PROVIDERS = {"anthropic", "openai"}
+
+
 @router.get("/models")
 async def list_tool_ai_models(
     user: User = Depends(require_permission("tool.ai_assistant.use")),
@@ -149,6 +154,8 @@ async def list_tool_ai_models(
         ).order_by(LLMModel.provider, LLMModel.sort_order)
     )).scalars().all()
 
+    # AI 도우미 핸들러가 구현된 provider만 실제 선택 가능. 그 외(google 등)는
+    # tool_chat에서 501이 나므로 picker에서 비활성으로 표시 — "선택 후 501" 방지.
     return {
         "items": [
             {
@@ -158,7 +165,8 @@ async def list_tool_ai_models(
                 "display_name": m.display_name,
                 "input_per_1m_usd": m.input_per_1m_usd,
                 "output_per_1m_usd": m.output_per_1m_usd,
-                "available": m.provider in active_providers,
+                "available": m.provider in active_providers and m.provider in TOOL_AI_SUPPORTED_PROVIDERS,
+                "supported": m.provider in TOOL_AI_SUPPORTED_PROVIDERS,
             }
             for m in rows
         ],
@@ -215,12 +223,12 @@ async def tool_chat(
             "[/현재 내용]"
         )
 
+    if model.provider not in TOOL_AI_SUPPORTED_PROVIDERS:
+        raise HTTPException(501, f"provider {model.provider} 는 아직 도우미가 지원되지 않습니다 (anthropic/openai만 가능)")
     if model.provider == "anthropic":
         resp = await _call_anthropic(api_key, model.model_id, system_prompt, body.messages, tools)
-    elif model.provider == "openai":
+    else:  # openai
         resp = await _call_openai(api_key, model.model_id, system_prompt, body.messages, tools)
-    else:
-        raise HTTPException(501, f"provider {model.provider} 는 아직 도우미가 지원되지 않습니다 (anthropic/openai만 가능)")
 
     # 비용 계산 + 일별 집계
     cost_usd = (
