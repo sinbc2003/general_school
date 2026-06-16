@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { BarChart3 } from "lucide-react";
+import GradebookTab from "@/components/classroom/GradebookTab";
 import { api } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth-context";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
@@ -274,16 +274,8 @@ export default function CourseDetailAdminPage() {
         <CourseChatbots cid={cid} canEdit={canEdit} />
       )}
 
-      {/* ── 성적 (placeholder) ── */}
-      {activeTab === "grades" && (
-        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center">
-          <BarChart3 size={32} className="mx-auto text-text-tertiary opacity-30 mb-3" />
-          <div className="text-body text-text-secondary mb-1">성적 모듈은 준비 중입니다</div>
-          <div className="text-caption text-text-tertiary">
-            추후 과제·평가 점수를 강좌별로 집계해 표시합니다.
-          </div>
-        </div>
-      )}
+      {/* ── 성적 ── */}
+      {activeTab === "grades" && <GradebookTab cid={cid} />}
 
       <StudentPickerModal
         open={showBulk}

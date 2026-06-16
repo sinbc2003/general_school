@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { MessageSquare, BarChart3 } from "lucide-react";
+import { MessageSquare } from "lucide-react";
+import GradebookTab from "@/components/classroom/GradebookTab";
 import { api } from "@/lib/api/client";
 import { CourseBanner } from "@/components/classroom/CourseBanner";
 import { CourseTabs, type CourseTab } from "@/components/classroom/CourseTabs";
@@ -180,15 +181,7 @@ export default function StudentCourseDetailPage() {
       )}
 
       {/* ── 성적 ── */}
-      {activeTab === "grades" && (
-        <div className="bg-bg-primary border border-dashed border-border-default rounded-lg py-16 text-center">
-          <BarChart3 size={32} className="mx-auto text-text-tertiary opacity-30 mb-3" />
-          <div className="text-body text-text-secondary mb-1">성적은 준비 중입니다</div>
-          <div className="text-caption text-text-tertiary">
-            추후 본인의 과제·평가 점수를 강좌별로 확인할 수 있습니다.
-          </div>
-        </div>
-      )}
+      {activeTab === "grades" && <GradebookTab cid={cid} />}
     </div>
   );
 }

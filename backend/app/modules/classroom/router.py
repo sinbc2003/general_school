@@ -734,3 +734,4 @@ from app.modules.classroom import student_enrollment  # noqa: E402, F401
 from app.modules.classroom import student_copy  # noqa: E402, F401
 from app.modules.classroom import chatbots  # noqa: E402, F401
 from app.modules.classroom import submissions  # noqa: E402, F401
+from app.modules.classroom import grades  # noqa: E402, F401
