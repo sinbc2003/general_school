@@ -2579,3 +2579,77 @@ postbuild가 standalone에 static 자동 복사) → `sudo systemctl restart gs-
 - 수정: classroom router(목록 2 + import) + collab 5 resolve + 4 crud 목록 + 테스트 3파일.
 - **671 routes 유지**(라우트 증감 0 — 순수 로직/버그fix). pytest **467 passed / 0 failed**.
 - co_teacher는 순수 로직이라 **alembic 무변경**. B는 투표 마이그레이션 `e0b2d4f6a8c0`만 신규 적용.
+
+---
+
+## 2026-06-16 세션 — 업무/수업 도구 분리 + 업무 도구(PDF→HWPX·PDF 번역) 추가
+
+> 커밋 `f4e33e2`(코드+벤더 엔진) + 이 문서 커밋 push 완료. **B 배포 미완** — 세션 중 B 전원
+> 꺼짐(pubedu.com Cloudflare 1033). B 켜지면 아래 §"B 배포 절차" 그대로 적용.
+> dev/로컬 전부 green: pytest **491 pass**, tsc 0 error, alembic 적용 완료.
+
+### 메뉴 분리 (사용자 요청)
+- "업무 및 수업 도구" 카테고리(menu-categories `edutools`) → 두 하위 링크:
+  - **수업 도구** → `/tools` (기존 6종: 퀴즈·단어장·보드·화이트보드·투표·소도구, 헤더 개명)
+  - **업무 도구** → `/tools/work` (신규 허브, permission `tools.office.use`)
+- 공용 세그먼트 네비 `app/(admin)/tools/_ToolsNav.tsx`. admin-menu에 두 항목 + system 서브메뉴 `sys-mathpix`.
+
+### PDF → HWPX 변환 (cmd센터 #008 **완전 네이티브 이식**)
+- **벤더링**: Mac1 `sbc_lab/008_pdf2hwpx/packages/` → `backend/app/vendor/pdf2hwpx/packages/`
+  (Next.js 에디터·node_modules 제외). Mathpix OCR → MMD → IR → HWPX.
+- **리눅스에서 COM 없이 유효한 HWPX 생성 확인**. 한글 COM 후처리(`hwp_postprocess`)는
+  `ir_to_hwpx(fix_equations=False)` 기본 + import 실패 try/except graceful skip(수식 크기 미세보정만
+  생략, 변환 자체 정상 — HWPX를 한/글에서 열면 보정).
+- 래퍼 `app/services/tool_office/engine_pdf2hwpx.py` — `convert_pdf` import가 자체 sys.path 설정 →
+  이후 flat import(mmd_parser/pipeline) 동작. columns=1 충실 경로, 2단은 수동 IR 경로.
+- 벤더 docstring SyntaxWarning 2건(raw 아닌 `\begin`/`\end`) 수정.
+
+### PDF 번역 (#007 **네이티브 — 플랫폼 LLM 재사용**)
+- PyMuPDF(fitz) 페이지별 텍스트 추출 → 챗봇 인프라(`get_adapter`, registry가 Fernet 복호화 내부처리)로
+  페이지 단위 1-shot 번역(`tool_office/llm.py:llm_complete`) → `.txt` + 인라인 미리보기.
+- CJK 출력 잘림 방지 청크 2500자(`translate.py:chunk_text`). 스캔 PDF(텍스트 0)는 명확히 실패 처리.
+
+### 공통 인프라
+- 모델 `app/models/tool_job.py:ToolJob`(status native_enum=False=VARCHAR, progress/stage/options/
+  result_meta/**output_file_url**). 비동기 잡: POST 즉시 job_id → 1.5s 폴링.
+- 모듈 `app/modules/tool_office/`(router prefix `/api/tools/office`, 8 endpoint).
+- runner `tool_office/runner.py` — `asyncio.create_task`(+`_BG_TASKS` 강참조 GC 방지), 자체
+  `async_session_factory()`, 단계별 commit, 동기 엔진은 `asyncio.to_thread`, `_JOB_SEM=3`.
+  입력 저장 실패 시 즉시 FAILED 마킹(PENDING 좀비 방지).
+- 저장 `storage/tool_office/{job_id}/{input.pdf,output.hwpx,translation.txt}`. files
+  `_guard_tool_office` = job_id로 ToolJob 찾아 **소유 교사 본인 OR admin만**(row 없으면 404).
+- 권한 `tools.office.use`(교사 자동+STAFF_KEYS) / `tools.office.configure`(admin 전용=TEACHER_EXCLUDE_KEYS).
+  `POLICY_PDF`(50MB)+validate_upload. ToolJob `models/__init__.py` 등록(백업 자동 포함).
+- frontend `_useToolJob`·`_JobStatusCard`·`_RecentJobs`(downloadSecure)·`pdf-hwpx`·`translate` 페이지.
+
+### 관리자 API 키 입력 (사용자 요청: "필요한 api키는 설정에서 관리자가 입력")
+- **Mathpix**(PDF→HWPX): 신규 `/system/integrations/mathpix` — SchoolConfig `mathpix.app_id`(평문)/
+  `mathpix.app_key`(Fernet)/`mathpix.enabled`, 마스킹. (google_integration 패턴)
+- **번역 LLM**: 기존 `/system/llm/providers` 키 그대로 재사용 (별도 입력 불필요).
+
+### 검증
+- pytest 467→**491**(신규 `tests/test_tool_office.py` 9). tsc 0. invariants 5/5.
+- 적대적 다차원 리뷰(보안/정확성/컨벤션) — **critical/high 0**(IDOR·키누출·path traversal 안전 확인),
+  hardening 3건 반영. routes 671→685. alembic head **`f1a2b3c4d5e6`**(멱등).
+- 신규 의존성 **PyMuPDF·requests** (requirements.txt) — B에 `pip install` 필요.
+
+### ⚙️ B 배포 절차 (B 켜지면 — 미완, 다음 작업)
+`ssh susung@100.92.66.61` 후:
+1. `cd ~/general_school && bash production/scripts/backup.sh` (DB+storage → /mnt/gs-backups)
+2. `git pull --ff-only` (origin에 `f4e33e2`+md 커밋 있음)
+3. `cd backend && source venv/bin/activate && pip install -r requirements.txt` (**PyMuPDF·requests 신규**)
+4. `alembic upgrade head` (`f3b1c2d4e5a6` → `f1a2b3c4d5e6`)
+5. `cd ../frontend && npm run build`
+6. `sudo systemctl restart gs-backend gs-frontend` (hocuspocus·nginx 불변)
+7. 스모크: `/api/health` 200, `POST /api/tools/office/status`(미인증) 403, pubedu.com/tools/work 200
+8. 관리자가 `/system/integrations/mathpix`에서 Mathpix 키 입력해야 PDF→HWPX 실동작
+   (학교 망 api.mathpix.com / LLM API outbound 차단 시 실패 — 화이트리스트 필요)
+
+### 로컬 임시 운영 메모 (B 다운 시 — 재사용 가능)
+- B 오프라인 진단: C·mac1 모두 Tailscale ping/SSH + B 집 LAN IP 무응답 → B 자체 다운(cloudflared만
+  죽으면 SSH는 살아있음). 원격 wake 불가 → 물리 전원 필요.
+- C에서 로컬 임시: WSL backend(8002)+frontend(3000)+hocuspocus(1234)를 harness `run_in_background`로
+  (nohup/disown은 wsl.exe 종료 시 reap → foreground+bg job 필수). frontend `NEXT_PUBLIC_API_URL=''`.
+- 로컬 dev 로그인: ENV=dev + SMTP_HOST 없음 → 교직원 이메일 챌린지 코드가 응답·verify-email 화면에
+  `dev_code`로 노출(dev 전용). 임시 super_admin은 `must_change_password=False`+`set_admin_2fa_required(False)`.
+  (이번 세션 `temp@local`/`Temp1234!` 생성 — dev DB 잔존, 무해. 불필요 시 삭제.)
