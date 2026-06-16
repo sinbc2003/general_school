@@ -1,7 +1,6 @@
 import {
   Home,
   Users,
-  Trophy,
   ClipboardList,
   FlaskConical,
   Users2,
@@ -40,7 +39,7 @@ export const studentMenu: StudentMenuItem[] = [
   { key: "dashboard", label: "홈", icon: Home, path: "/s/dashboard", permission: null },
   { key: "announcements", label: "공지사항", icon: Megaphone, path: "/s/announcements", permission: null },
   { key: "chat", label: "AI 도우미", icon: Sparkles, path: "/s/chat", permission: "chatbot.use", newTab: true },
-  { key: "contest", label: "대회", icon: Trophy, path: "/s/contest", permission: null },
+  // 대회(contest)는 출제·채점 미구현으로 비활성화 — 재활성화 시 이 항목 + 카테고리 복원.
   { key: "assignment", label: "과제", icon: ClipboardList, path: "/s/assignment", permission: null },
   { key: "classroom", label: "내 수업", icon: GraduationCap, path: "/s/classroom", permission: null },
   { key: "courseware", label: "문제 풀이", icon: FileQuestion, path: "/s/courseware", permission: null },

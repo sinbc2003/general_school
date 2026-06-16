@@ -2,6 +2,7 @@ import {
   Briefcase,
   BookOpen,
   Trophy,
+  ClipboardList,
   GraduationCap,
   Users2,
   Search,
@@ -36,6 +37,7 @@ export const iconMap: Record<string, LucideIcon> = {
   Briefcase,
   BookOpen,
   Trophy,
+  ClipboardList,
   GraduationCap,
   Users2,
   Search,
@@ -143,9 +145,10 @@ export const defaultCategories: MenuCategoriesConfig = {
     },
     {
       id: "competition",
-      name: "대회/과제",
-      icon: "Trophy",
-      items: ["contest", "assignment"],
+      name: "과제",
+      icon: "ClipboardList",
+      // 대회(contest)는 비활성화 — 재활성화 시 items에 "contest" 복원 + name "대회/과제"
+      items: ["assignment"],
     },
     {
       id: "career",
