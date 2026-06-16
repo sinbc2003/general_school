@@ -184,74 +184,12 @@ def _safe_name(s: str | None) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _extract_sheet_snapshot(yjs_state: bytes | None) -> list[dict] | None:
-    """sheets의 yjs_state에서 fortune-sheet snapshot 추출.
-
-    Y.Map("sheet") 안 "snapshot" key에 fortune-sheet workbook JSON 저장됨.
-    pycrdt로 디코드.
-    """
-    if not yjs_state:
-        return None
-    try:
-        from pycrdt import Doc, Map
-        doc = Doc()
-        doc.apply_update(yjs_state)
-        # Y.Map("sheet") — SheetEditor에서 사용 (HocuspocusProvider name="sheet-{id}")
-        sheet_map = doc.get("sheet", type=Map)
-        snap = sheet_map.get("snapshot")
-        if isinstance(snap, list):
-            return snap
-        return None
-    except Exception:
-        return None
-
-
-def _sheet_snapshot_to_xlsx(snapshot: list[dict] | None, fallback_title: str) -> bytes:
-    """fortune-sheet snapshot → openpyxl XLSX bytes."""
-    from openpyxl import Workbook
-    wb = Workbook()
-    wb.remove(wb.active)
-
-    if not snapshot:
-        ws = wb.create_sheet(title=(fallback_title or "Sheet1")[:31])
-        ws["A1"] = fallback_title or "데이터 없음"
-        ws["A2"] = "원본은 본 시스템 yjs_state에 있고 외부 변환이 불완전합니다."
-    else:
-        for sheet_data in snapshot:
-            ws_name = (sheet_data.get("name") or "Sheet")[:31]
-            # 동일 시트명 충돌 회피
-            counter = 0
-            unique = ws_name
-            while unique in wb.sheetnames:
-                counter += 1
-                unique = f"{ws_name[:28]}_{counter}"
-            ws = wb.create_sheet(title=unique)
-            cells = sheet_data.get("celldata", [])
-            for c in cells:
-                r = c.get("r", 0)
-                col = c.get("c", 0)
-                v = c.get("v", {})
-                val = v.get("v") if isinstance(v, dict) else v
-                if val is None:
-                    continue
-                cell = ws.cell(row=r + 1, column=col + 1, value=val)
-                # 기본 서식 (굵게, 폰트 색상은 fortune-sheet의 ct/bl/fc 참조)
-                if isinstance(v, dict):
-                    try:
-                        from openpyxl.styles import Font
-                        bold = bool(v.get("bl"))
-                        color = v.get("fc")
-                        if bold or color:
-                            cell.font = Font(
-                                bold=bold,
-                                color=(color.lstrip("#") if isinstance(color, str) else None),
-                            )
-                    except Exception:
-                        pass
-
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
+# 시트 snapshot 추출·XLSX 변환은 공용 SSOT(app/services/sheet_snapshot.py)로 이동.
+# google_integration/export.py와 같은 헬퍼를 공유해 "빈 시트 + 성공" 조용한 유실 재발 방지.
+from app.services.sheet_snapshot import (  # noqa: E402
+    extract_sheet_snapshot as _extract_sheet_snapshot,
+    sheet_snapshot_to_xlsx as _sheet_snapshot_to_xlsx,
+)
 
 
 def _survey_to_csv(

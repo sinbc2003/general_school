@@ -15,7 +15,6 @@ PPT/Slides는 캔버스 기반이라 손실 큼 → 지원 안 함 (정책).
 """
 
 import asyncio
-from io import BytesIO
 import json
 
 import httpx
@@ -28,6 +27,7 @@ from app.core.database import get_db
 from app.core.permissions import require_permission
 from app.models import ClassroomDocument, ClassroomSheet, User
 from app.modules.google_integration.router import _google_http, get_access_token_for_user, router
+from app.services.sheet_snapshot import build_xlsx_from_sheet
 
 DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
 
@@ -103,40 +103,13 @@ async def export_doc_to_drive(
 
 
 def _build_xlsx_from_sheet_sync(sheet: ClassroomSheet) -> bytes:
-    """fortune-sheet snapshot에서 XLSX 생성. sync (caller가 to_thread)."""
-    from openpyxl import Workbook
-    wb = Workbook()
-    wb.remove(wb.active)
+    """fortune-sheet snapshot에서 XLSX 생성. sync (caller가 to_thread).
 
-    snapshot = None
-    if sheet.yjs_state:
-        try:
-            # yjs_state는 binary CRDT. fortune-sheet snapshot은 Y.Map.get("sheet")에 JSON.
-            # 직접 디코드는 어렵고, sheet 데이터를 별도로 보관해야 정확. 임시로 빈 시트 + 제목만.
-            pass
-        except Exception:
-            pass
-
-    if not snapshot:
-        # fallback: 빈 시트 + title
-        ws = wb.create_sheet(title=(sheet.title or "Sheet1")[:31])
-        ws["A1"] = sheet.title or "제목 없음"
-    else:
-        for sheet_data in snapshot:
-            ws_name = (sheet_data.get("name") or "Sheet")[:31]
-            ws = wb.create_sheet(title=ws_name)
-            cells = sheet_data.get("celldata", [])
-            for c in cells:
-                r = c.get("r", 0)
-                col = c.get("c", 0)
-                v = c.get("v", {})
-                val = v.get("v") if isinstance(v, dict) else v
-                if val is not None:
-                    ws.cell(row=r + 1, column=col + 1, value=val)
-
-    out = BytesIO()
-    wb.save(out)
-    return out.getvalue()
+    공용 SSOT(app/services/sheet_snapshot.py)를 사용해 yjs_state의 셀 데이터를 실제로
+    추출한다. (이전엔 이 함수가 디코드를 안 해 빈 시트만 만들면서 '성공'으로 표시하는
+    조용한 유실 버그가 있었음 — drive/backup.py의 검증된 로직과 통합.)
+    """
+    return build_xlsx_from_sheet(sheet)
 
 
 @router.post("/export/sheets/{sheet_id}")
