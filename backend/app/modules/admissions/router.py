@@ -175,6 +175,88 @@ async def list_records(
     }
 
 
+# ── Analysis (합격 분석 — 학교 진학기록 집계) ──
+
+def _is_accepted(status: str) -> bool:
+    s = (status or "").strip().lower()
+    return (
+        s in ("accepted", "합격", "최초합격", "추가합격", "합")
+        or s.startswith("합격") or "최초합" in s or "추합" in s
+    )
+
+
+@router.get("/analysis")
+async def admissions_analysis(
+    user: User = Depends(require_permission("admissions.analysis.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """학교 진학기록(AdmissionsRecord.results) 집계 — 대학별/연도별/전형별 합격 현황.
+
+    results는 자유형식 JSON이라 방어적으로 파싱한다 (list[dict] 가정, dict 단건도 허용).
+    각 entry: {university, admission_type|type, result|status}.
+    """
+    records = (await db.execute(select(AdmissionsRecord))).scalars().all()
+
+    by_uni: dict[str, dict] = {}
+    by_year: dict[int, dict] = {}
+    by_type: dict[str, dict] = {}
+
+    def _bump(bucket: dict, key, accepted: bool):
+        b = bucket.setdefault(key, {"applied": 0, "accepted": 0})
+        b["applied"] += 1
+        if accepted:
+            b["accepted"] += 1
+
+    for rec in records:
+        results = rec.results
+        if isinstance(results, dict):
+            results = [results]
+        if not isinstance(results, list):
+            continue
+        for entry in results:
+            if not isinstance(entry, dict):
+                continue
+            uni = (entry.get("university") or "").strip()
+            atype = (entry.get("admission_type") or entry.get("type") or "기타").strip() or "기타"
+            status = str(entry.get("result") or entry.get("status") or "")
+            acc = _is_accepted(status)
+            _bump(by_year, rec.graduation_year, acc)
+            _bump(by_type, atype, acc)
+            if uni:
+                _bump(by_uni, uni, acc)
+
+    def _rate(v: dict) -> float:
+        return round(v["accepted"] / v["applied"] * 100, 1) if v["applied"] else 0.0
+
+    universities = sorted(
+        [{"university": k, "applied": v["applied"], "accepted": v["accepted"], "rate": _rate(v)}
+         for k, v in by_uni.items()],
+        key=lambda x: (-x["accepted"], -x["applied"]),
+    )
+    years = sorted(
+        [{"year": k, "applied": v["applied"], "accepted": v["accepted"], "rate": _rate(v)}
+         for k, v in by_year.items()],
+        key=lambda x: x["year"],
+    )
+    admission_types = sorted(
+        [{"admission_type": k, "applied": v["applied"], "accepted": v["accepted"], "rate": _rate(v)}
+         for k, v in by_type.items()],
+        key=lambda x: -x["applied"],
+    )
+    total_applied = sum(v["applied"] for v in by_year.values())
+    total_accepted = sum(v["accepted"] for v in by_year.values())
+
+    return {
+        "record_count": len(records),
+        "total_applied": total_applied,
+        "total_accepted": total_accepted,
+        "overall_rate": round(total_accepted / total_applied * 100, 1) if total_applied else 0.0,
+        "universities": universities,
+        "years": years,
+        "admission_types": admission_types,
+    }
+
+
 # ── Responses (학생 연습) ──
 
 @router.post("/questions/{qid}/respond")

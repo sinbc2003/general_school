@@ -38,6 +38,7 @@ import {
   Mail,
   LogIn,
   Wrench,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { studentMenu } from "./student-menu";
@@ -148,6 +149,7 @@ export const adminMenu: MenuItem[] = [
   // (이전엔 'students' children 토글이었지만 한 단계 줄임)
   { key: "student-list", label: "학생 현황", icon: Users, path: "/students", permission: "portfolio.grade.view", excludeRoles: ["student"] },
   { key: "admissions", label: "진학 관리", icon: GraduationCap, path: "/admissions", permission: "admissions.record.view", excludeRoles: ["student"], feature: "admissions" },
+  { key: "admissions-analysis", label: "합격 분석", icon: BarChart3, path: "/admissions/analysis", permission: "admissions.analysis.view", excludeRoles: ["student"], feature: "admissions" },
   { key: "student-artifacts", label: "학생 산출물 갤러리", icon: Briefcase, path: "/students/artifacts-gallery", permission: "portfolio.artifact.view", excludeRoles: ["student"] },
   { key: "past-research", label: "선배 연구 보고서", icon: FileArchive, path: "/past-research", permission: "past_research.view", excludeRoles: ["student"] },
   { key: "research-review", label: "승인 대기함", icon: ClipboardList, path: "/research-review", permission: "past_research.review", excludeRoles: ["student", "staff"] },
