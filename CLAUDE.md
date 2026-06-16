@@ -2511,3 +2511,71 @@ GitHub commit `caa31bd` push. cmd center 학교 탭이 fetch하여 렌더링.
 - pytest 54/54 (+2: poll 풀플로우 — choice 중복 409·단어 정규화 합산·한도, IDOR·
   results_to_students·드라이브 trash/copy roundtrip), tsc 0, **671 routes** (656→671)
 - 마이그레이션 체인: d8f0a2c4e6b8 → `e0b2d4f6a8c0` (4테이블, 멱등). dev DB 적용 완료
+
+---
+
+## 2026-06-16 세션 — co_teacher 권한 버그군 수정 + 테스트 full-green + 투표도구 B 배포
+
+> 커밋 38d2f4d → 616b4f0 → 99a3ab1 push 완료. **B 배포 완료** (c04ed03 → 99a3ab1,
+> alembic `e0b2d4f6a8c0`, frontend 재빌드, 서비스 재시작, pubedu.com 200 검증).
+> 그동안 "배포 대기"였던 투표도구(9b0aa3e, 도구 #6)도 이번에 함께 라이브.
+
+### 🐛 co_teacher 강좌 권한 누락 버그군 (commit 38d2f4d) — AUDIT 보류 [MED] 완료
+배경: 권한 SSOT = `is_course_editor`(owner=Course.teacher_id **OR** co_teacher=CourseTeacher).
+협업 레이어가 owner만 검사해 **co_teacher를 누락**하던 버그를 전수 색출(grep으로 audit가
+놓친 4곳 추가 발견) → 11곳 일괄 수정. **효과(수정 전)**: 공동교사가 강좌 공유 문서/시트/슬라이드/
+HWP를 편집 못하고 열람만, 설문 응답 불가, 본인 담당 강좌·자료가 목록에 안 보임.
+
+수정 지점:
+- **resolve 5종** (course_members 모드에서 co_teacher도 editor):
+  `classroom_docs/_helpers.py resolve_permission`, `classroom_slides/_helpers.py`,
+  `classroom_sheets/router.py _resolve_permission`, `classroom_hwps/router.py _resolve_permission`(is_teacher),
+  `classroom_surveys/_helpers.py can_respond`
+- **목록 쿼리 4종** (co_teacher 공동담당 강좌 자료 노출): docs/slides/sheets/surveys `crud.py`의
+  `teacher_course_ids` 쿼리 → owner + `CourseTeacher` union
+- **강좌 목록 2종**: `classroom/router.py` `list_my_courses`, `list_my_archived_courses` → co_teacher union
+- 🆕 **`/courses/_archived` 500 크래시 fix**: `Semester.term`(존재X) → `.semester`.
+  과거학기 강좌가 있으면 항상 500이던 잠복 버그 — 기존 테스트가 이 경로 미호출로 미발견.
+
+**순환 import 해소 (중요 패턴 — 신규 collab 모듈 필독)**: `is_course_editor`(classroom.teachers)는
+`classroom.router`를 import → collab 모듈이 top-level import 시 순환(teachers→router→하위모듈→teachers).
+앱 부팅은 로드 순서로 우연히 통과하나 단독 import(테스트 등)에서 ImportError로 터짐.
+**→ 모델만 의존하는 router-free 헬퍼 `app/core/course_access.py::is_course_teacher(db, course, user)` 신설.**
+협업/파일 레이어는 이걸 import (files/router.py 인라인도 추후 이걸로 통합 가능 = 중복 감소).
+**협업/도구/파일 모듈에서는 is_course_editor 대신 `is_course_teacher`를 쓸 것** (classroom 패키지 내부만 is_course_editor 직접 사용 OK).
+
+회귀테스트: `tests/test_coteacher_collab_access.py` (10개 — resolve 5 + 음성대조 2 + 목록 3).
+음성대조 = 강좌 무관 교사는 여전히 접근 불가(과대부여 방지) 검증.
+
+### 🧪 테스트 full-green 복구 (commit 616b4f0, 99a3ab1) — 세션 시작 11 failing → **467 passed / 0**
+1. **google 6개** (test_google_oauth_callback 4 + test_google_export 2): `_google_http`가
+   `client.request(method,url)`로 리팩토링됐는데 테스트 목 `_MockHttpxClient`는 `.post/.get`만
+   구현 → AttributeError. **목에 `.request` 추가**(method별로 .post/.get 위임)로 서브클래스
+   오버라이드 보존. 운영코드 무수정.
+2. **storage_timeout 5개**: 타이밍 flake가 아니라 **순서 의존 모듈 오염**이었음.
+   `test_storage_save_upload.py::test_default_storage_root_reflects_settings`가
+   `importlib.reload(app.core.files)` 호출 → 모듈 in-place 재실행으로 `StorageUnavailable` 등
+   클래스를 새 객체로 갈아끼움 → collection 때 그 이름 import한 `test_storage_timeout`의
+   isinstance/pytest.raises가 깨짐(모듈 이중 정체성). 알파벳순 save_upload 선행 시 발현(격리 통과).
+   **reload 제거 → env 즉시 반영하는 `_default_storage_root()` 직접 호출로 검증.**
+   **교훈: 테스트에서 `importlib.reload(공유모듈)` 금지 — monkeypatch 쓸 것.**
+
+### 🚀 B 배포 절차 (수동 — repo에 gs-deploy 스크립트 없음, /system/updates는 super_admin 로그인 필요)
+`backup.sh`(DB+storage→/mnt/gs-backups) → `git pull --ff-only` → `alembic upgrade head`
+(d8f0a2c4e6b8→e0b2d4f6a8c0 투표 테이블) → `cd frontend && npm run build`(투표 페이지,
+postbuild가 standalone에 static 자동 복사) → `sudo systemctl restart gs-backend gs-frontend`
+→ 헬스/스모크.
+- **requirements·backend-hocuspocus 불변 → pip/hocuspocus 재빌드·nginx 재시작 불필요** (변경영역 diff로 먼저 스코프).
+- 스모크: /api/health 200, POST /api/tools/poll(미인증) 403, /courses/_archived 401(500 아님), pubedu.com/tools/poll 200.
+
+### 운영 메모 (다음 세션 catch-up)
+- **WSL outbound 깨짐 지속** → git push는 **Windows git(UNC 경로 `\\wsl.localhost\...`)** 우회.
+  WSL은 로컬 전용(pytest·git commit). 본 노트북의 Bash 툴=git-bash(WSL `~` 접근 불가) →
+  WSL 명령은 PowerShell에서 `wsl -d Ubuntu bash -lc "..."`.
+- **B 시계는 UTC** (파일 timestamp = KST−9h). B는 덮개 닫고 헤드리스 운영(웹캠 막힘).
+
+### 통계
+- Commit 3개. 신규 파일 2개: `app/core/course_access.py`, `tests/test_coteacher_collab_access.py`.
+- 수정: classroom router(목록 2 + import) + collab 5 resolve + 4 crud 목록 + 테스트 3파일.
+- **671 routes 유지**(라우트 증감 0 — 순수 로직/버그fix). pytest **467 passed / 0 failed**.
+- co_teacher는 순수 로직이라 **alembic 무변경**. B는 투표 마이그레이션 `e0b2d4f6a8c0`만 신규 적용.
