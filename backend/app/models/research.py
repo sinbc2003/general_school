@@ -141,6 +141,11 @@ class ResearchJournal(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     week_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 교사 피드백 (연구 심사 워크플로)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

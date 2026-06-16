@@ -40,3 +40,17 @@ class ResearchJournalCreate(BaseModel):
     """POST /api/research/{pid}/journals"""
     content: str = Field(..., min_length=1)
     week_number: int = Field(..., ge=1, le=200)
+
+
+class ResearchLogFeedback(BaseModel):
+    """PATCH /api/research/logs/{lid}/feedback — 교사 피드백."""
+    feedback: str = Field("", max_length=5000)
+
+
+SubmissionReviewStatus = Literal["pending", "approved", "rejected"]
+
+
+class ResearchSubmissionReview(BaseModel):
+    """PATCH /api/research/submissions/{sid}/review — 산출물 승인/반려."""
+    review_status: SubmissionReviewStatus
+    review_comment: str | None = Field(None, max_length=5000)

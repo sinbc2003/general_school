@@ -16,7 +16,8 @@ from app.models.research import ResearchProject, ResearchLog, ResearchSubmission
 from app.models.user import User
 from app.modules.research.schemas import (
     ResearchJournalCreate, ResearchLogCreate,
-    ResearchProjectCreate, ResearchProjectUpdate,
+    ResearchLogFeedback, ResearchProjectCreate,
+    ResearchProjectUpdate, ResearchSubmissionReview,
 )
 
 router = APIRouter(prefix="/api/research", tags=["research"])
@@ -142,8 +143,27 @@ async def list_logs(
     return [{
         "id": l.id, "title": l.title, "content": l.content,
         "log_type": l.log_type, "feedback": l.feedback,
+        "feedback_by_id": l.feedback_by_id,
         "created_at": l.created_at.isoformat() if l.created_at else None,
     } for l in rows]
+
+
+@router.patch("/logs/{lid}/feedback")
+async def set_log_feedback(
+    lid: int, body: ResearchLogFeedback,
+    user: User = Depends(require_permission("research.project.review")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """교사: 연구일지에 피드백 작성/수정."""
+    log = await db.get(ResearchLog, lid)
+    if not log:
+        raise HTTPException(404, "일지를 찾을 수 없습니다")
+    log.feedback = body.feedback or None
+    log.feedback_by_id = user.id if body.feedback else None
+    await db.flush()
+    await log_action(db, user, "research.log_feedback", f"log:{lid}", request=request)
+    return {"ok": True, "feedback": log.feedback}
 
 
 # ── Journals (학생) ──
@@ -176,8 +196,27 @@ async def list_journals(
     return [{
         "id": j.id, "author_id": j.author_id,
         "content": j.content, "week_number": j.week_number,
+        "feedback": j.feedback, "feedback_by_id": j.feedback_by_id,
         "created_at": j.created_at.isoformat() if j.created_at else None,
     } for j in rows]
+
+
+@router.patch("/journals/{jid}/feedback")
+async def set_journal_feedback(
+    jid: int, body: ResearchLogFeedback,
+    user: User = Depends(require_permission("research.project.review")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """교사: 학생 연구일지(journal)에 피드백 작성/수정."""
+    j = await db.get(ResearchJournal, jid)
+    if not j:
+        raise HTTPException(404, "일지를 찾을 수 없습니다")
+    j.feedback = body.feedback or None
+    j.feedback_by_id = user.id if body.feedback else None
+    await db.flush()
+    await log_action(db, user, "research.journal_feedback", f"journal:{jid}", request=request)
+    return {"ok": True, "feedback": j.feedback}
 
 
 # ── Submissions ──
@@ -218,9 +257,38 @@ async def list_submissions(
         select(ResearchSubmission).where(ResearchSubmission.project_id == pid)
         .order_by(desc(ResearchSubmission.created_at))
     )).scalars().all()
+
+    def _file_url(stored_path: str) -> str | None:
+        # 인증 다운로드 경로 (_guard_research가 stored_path로 매칭). 기본 STORAGE_ROOT="storage".
+        return ("/" + stored_path) if stored_path.startswith("storage/") else None
+
     return [{
         "id": s.id, "title": s.title, "submission_type": s.submission_type,
         "filename": s.filename, "file_size": s.file_size,
-        "review_status": s.review_status,
+        "review_status": s.review_status, "review_comment": s.review_comment,
+        "reviewed_by_id": s.reviewed_by_id, "submitted_by_id": s.submitted_by_id,
+        "file_url": _file_url(s.stored_path),
         "created_at": s.created_at.isoformat() if s.created_at else None,
     } for s in rows]
+
+
+@router.patch("/submissions/{sid}/review")
+async def review_submission(
+    sid: int, body: ResearchSubmissionReview,
+    user: User = Depends(require_permission("research.project.review")),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """교사: 연구 산출물 승인/반려 + 코멘트."""
+    sub = await db.get(ResearchSubmission, sid)
+    if not sub:
+        raise HTTPException(404, "산출물을 찾을 수 없습니다")
+    sub.review_status = body.review_status
+    sub.review_comment = body.review_comment or None
+    sub.reviewed_by_id = user.id
+    await db.flush()
+    await log_action(
+        db, user, "research.submission_review",
+        f"submission:{sid}", detail=f"status={body.review_status}", request=request,
+    )
+    return {"ok": True, "review_status": sub.review_status}
