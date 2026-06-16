@@ -10,7 +10,6 @@
   - get_storage_root_with_volume: volume 없으면 (DEFAULT, None) fallback
 """
 
-import importlib
 from pathlib import Path
 
 import pytest
@@ -28,22 +27,27 @@ def test_default_storage_root_is_path():
 
 
 def test_default_storage_root_reflects_settings(monkeypatch):
-    """settings.STORAGE_ROOT 바꾼 후 모듈 재import → 새 path 반영.
+    """STORAGE_ROOT는 settings에서 파생 (hard-code 금지) — env 전환 가능.
 
-    회귀 의도: 누군가 DEFAULT_STORAGE_ROOT를 hard-code하면 env 전환 불가.
+    회귀 의도: 누군가 storage root를 literal로 박으면 env(STORAGE_ROOT) 전환 불가.
+
+    과거엔 settings를 바꾸고 importlib.reload(core_files)로 검증했으나, reload가
+    모듈을 in-place로 재실행해 StorageUnavailable 등 클래스를 새 객체로 갈아끼웠다.
+    그러면 collection 때 `from app.core.files import StorageUnavailable`로 참조를
+    잡아둔 다른 테스트(test_storage_timeout)의 isinstance/pytest.raises가 깨진다
+    (모듈 이중 정체성 — 실행 순서 의존 flake). → reload 없이 검증한다:
+    env를 즉시 반영하도록 설계된 _default_storage_root()를 직접 호출.
     """
     from app.core import config as core_config
-    from app.core import files as core_files
+    from app.core.files import DEFAULT_STORAGE_ROOT, _default_storage_root
 
-    # settings 직접 mutate (Settings 객체) — 안전: 테스트 끝나면 원복
-    original = core_config.settings.STORAGE_ROOT
-    try:
-        core_config.settings.STORAGE_ROOT = "/tmp/test_storage_root_xyz"
-        importlib.reload(core_files)
-        assert str(core_files.DEFAULT_STORAGE_ROOT) == "/tmp/test_storage_root_xyz"
-    finally:
-        core_config.settings.STORAGE_ROOT = original
-        importlib.reload(core_files)
+    # 1) 모듈 로드 시 snapshot은 현재 settings와 일관 (hard-code 아님)
+    assert DEFAULT_STORAGE_ROOT == Path(core_config.settings.STORAGE_ROOT)
+
+    # 2) settings 변경 → _default_storage_root()가 즉시 반영 (env 전환 가능 증명).
+    #    monkeypatch가 테스트 종료 시 STORAGE_ROOT 자동 원복.
+    monkeypatch.setattr(core_config.settings, "STORAGE_ROOT", "/tmp/test_storage_root_xyz")
+    assert _default_storage_root() == Path("/tmp/test_storage_root_xyz")
 
 
 # ── get_storage_root_with_volume ─────────────────────────────
