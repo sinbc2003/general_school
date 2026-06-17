@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import {
-  Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool, BarChart3,
+  Gamepad2, BookA, StickyNote, Dices, ExternalLink, PenTool, BarChart3, Armchair,
   type LucideIcon,
 } from "lucide-react";
 import { openToolWindow } from "@/lib/open-tool-window";
@@ -173,6 +173,28 @@ function MiniToolsPreview() {
   );
 }
 
+function SeatingPreview() {
+  return (
+    <div className="h-full bg-gradient-to-br from-slate-50 to-teal-50 p-2 flex flex-col gap-1.5">
+      {/* 칠판 */}
+      <div className="h-2 rounded-sm bg-emerald-900/90 mx-3" />
+      {/* 책상 그리드 */}
+      <div className="flex-1 grid grid-rows-3 gap-1 px-2">
+        {[0, 1, 2].map((r) => (
+          <div key={r} className="grid grid-cols-3 gap-1.5">
+            {[0, 1, 2].map((c) => (
+              <div key={c} className="rounded-sm bg-white border border-slate-300 flex items-center justify-center gap-0.5 px-0.5">
+                <span className="flex-1 h-2.5 rounded-[2px] bg-teal-100" />
+                <span className="flex-1 h-2.5 rounded-[2px] bg-teal-100" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── 도구 정의 ──────────────────────────────────────────────────────────── */
 
 const TOOLS: ToolDef[] = [
@@ -225,6 +247,16 @@ const TOOLS: ToolDef[] = [
     href: "/tools/poll",
     ready: true,
     preview: <PollPreview />,
+  },
+  {
+    key: "seating",
+    name: "자리배치",
+    description: "교실 자리표 만들기 — 담임·강좌 명단 불러오기, 인접 금지·짝·혼자 조건 랜덤 배치, A4 교탁 게시용 인쇄",
+    icon: Armchair,
+    iconColor: "#0d9488",
+    href: "/tools/seating",
+    ready: true,
+    preview: <SeatingPreview />,
   },
   {
     key: "minitools",

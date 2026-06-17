@@ -87,6 +87,8 @@ STAFF_KEYS = {
     "teacher_group.review",
     # 업무 도구 (PDF→HWPX 변환·PDF 번역) — 교사·직원만, 학생 제외
     "tools.office.use",
+    # 자리배치 (교실 자리표) — 교사·직원만, 학생 제외
+    "tools.seating.host",
 }
 
 STUDENT_KEYS = {

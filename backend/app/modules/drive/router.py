@@ -31,6 +31,7 @@ from app.models import (
     ClassroomPresentation,
     ClassroomSheet,
     Poll,
+    SeatingChart,
     Survey,
     ToolBoard,
     ToolWhiteboard,
@@ -54,6 +55,7 @@ ITEM_TYPES: dict[str, tuple[Any, str, str]] = {
     "boards": (ToolBoard, "owner_id", "보드"),
     "whiteboards": (ToolWhiteboard, "owner_id", "화이트보드"),
     "polls": (Poll, "owner_id", "투표"),
+    "seating": (SeatingChart, "owner_id", "자리배치"),
 }
 
 # 휴지통 보관 기간

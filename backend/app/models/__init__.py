@@ -167,6 +167,9 @@ from app.models.tool_poll import Poll, PollSession, PollParticipant, PollRespons
 # ── Tool: 업무 도구 잡 (PDF→HWPX 변환 / PDF 번역 — 비동기 작업) ──
 from app.models.tool_job import ToolJob, ToolJobStatus
 
+# ── Tool: Seating (자리배치 — 수업 도구) ──
+from app.models.tool_seating import SeatingChart
+
 __all__ = [
     # Core
     "User", "RefreshToken", "TOTPSession",
@@ -265,4 +268,6 @@ __all__ = [
     "Poll", "PollSession", "PollParticipant", "PollResponse",
     # Tool: 업무 도구 잡
     "ToolJob", "ToolJobStatus",
+    # Tool: Seating (자리배치)
+    "SeatingChart",
 ]

@@ -182,6 +182,23 @@ async def copy_drive_item(
             storage_bytes=0,
             folder_id=target_folder_id,
         )
+    elif type == "seating":
+        import copy as _copy
+
+        from app.models import SeatingChart
+        assert Model is SeatingChart
+        new_obj = SeatingChart(
+            owner_id=user.id,
+            title=new_title,
+            description=src.description,
+            # deepcopy — layout/roster/constraints/assignment dict·list 참조 분리
+            layout=_copy.deepcopy(src.layout) if src.layout else None,
+            roster=_copy.deepcopy(src.roster) if src.roster else None,
+            constraints=_copy.deepcopy(src.constraints) if src.constraints else None,
+            assignment=_copy.deepcopy(src.assignment) if src.assignment else None,
+            storage_bytes=0,
+            folder_id=target_folder_id,
+        )
     else:
         raise HTTPException(400, f"{type} 복사 미지원")
 
