@@ -152,7 +152,24 @@ export function AdminSidebar() {
     return true;
   };
 
-  const isActive = (path?: string) => path && pathname?.startsWith(path);
+  // 메뉴 활성 판정 — "가장 구체적인 경로만 활성".
+  // /tools(수업 도구)가 /tools/work(업무 도구)의 접두사라, 단순 startsWith면 둘 다 활성으로
+  // 보임. 더 긴(구체적인) 다른 메뉴 경로가 매칭되면 이 항목은 비활성으로 처리한다.
+  const collectMenuPaths = (items: MenuItem[]): string[] => {
+    const out: string[] = [];
+    for (const it of items) {
+      if (it.path) out.push(it.path);
+      if (it.children) out.push(...collectMenuPaths(it.children));
+    }
+    return out;
+  };
+  const allMenuPaths = collectMenuPaths(baseMenu);
+  const matchesAt = (p?: string): boolean =>
+    !!p && !!pathname && (pathname === p || pathname.startsWith(p + "/"));
+  const isActive = (path?: string): boolean => {
+    if (!matchesAt(path)) return false;
+    return !allMenuPaths.some((p) => p !== path && p.length > path!.length && matchesAt(p));
+  };
 
   // 카테고리에 표시할 수 있는 항목이 있는지 확인
   const categoryHasVisibleItems = (cat: MenuCategory): boolean => {
