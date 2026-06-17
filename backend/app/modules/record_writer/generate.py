@@ -221,7 +221,7 @@ async def generate_column(
                 if oc.id == cid or oc.kind == "summary":
                     continue
                 cell = cells_idx.get((oc.id, sid))
-                t = (cell.generated_text if cell else "") or ""
+                t = ((cell.generated_text or cell.raw_data) if cell else "") or ""
                 if t.strip():
                     parts.append(f"[{oc.name}]\n{t.strip()}")
             return "\n\n".join(parts)
@@ -326,7 +326,7 @@ async def compose_final(
         parts = []
         for oc in all_cols:
             cell = cells_idx.get((oc.id, sid))
-            t = (cell.generated_text if cell else "") or ""
+            t = ((cell.generated_text or cell.raw_data) if cell else "") or ""
             if t.strip():
                 parts.append(f"[{oc.name}]\n{t.strip()}")
         return "\n\n".join(parts)

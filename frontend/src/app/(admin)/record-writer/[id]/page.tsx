@@ -590,7 +590,7 @@ export default function RecordProjectDetailPage() {
         </div>
       ) : (
         <div className="overflow-x-auto border border-border-default rounded-lg">
-          <table className="border-collapse">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="bg-bg-secondary">
                 <th className="sticky left-0 z-10 bg-bg-secondary border-b border-r border-border-default px-3 py-2 text-left text-caption text-text-tertiary min-w-[110px]">
@@ -602,7 +602,7 @@ export default function RecordProjectDetailPage() {
                   return (
                     <th
                       key={c.id}
-                      className="border-b border-r border-border-default px-3 py-2 text-left min-w-[210px] max-w-[300px]"
+                      className="border-b border-r border-border-default px-3 py-2 text-left min-w-[210px]"
                     >
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-body text-text-primary truncate">
