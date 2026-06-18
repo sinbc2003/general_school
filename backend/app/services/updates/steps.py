@@ -42,9 +42,12 @@ async def preflight(install_dir: Path, ctx: dict) -> dict:
     force = ctx.get("force_local_override", False)
     allow_destructive = ctx.get("allow_data_destructive", False)
 
-    # 1. 학교 로컬 변경 검출 (git status)
+    # 1. 학교 로컬 변경 검출 (git status) — 추적 파일의 수정만 본다.
+    #    untracked 파일(예: frontend/.env.production, *.backup)은 git pull과
+    #    충돌하지 않으므로 차단 사유에서 제외 (--untracked-files=no).
+    #    이게 없으면 배포 서버의 정상 env 파일 때문에 apply가 매번 preflight에서 막힌다.
     status = await run(
-        "git_status", ["git", "status", "--porcelain"],
+        "git_status", ["git", "status", "--porcelain", "--untracked-files=no"],
         cwd=install_dir, timeout=15,
     )
     local_dirty = bool(status["ok"] and status["stdout"].strip())
