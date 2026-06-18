@@ -74,6 +74,13 @@ async def lifespan(app: FastAPI):
             await grant_for_role(db, "student", STUDENT_KEYS)
         except Exception as e:
             print(f"[WARN] auto-grant default roles 실패 (수동 실행 가능): {e}")
+        # 직전 자동 업데이트(pending_verify)가 있으면 확정/정리 —
+        # 이 코드가 도는 것 자체가 새 backend 정상 부팅의 증거.
+        try:
+            from app.services.updates.executor import reconcile_pending_update
+            await reconcile_pending_update(db)
+        except Exception as e:
+            print(f"[WARN] update reconcile 실패 (무시): {e}")
         await db.commit()
 
     # 자동 백업 스케줄러 시작 (백그라운드 task)

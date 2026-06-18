@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.updates import lock, progress, rollback, steps
-from app.services.updates.shell import detect_install_dir
+from app.services.updates.shell import detect_install_dir, run
 
 log = logging.getLogger(__name__)
 
@@ -118,21 +118,48 @@ async def apply_update(
             if not result["ok"]:
                 raise RuntimeError(f"{step_name} 실패")
 
-        # 성공
+        # 빌드·마이그레이션까지 성공. gs-backend(=현재 프로세스)는 아직 옛 코드라
+        # "새 코드가 실제 부팅되는지"는 재시작 후에야 안다. 그래서:
+        #   - verified=False로 기록 (UI는 "재시작/확정 대기"로 표시)
+        #   - pending_verify 마커 남김 → 다음 부팅 시 리컨실러가 HEAD==to_commit이면
+        #     verified=True로 확정 (=새 backend 정상 부팅 증거)
+        # 새 backend가 부팅 실패 시: 자동 rollback은 못 하지만(프로세스 사망) 시작 전
+        # 백업이 있어 수동 복원 가능. UI도 verified=False로 남아 오인하지 않는다.
         final = {
             "ok": True,
+            "verified": False,
             "from_commit": ctx.get("from_commit"),
             "to_commit": ctx.get("to_commit"),
             "started_at": started_at,
             "finished_at": progress_state.get("finished_at"),
             "steps_count": len(progress_state["steps"]),
+            "backend_restart": "pending",
+            "backup_path": ctx.get("backup_path"),
         }
         await progress.set_last_result(db, final)
+        await progress.set_pending_verify(db, {
+            "to_commit": ctx.get("to_commit"),
+            "from_commit": ctx.get("from_commit"),
+            "started_at": started_at,
+        })
         await db.commit()
+
+        # 결과를 commit한 뒤 gs-backend를 분리 재시작. lock을 먼저 풀어야
+        # 재시작 중 프로세스가 죽어도 stale lock이 안 남는다.
+        lock.release()
+        try:
+            r = await steps.restart_backend_detached(install_dir)
+            final["backend_restart"] = "issued" if r.get("ok") else "issue_failed"
+        except Exception as exc:  # 재시작 명령 실패해도 코드는 이미 적용됨
+            log.warning("detached backend restart failed: %s", exc)
+            final["backend_restart"] = "error"
         return final
 
     except Exception as exc:
         log.error("update failed at %s: %s", progress_state.get("current_step"), exc)
+        # rollback은 gs-backend를 재시작하지 않는다(steps.rollback). 현재 gs-backend는
+        # 아직 옛 코드라 git reset(옛 코드) + pg_restore(옛 DB)와 일관 → 그대로 둠.
+        # 따라서 이 except 블록이 끝까지 실행되어 실패 결과가 확실히 기록된다.
         rb = await rollback.perform(
             install_dir,
             from_commit=ctx.get("from_commit"),
@@ -142,6 +169,7 @@ async def apply_update(
         )
         final = {
             "ok": False,
+            "verified": False,
             "error": str(exc),
             "failed_step": progress_state.get("current_step"),
             "rollback": rb,
@@ -150,8 +178,37 @@ async def apply_update(
             "finished_at": progress_state.get("finished_at"),
         }
         await progress.set_last_result(db, final)
+        await progress.clear_pending_verify(db)  # 실패 — 확정 대기 없음
         await db.commit()
         return final
 
     finally:
         lock.release()
+
+
+async def reconcile_pending_update(db: AsyncSession) -> None:
+    """부팅 시(lifespan) 1회 호출 — 직전 업데이트의 pending_verify를 확정/정리.
+
+    이 코드가 실행된다는 것 자체가 backend가 정상 부팅됐다는 증거. HEAD가 직전
+    업데이트의 to_commit과 같으면 last_result.verified=True로 확정한다. 마커는 항상
+    제거(부팅 실패 시엔 애초에 이 코드가 안 돌아 마커가 남고, 다음 정상 부팅에서 정리).
+    절대 부팅을 막지 않도록 호출부에서 try/except로 감쌀 것.
+    """
+    pending = await progress.get_pending_verify(db)
+    if not pending:
+        return
+    install_dir = detect_install_dir()
+    res = await run("verify_head", ["git", "rev-parse", "HEAD"], cwd=install_dir, timeout=15)
+    head = res["stdout"].strip() if res.get("ok") else ""
+    to_commit = str(pending.get("to_commit") or "").strip()
+    last = await progress.get_last_result(db) or {}
+    if to_commit and head == to_commit:
+        last["verified"] = True
+        last["backend_restart"] = "ok"
+        log.info("update reconcile: confirmed new backend booted at %s", head[:8])
+    else:
+        last["verified"] = False
+        last["backend_restart"] = "unconfirmed"
+        log.warning("update reconcile: HEAD %s != to_commit %s", head[:8], to_commit[:8])
+    await progress.set_last_result(db, last)
+    await progress.clear_pending_verify(db)

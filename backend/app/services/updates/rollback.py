@@ -65,11 +65,13 @@ async def perform(
         if not res["ok"]:
             result["ok"] = False
 
-    # 3. restart
+    # 3. restart — gs-backend는 재시작하지 않는다.
+    #    현재 gs-backend는 업데이터 자신(옛 코드)이라, git reset(옛 코드)·pg_restore
+    #    (옛 DB)와 이미 일관. 여기서 gs-backend를 재시작하면 자기 자신을 죽여
+    #    실패 결과(last_result)를 못 남긴다(원래 버그). frontend·hocuspocus만 되돌린다.
     res = await run(
         "rollback_restart",
-        ["sudo", "-n", "systemctl", "restart",
-         "gs-backend", "gs-frontend", "gs-hocuspocus"],
+        ["sudo", "-n", "systemctl", "restart", "gs-frontend", "gs-hocuspocus"],
         cwd=install_dir,
     )
     await push_step("rollback_restart", res, is_last=True)

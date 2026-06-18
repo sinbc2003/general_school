@@ -113,6 +113,12 @@ async def force_check_updates(
 
 # ── 자동 적용 (apply) + 진행 상황 polling ──
 
+# 백그라운드 task 강참조 — asyncio.create_task 결과를 어디서도 안 잡으면
+# GC가 task를 수거해 apply_update가 실행되지 않을 수 있다(progress/last_result가
+# null로 남는 증상). set에 보관 + 완료 시 discard 로 GC를 막는다.
+_BG_UPDATE_TASKS: set = set()
+
+
 async def _run_update_in_background(
     user_id: int, dry_run: bool,
     force_local_override: bool, allow_data_destructive: bool,
@@ -166,9 +172,11 @@ async def trigger_apply(
     )
     await db.commit()
 
-    asyncio.create_task(_run_update_in_background(
+    task = asyncio.create_task(_run_update_in_background(
         user.id, dry_run, force_local_override, allow_data_destructive,
     ))
+    _BG_UPDATE_TASKS.add(task)
+    task.add_done_callback(_BG_UPDATE_TASKS.discard)
     return {
         "started": True, "dry_run": dry_run,
         "force_local_override": force_local_override,

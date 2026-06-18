@@ -38,6 +38,8 @@ interface UpdateProgress {
 interface UpdateLast {
   exists?: boolean;
   ok?: boolean;
+  verified?: boolean;
+  backend_restart?: string;
   error?: string;
   failed_step?: string;
   rollback?: any;
@@ -94,7 +96,9 @@ export default function UpdatesPage() {
   const [lastChecked, setLastChecked] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // setLoading(true)를 새로고침마다 켜지 않는다 — 켜면 전체 스피너로 바뀌며
+    // AutoUpdatePanel이 unmount→remount되고, 그 mount effect가 다시 load를
+    // 호출해 무한 깜빡임이 된다. 최초 1회만 스피너(아래 loading && !status).
     setError(null);
     try {
       const r = await api.get<UpdateStatus>("/api/system/updates/status");
@@ -131,7 +135,7 @@ export default function UpdatesPage() {
     }
   };
 
-  if (loading) {
+  if (loading && !status) {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center py-12 text-text-tertiary">
@@ -374,7 +378,10 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
   const [allowDestructive, setAllowDestructive] = useState(false);
   const pollRef = useRef<any>(null);
 
-  const fetchProgress = useCallback(async () => {
+  // fromPoll=true (업데이트 진행 중 폴링)일 때만 끝나고 onAfterApply 호출.
+  // 최초 mount 조회(fromPoll=false)에서는 호출하지 않는다 — 호출하면 부모 load가
+  // 돌고 그게 다시 mount→fetchProgress를 유발해 깜빡임 루프가 된다.
+  const fetchProgress = useCallback(async (fromPoll = false) => {
     try {
       const r = await api.get<UpdateProgress>("/api/system/updates/progress");
       setProgress(r);
@@ -385,7 +392,14 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
-        await onAfterApply();
+        if (fromPoll) {
+          await onAfterApply();
+          // 적용은 됐지만 backend 재부팅 확인 전(verified=false)이면, 약 12초 뒤
+          // 한 번 더 조회해 '성공(부팅 확인됨)'으로 자동 갱신 (재부팅 완료 픽업).
+          if (l?.ok && l?.verified === false) {
+            setTimeout(() => { void fetchProgress(false); }, 12000);
+          }
+        }
       }
     } catch (e: any) {
       // 서비스 재시작 중일 가능성 — 무시
@@ -423,8 +437,8 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
       });
       await api.post(`/api/system/updates/apply?${params}`, {});
       if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(fetchProgress, 2000);
-      await fetchProgress();
+      pollRef.current = setInterval(() => fetchProgress(true), 2000);
+      await fetchProgress(true);
     } catch (e: any) {
       alert(e?.detail || e?.message || "시작 실패");
     } finally {
@@ -445,8 +459,10 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
       </div>
 
       <p className="text-caption text-text-secondary mb-3">
-        한 번 클릭으로 <b>preflight → 백업 → git pull → 의존성 → DB 마이그레이션 → 빌드 → 재시작 → health check</b> 자동 진행.
-        실패 시 자동 rollback (git reset + stash 복원 + DB 복원 + 재시작) — <b>데이터 손실 없음 보장</b>.
+        한 번 클릭으로 <b>preflight → 백업 → git pull → 의존성 → DB 마이그레이션 → 빌드 → 재시작</b> 자동 진행.
+        시작 전 <b>전체 백업</b>을 뜨고, 빌드·마이그레이션 단계 실패 시 자동 rollback(git reset + DB 복원).
+        마지막에 백엔드를 재시작하며, 새 백엔드가 부팅되면 결과가 ‘성공(부팅 확인됨)’으로 확정됩니다.
+        (드물게 새 코드가 부팅 실패하면 자동 복원은 안 되며, 시작 전 백업으로 복원하면 됩니다.)
         재시작 시 1~5초 다운타임 (Yjs/세션 자동 재연결).
       </p>
 
@@ -574,20 +590,36 @@ function AutoUpdatePanel({ onAfterApply }: AutoUpdatePanelProps) {
 
       {/* 마지막 결과 */}
       {!running && last && last.exists !== false && (
-        <div className={`rounded p-3 ${last.ok ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+        <div className={`rounded p-3 ${
+          !last.ok ? "bg-red-50 border border-red-200"
+            : last.verified === false ? "bg-amber-50 border border-amber-200"
+            : "bg-emerald-50 border border-emerald-200"
+        }`}>
           <div className="flex items-center gap-2 mb-2">
-            {last.ok ? (
-              <>
-                <CheckCircle2 size={14} className="text-emerald-700" />
-                <span className="text-caption font-semibold text-emerald-900">마지막 업데이트 성공</span>
-              </>
-            ) : (
+            {!last.ok ? (
               <>
                 <XCircle size={14} className="text-red-700" />
                 <span className="text-caption font-semibold text-red-900">마지막 업데이트 실패 — Rollback 완료</span>
               </>
+            ) : last.verified === false ? (
+              <>
+                <Loader2 size={14} className="text-amber-700 animate-spin" />
+                <span className="text-caption font-semibold text-amber-900">적용 완료 — 백엔드 재시작/부팅 확인 중</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={14} className="text-emerald-700" />
+                <span className="text-caption font-semibold text-emerald-900">마지막 업데이트 성공 (부팅 확인됨)</span>
+              </>
             )}
           </div>
+          {last.ok && last.verified === false && (
+            <div className="text-[11px] text-amber-800 mb-1">
+              빌드·DB 마이그레이션까지 적용했고 백엔드를 재시작했습니다. 새 백엔드가
+              정상 부팅되면 이 페이지를 새로고침할 때 ‘성공(부팅 확인됨)’으로 바뀝니다.
+              (만약 사이트가 계속 안 열리면 새 코드 부팅 실패 — 시작 전 백업으로 복원하세요.)
+            </div>
+          )}
           {last.from_commit && (
             <div className="text-[11px] text-text-secondary font-mono">
               {last.from_commit.slice(0, 7)} → {last.to_commit?.slice(0, 7) || "rollback"}

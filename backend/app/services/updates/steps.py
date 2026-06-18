@@ -355,11 +355,43 @@ async def hocuspocus(install_dir: Path, ctx: dict) -> dict | None:
 # ── 8. systemctl restart ──
 
 async def restart_services(install_dir: Path, ctx: dict) -> dict:
+    """frontend·hocuspocus 재시작.
+
+    ⚠️ gs-backend는 여기서 재시작하지 않는다. updater가 gs-backend 프로세스
+    안에서 돌기 때문에 여기서 gs-backend를 재시작하면 자기 자신이 죽어
+    success/health 기록을 못 남긴다(progress·last_result null 증상). gs-backend는
+    성공 결과를 DB에 commit한 뒤 executor가 restart_backend_detached로 분리 재시작.
+    """
     return await run(
         "restart",
-        ["sudo", "-n", "systemctl", "restart",
-         "gs-backend", "gs-frontend", "gs-hocuspocus"],
+        ["sudo", "-n", "systemctl", "restart", "gs-frontend", "gs-hocuspocus"],
         cwd=install_dir,
+    )
+
+
+async def restart_backend_detached(install_dir: Path) -> dict:
+    """gs-backend 재시작 — systemd-run으로 PID1 소유 transient unit에서 실행.
+
+    updater 프로세스(=gs-backend)가 곧 죽어도 systemd가 재시작을 끝까지 수행.
+    반드시 성공 결과를 DB에 기록·commit한 뒤 호출할 것.
+
+    systemd-run이 없거나 sudo가 거부하면(설치마다 sudoers 범위가 다를 수 있음)
+    일반 `systemctl restart`로 폴백 — 이때도 결과는 이미 commit돼 있어 안전.
+    """
+    res = await run(
+        "restart_backend",
+        ["sudo", "-n", "systemd-run", "--collect", "--quiet",
+         "systemctl", "restart", "gs-backend"],
+        cwd=install_dir, timeout=20,
+    )
+    if res.get("ok"):
+        return res
+    log.warning("systemd-run restart failed (rc=%s) — falling back to systemctl: %s",
+                res.get("returncode"), res.get("stderr", "")[:200])
+    return await run(
+        "restart_backend_fallback",
+        ["sudo", "-n", "systemctl", "restart", "gs-backend"],
+        cwd=install_dir, timeout=20,
     )
 
 
